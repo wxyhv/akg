@@ -218,7 +218,7 @@ void ReduceStrategy::AddConstraint() {
     if (const_extent == -1) {
       continue;
     }
-    int64_t align_elem = ktvm::ir::gcd(block_size, const_extent);
+    int64_t align_elem = air::ir::gcd(block_size, const_extent);
     if (align_elem == block_size) {
       axis->l1_constraints.tile_min_ = align_elem;
     } else {
@@ -376,7 +376,7 @@ void ConvStrategy::RestrainH(TileAxis *axis) {
   Expr k_h_d = (k_h - 1) * d_h + 1;
   int tile_out_h = MIN_TILE + 1;
   while (arith_ana_.CanProve(
-    ((ktvm::ir::FloorDiv::make((axis->range_extent + tile_out_h - 1), CastIntToExpr(tile_out_h)) - 1) * tile_out_h -
+    ((air::ir::FloorDiv::make((axis->range_extent + tile_out_h - 1), CastIntToExpr(tile_out_h)) - 1) * tile_out_h -
      1) * s_h +
         k_h_d >
       h + p_top &&
@@ -401,7 +401,7 @@ void ConvStrategy::RestrainW(TileAxis *axis) {
   Expr k_w_d = (k_w - 1) * d_w + 1;
   int tile_out_w = 1;
   while (arith_ana_.CanProve(
-    ((ktvm::ir::FloorDiv::make((axis->range_extent + tile_out_w - 1), CastIntToExpr(tile_out_w)) - 1) * tile_out_w -
+    ((air::ir::FloorDiv::make((axis->range_extent + tile_out_w - 1), CastIntToExpr(tile_out_w)) - 1) * tile_out_w -
      1) * s_w +
         k_w_d >
       w + p_left &&
