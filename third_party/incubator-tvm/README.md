@@ -1,5 +1,5 @@
 
-This is a tailored apache/incubator-tvm 0.6 for Auto Kernel Generator, k means kernel.
+This is a revised apache/incubator-tvm 0.6 for Auto Kernel Generator.
 What we are using:
 * TVM IR
 * Arith Simplify
