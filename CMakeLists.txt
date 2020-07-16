@@ -94,6 +94,9 @@ add_definitions(-DDMLC_LOG_CUSTOMIZE=1)
 if(USE_AKG_LOG)
   add_definitions(-DUSE_AKG_LOG=1)
 endif()
+if(NOT USE_CUDA)
+  add_definitions("-DBACKEND_D")
+endif()
 
 include(cmake/RT.cmake)
 
@@ -205,7 +208,7 @@ file(
   ${TVM_DIR}/src/runtime/stackvm/*.cc)
 
 if(USE_CUDA)
-include(${TVM_DIR}/cmake/modules/CUDA.cmake)
+  include(${TVM_DIR}/cmake/modules/CUDA.cmake)
 endif()
 
 file(GLOB RUNTIME_STUB_SRC ${AKG_SOURCE_DIR}/src/runtime/stub/*.cc)
