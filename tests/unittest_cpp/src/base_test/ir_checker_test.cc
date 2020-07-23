@@ -32,17 +32,20 @@ class UTProvideCheckerTest : public testing::Test {
   UTProvideCheckerTest()
       : a_(UTExprBuilder::PlaceholderOpNode("a", {1024}, air::Float(16))),
         b_(UTExprBuilder::PlaceholderOpNode("b", {1024}, air::Float(16))),
-        c_(UTExprBuilder::PlaceholderOpNode("c", {1024}, air::Float(16))) {}
+        c_(UTExprBuilder::PlaceholderOpNode("c", {1024}, air::Float(16))) {
+    vp_.AddVar("ax0");
+  }
   ~UTProvideCheckerTest() = default;
   air::Operation a_;
   air::Operation b_;
   air::Operation c_;
+  UTVariablePool vp_;
 };  // class UTProvideCheckerTest
 
 TEST_F(UTProvideCheckerTest, UTProvideCheckerForAssign) {
   // b(ax0) = a(ax0)
   air::Stmt stmt = UTStmtBuilder::CreateProvideAssign(
-      b_, {"ax0"}, UTExprBuilder::ElementOf(a_, {"ax0"}));
+      b_, vp_.GetVars({"ax0"}), UTExprBuilder::ElementOf(a_, vp_.GetVars({"ax0"})));
   std::vector<std::tuple<std::string, const air::ir::Provide*, uint64_t>> infos_lhs =
       UTProvideCheckerForAssign().Find(stmt, "a(ax0)");
   ASSERT_EQ(infos_lhs.size(), 1);
@@ -53,9 +56,9 @@ TEST_F(UTProvideCheckerTest, UTProvideCheckerForAssign) {
 TEST_F(UTProvideCheckerTest, UTProvideCheckerForBinary) {
   // c(ax0) = (a(ax0) + b(ax0))
   air::Stmt stmt = UTStmtBuilder::CreateProvideBinary<air::ir::Add>(
-      c_, {"ax0"},
-      UTExprBuilder::ElementOf(a_, {"ax0"}),
-      UTExprBuilder::ElementOf(b_, {"ax0"}));
+      c_, vp_.GetVars({"ax0"}),
+      UTExprBuilder::ElementOf(a_, vp_.GetVars({"ax0"})),
+      UTExprBuilder::ElementOf(b_, vp_.GetVars({"ax0"})));
   std::vector<std::tuple<std::string, const air::ir::Provide*, uint64_t>> infos_lhs =
       UTProvideCheckerForBinary().Find(stmt, UTProvideCheckerForBinary::BinaryOpType::kAdd, "a(ax0)", "b(ax0)");
   ASSERT_EQ(infos_lhs.size(), 1);
@@ -68,24 +71,27 @@ class UTProvideCheckerTest2 : public testing::Test {
   UTProvideCheckerTest2()
       : a_(UTExprBuilder::PlaceholderOpNode("a", {16, 32, 1024}, air::Float(16))),
         b_(UTExprBuilder::PlaceholderOpNode("b", {16, 32, 1024}, air::Float(16))),
-        c_(UTExprBuilder::PlaceholderOpNode("c", {16, 32, 1024}, air::Float(16))) {}
+        c_(UTExprBuilder::PlaceholderOpNode("c", {16, 32, 1024}, air::Float(16))) {
+    vp_.AddVars({"i", "j", "k"});
+  }
   ~UTProvideCheckerTest2() = default;
   air::Operation a_;
   air::Operation b_;
   air::Operation c_;
+  UTVariablePool vp_;
 };  // class UTProvideCheckerTest
 
 TEST_F(UTProvideCheckerTest2, UTProvideCheckerForBinary) {
   air::Stmt stmt = UTStmtBuilder::CreateFor(
-      "i", 0, 16,
+      vp_.GetVar("i"), 0, 16,
       UTStmtBuilder::CreateFor(
-          "j", 0, 32,
+          vp_.GetVar("j"), 0, 32,
           UTStmtBuilder::CreateFor(
-              "k", 0, 1024,
+              vp_.GetVar("k"), 0, 1024,
               UTStmtBuilder::CreateProvideBinary<air::ir::Add>(
-                  c_, {"i", "j", "k"},
-                  UTExprBuilder::ElementOf(a_, {"i", "j", "k"}),
-                  UTExprBuilder::ElementOf(b_, {"i", "j", "k"})))));
+                  c_, vp_.GetVars({"i", "j", "k"}),
+                  UTExprBuilder::ElementOf(a_, vp_.GetVars({"i", "j", "k"})),
+                  UTExprBuilder::ElementOf(b_, vp_.GetVars({"i", "j", "k"}))))));
   std::string dump_stmt = UTDumpHelper::Dump(stmt);
   EXPECT_EQ(dump_stmt,
       "for (i, 0, 16) {\n"

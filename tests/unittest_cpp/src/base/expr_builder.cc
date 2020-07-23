@@ -84,22 +84,22 @@ air::Operation UTExprBuilder::PlaceholderOpNode(
 air::Expr UTExprBuilder::TensorElement(
     const std::string &name,
     const std::vector<int32_t> &shapes,
-    const std::vector<std::string> &axis_names,
+    const air::Array<air::Expr> &axis_vars,
     air::DataType dtype) {
   return air::ir::Call::make(
       dtype,                                   // type
       name,                                    // name
-      CreateVars(axis_names),                  // args
-      air::ir::Call::Halide,                  // call_type
+      axis_vars,                               // args
+      air::ir::Call::Halide,                   // call_type
       PlaceholderOpNode(name, shapes, dtype),  // func,
       0);                                      // value_index
 }
 
 air::Expr UTExprBuilder::ElementOf(
     const air::Operation &op,
-    const std::vector<std::string> &axis_names) {
+    const air::Array<air::Expr> &axis_vars) {
   if (op->template IsInstance<air::PlaceholderOpNode>()) {
-    return ElementOfPlaceholderOp(op, axis_names);
+    return ElementOfPlaceholderOp(op, axis_vars);
   } else {
     CHECK(false);
     return air::ir::Any::make();
@@ -108,13 +108,13 @@ air::Expr UTExprBuilder::ElementOf(
 
 air::Expr UTExprBuilder::ElementOfPlaceholderOp(
     const air::Operation &op,
-    const std::vector<std::string> &axis_names) {
+    const air::Array<air::Expr> &axis_vars) {
   const air::PlaceholderOpNode *node = op.as<const air::PlaceholderOpNode>();
   CHECK(node);
   return air::ir::Call::make(
       node->dtype,
       node->name,
-      CreateVars(axis_names),
+      axis_vars,
       air::ir::Call::Halide,
       op,
       0);
@@ -154,6 +154,7 @@ UTTensorElementHelper::UTTensorElementHelper(const std::vector<int32_t> &shapes,
     axis_names_.push_back(ss.str());
     ss.str("");
   }
+  var_pool_.AddVars(axis_names_);
 }
 
 air::Expr UTTensorElementHelper::Elem(const std::string &name,
@@ -163,7 +164,40 @@ air::Expr UTTensorElementHelper::Elem(const std::string &name,
   return UTExprBuilder::TensorElement(
       name,
       std::vector<int32_t>(shapes_.begin() + start, shapes_.end()),
-      std::vector<std::string>(axis_names_.begin() + start, axis_names_.end()),
+      var_pool_.GetVars(std::vector<std::string>(axis_names_.begin() + start, axis_names_.end())),
       dtype);
+}
+
+void UTVariablePool::AddVar(const std::string &name) {
+  auto it = map_name_var_.find(name);
+  if (it != map_name_var_.end()) {
+    std::cerr << "Variable " << name << " has been defined" << std::endl;
+    return;
+  }
+  map_name_var_.insert(std::make_pair(name, UTExprBuilder::CreateVar(name)));
+}
+
+void UTVariablePool::AddVars(const std::vector<std::string> &names) {
+  for (const std::string &name : names) {
+    AddVar(name);
+  }
+}
+
+air::Var UTVariablePool::GetVar(const std::string &name) const {
+  auto it = map_name_var_.find(name);
+  CHECK(it != map_name_var_.end());
+  return it->second;
+}
+
+air::Array<air::Expr> UTVariablePool::GetVars(const std::vector<std::string> &names) const {
+  air::Array<air::Expr> vars;
+  for (const std::string &name : names) {
+    vars.push_back(GetVar(name));
+  }
+  return vars;
+}
+
+void UTVariablePool::Reset() {
+  map_name_var_.clear();
 }
 }  // namespace akg

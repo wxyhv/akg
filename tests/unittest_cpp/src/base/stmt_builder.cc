@@ -17,12 +17,12 @@
 
 namespace akg {
 air::Stmt UTStmtBuilder::CreateFor(
-    const std::string &loop_var_name,
+    air::Var loop_var,
     int32_t min,
     int32_t extent,
     air::Stmt body) {
   return air::ir::For::make(
-      UTExprBuilder::CreateVar(loop_var_name),
+      loop_var,
       UTExprBuilder::IntImm(min),
       UTExprBuilder::IntImm(extent),
       air::ir::ForType::Serial,
@@ -45,13 +45,9 @@ air::Stmt UTStmtBuilder::CreateRealizeByPlaceholderOp(
 
 air::Stmt UTStmtBuilder::CreateProvideAssign(
     air::ir::FunctionRef func_dst,
-    const std::vector<std::string> &vars,
+    air::Array<air::Expr> vars,
     air::Expr src,
     int value_index) {
-  return air::ir::Provide::make(
-      func_dst,
-      value_index,
-      src,
-      UTExprBuilder::CreateVars(vars));
+  return air::ir::Provide::make(func_dst, value_index, src, vars);
 }
 }  // namespace akg

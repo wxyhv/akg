@@ -90,14 +90,19 @@ TEST(UTExprBuilder, PlaceholderOpNode) {
 }
 
 TEST(UTExprBuilder, TensorElement) {
-  air::Expr elem = UTExprBuilder::TensorElement("input", {16, 32, 1024}, {"ax0", "ax1", "ax2"}, air::Float(16));
+  UTVariablePool vp;
+  vp.AddVars({"ax0", "ax1", "ax2"});
+  air::Expr elem =
+      UTExprBuilder::TensorElement("input", {16, 32, 1024}, vp.GetVars({"ax0", "ax1", "ax2"}), air::Float(16));
   std::string dump_elem = UTDumpHelper::Dump(elem);
   EXPECT_EQ(dump_elem, "input(ax0, ax1, ax2)");
 }
 
 TEST(UTExprBuilder, ElememtOfPlaceholderOp) {
+  UTVariablePool vp;
+  vp.AddVars({"ax0", "ax1", "ax2"});
   air::Operation op = UTExprBuilder::PlaceholderOpNode("input", {16, 32, 1024}, air::Float(16));
-  air::Expr elem = UTExprBuilder::ElementOfPlaceholderOp(op, {"ax0", "ax1", "ax2"});
+  air::Expr elem = UTExprBuilder::ElementOfPlaceholderOp(op, vp.GetVars({"ax0", "ax1", "ax2"}));
   std::string dump_elem = UTDumpHelper::Dump(elem);
   EXPECT_EQ(dump_elem, "input(ax0, ax1, ax2)");
 }
@@ -110,5 +115,28 @@ TEST(UTTensorElementHelper, TensorElement) {
   EXPECT_EQ(dump_elem2, "b(ax1, ax2)");
   std::string dump_elem3 = UTDumpHelper::Dump(helper.Elem("c", 1));
   EXPECT_EQ(dump_elem3, "c(ax2)");
+}
+
+TEST(UTVariablePool, AddVar) {
+  UTVariablePool vp;
+  vp.AddVar("i");
+  vp.AddVar("j");
+  air::Var var1 = vp.GetVar("i");
+  air::Var var2 = vp.GetVar("j");
+  std::string dump_var1 = UTDumpHelper::Dump(var1);
+  std::string dump_var2 = UTDumpHelper::Dump(var2);
+  EXPECT_EQ(dump_var1, "i");
+  EXPECT_EQ(dump_var2, "j");
+}
+
+TEST(UTVariablePool, AddVars) {
+  UTVariablePool vp;
+  vp.AddVars({"i", "j"});
+  air::Var var1 = vp.GetVar("i");
+  air::Var var2 = vp.GetVar("j");
+  std::string dump_var1 = UTDumpHelper::Dump(var1);
+  std::string dump_var2 = UTDumpHelper::Dump(var2);
+  EXPECT_EQ(dump_var1, "i");
+  EXPECT_EQ(dump_var2, "j");
 }
 }  // namespace akg
