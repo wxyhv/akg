@@ -21,6 +21,7 @@
 #include "pass/ir_util.h"
 #include "poly/poly_util.h"
 #include "emit_insn/insn_emitter.h"
+#include "emit_insn/ir_transform.h"
 
 namespace akg {
 namespace ir {
@@ -475,6 +476,7 @@ Stmt EmitInsn(Stmt stmt, bool enable_bisect, bool enable_cover_protect, const Ma
   }
   stmt = UnalignedMad().Mutate(stmt);
   stmt = RegCondition().Mutate(stmt);
+  stmt = ForVarUnique().Mutate(stmt);
   return stmt;
 }
 }  // namespace ir

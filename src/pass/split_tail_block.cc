@@ -21,7 +21,7 @@
 #include <algorithm>
 #include "emit_insn/insn_info.h"
 #include "emit_insn/insn_pattern.h"
-
+#include "emit_insn/insn_args_calculator.h"
 namespace akg {
 namespace ir {
 
@@ -48,85 +48,63 @@ class TailSpliter : public IRMutator {
       if (src_info_list.empty()) {
         src_info_list = {dst_info.Copy()};
       }
-      auto get_info_list = [](const StmtStoreInfo &dst_info, const Array<StmtStoreInfo> &src_info_list) {
-        Array<StmtStoreInfo> res;
-        res.push_back(dst_info.Copy());
-        for (auto it : src_info_list) {
-          res.push_back(it.Copy());
-        }
-        return res;
-      };
-      auto info_list = get_info_list(dst_info, src_info_list);
-      FillEmptyVar(info_list);
-      auto axis_list = GetAixsList(for_info, info_list);
-      auto get_last_axis_it = [](const std::list<InsnAxis> &axis_list) {
-        for (auto it = axis_list.begin(); it != axis_list.end(); it++) {
-          auto stride_list = it->stride_list;
-          if (!(std::any_of(stride_list.begin(), stride_list.end(), [](int stride) { return stride > 1; }) ||
-                std::all_of(stride_list.begin(), stride_list.end(), [](int stride) { return stride == 0; }))) {
-            return it;
-          }
-        }
-        return axis_list.end();
-      };
 
-      auto last_axis_it = get_last_axis_it(axis_list);
-      if (last_axis_it == axis_list.end()) {
-        return s;
-      }
-      auto last_axis = *last_axis_it;
-      auto last_axis_shape = last_axis.extent;
+      auto info_list = GetInfoList(dst_info, src_info_list);
+      FillEmptyVar(info_list);
       int dst_block_size = GetUbBlkSize(dst_info->dtype_);
       int src_block_size = GetUbBlkSize(src_info_list[0]->dtype_);
-      int block_size = dst_block_size > src_block_size ? dst_block_size : src_block_size;
+      int block_size = dst_block_size < src_block_size ? dst_block_size : src_block_size;
+      int cast_block_size = dst_block_size > src_block_size ? dst_block_size : src_block_size;
       int vec_max_len = block_size * FULL_BLOCK_NUM;
-
-      if (last_axis_shape > vec_max_len && last_axis_shape % vec_max_len != 0) {
-        return Block::make(TailMake(s, last_axis, vec_max_len, false), TailMake(s, last_axis, vec_max_len, true));
+      auto args_calculator = InsnArgsCalculator(dst_info_list, src_info_list, for_info, "");
+      auto vec_axis_it = args_calculator.GetVecAxisIt();
+      bool cast = dst_block_size != src_block_size;
+      if (args_calculator.IsValid(vec_axis_it)) {
+        auto vec_axis = *vec_axis_it;
+        auto vec_axis_shape = vec_axis.extent;
+        if (vec_axis_shape >= vec_max_len) {
+          if (vec_axis_shape % vec_max_len != 0) {
+            return TailBlock(s, vec_axis, vec_max_len);
+          }
+        } else {
+          if (vec_axis_shape < vec_max_len * tail_rate_ && vec_axis_shape > cast_block_size &&
+              vec_axis_shape % cast_block_size != 0 && args_calculator.axis_list_.size() > 1) {
+            return TailBlock(s, vec_axis, cast_block_size);
+          }
+        }
       }
-      if (last_axis_shape < vec_max_len * tail_rate_ && last_axis_shape > block_size &&
-          last_axis_shape % block_size != 0 && axis_list.size() > 1) {
-        return Block::make(TailMake(s, last_axis, block_size, false), TailMake(s, last_axis, block_size, true));
+      if (!cast && (!args_calculator.IsValid(vec_axis_it) || vec_axis_it->extent <= cast_block_size * tail_rate_)) {
+        auto get_block_axis = [&](std::list<InsnAxis> &axis_list) {
+          InsnAxis block_axis;
+          block_axis.is_valid = false;
+          std::vector<InsnAxis> temp_axis_set;
+          auto block_stride_lambda = [&](int stride) { return stride % block_size == 0 && stride / block_size <= 4; };
+          for (auto axis : axis_list) {
+            if (std::all_of(axis.stride_list.begin(), axis.stride_list.end(), block_stride_lambda) &&
+                axis.dst_stride != 0 && axis.extent != 0 && axis.extent > FULL_BLOCK_NUM &&
+                axis.extent % FULL_BLOCK_NUM != 0) {
+              temp_axis_set.push_back(axis);
+            }
+          }
+          if (!temp_axis_set.empty()) {
+            return temp_axis_set[0];
+          } else {
+            return block_axis;
+          }
+        };
+        auto block_axis = get_block_axis(args_calculator.axis_list_);
+        if (block_axis.IsValid()) {
+          return TailBlock(s, block_axis, FULL_BLOCK_NUM);
+        }
       }
+      return s;
     }
     return IRMutator::Mutate_(op, s);
   }
 
-  std::list<InsnAxis> GetAixsList(const StmtInfo &for_info, const Array<StmtStoreInfo> &info_list) {
-    std::list<InsnAxis> axis_list;
-    auto GetStrideByAxis = [](const Array<Var> &vars, const Array<Expr> &strides, Var obj_var) {
-      int index = 0;
-      for (auto var_it : vars) {
-        if (Equal(var_it, obj_var)) {
-          return strides[index];
-        }
-        index++;
-      }
-      return Expr(0);
-    };
-    for (auto it : for_info.ops_) {
-      InsnAxis axis;
-      auto for_stmt = it.as<For>();
-      CHECK(for_stmt);
-      axis.var = for_stmt->loop_var;
-      axis.extent = GetInt32Const(for_stmt->extent);
-      axis.min = GetInt32Const(for_stmt->min);
-      int index = 0;
-      for (auto it : info_list) {
-        auto stride = GetInt32Const(GetStrideByAxis(it->var_, it->strides_, axis.var));
-        axis.stride_list.push_back(stride);
-        if (index == 0) {
-          axis.dst_stride = stride;
-        } else {
-          axis.src_stride_list.push_back(stride);
-        }
-        index++;
-      }
-      axis_list.push_back(axis);
-    }
-    return axis_list;
+  Stmt TailBlock(const Stmt &s, const InsnAxis &tail_axis, int body_size) {
+    return Block::make(TailMake(s, tail_axis, body_size, false), TailMake(s, tail_axis, body_size, true));
   }
-
   Stmt TailMake(const Stmt &s, const InsnAxis &tail_axis, int body_size, bool is_tail) {
     if (auto attr_stmt = s.as<AttrStmt>()) {
       return AttrStmt::make(attr_stmt->node, attr_stmt->attr_key, attr_stmt->value,
@@ -145,8 +123,7 @@ class TailSpliter : public IRMutator {
       }
       return For::make(for_stmt->loop_var, for_stmt->min, for_stmt->extent, for_stmt->for_type, for_stmt->device_api,
                        TailMake(for_stmt->body, tail_axis, body_size, is_tail));
-
-    } 
+    }
     if (s.as<Store>() && is_tail) {
       return substitute(tail_axis.var, Add::make(Expr(tail_axis.extent / body_size * body_size), tail_axis.var), s);
     }
@@ -156,6 +133,20 @@ class TailSpliter : public IRMutator {
  private:
   const float tail_rate_{0.6};
   const std::set<std::string> include_intrin_list_ = {
+    // binary vec
+    "vec_binary_add",
+    "vec_binary_sub",
+    "vec_binary_mul",
+    "vec_binary_min",
+    "vec_binary_max",
+    "vec_binary_div",
+    "vec_binary_and",
+    "vec_binary_or",
+    "vec_binary_vmadd",
+    "vec_binary_vmaddrelu",
+    "vec_binary_vmla",
+
+    // single vec
     "vec_single_fabs",
     "vec_single_log",
     "vec_single_exp",
@@ -165,20 +156,28 @@ class TailSpliter : public IRMutator {
     "vec_single_rsqrt",
     "vec_single_relu",
     "vec_single_not",
-    // vector_scalar
-    "vec_single_muls",
-    "vec_single_adds",
     // Mov
     "broadcast",
+    "mask_broadcast",
     // vector_cast
     "vec_single_cast",
     "vec_single_floor",
     "vec_single_round",
     "vec_single_ceil",
     "vec_single_trunc",
+    // scalar case
+    "vector_dup",
+    "vmuls",
+    "vadds",
+    "vaxpy",
   };
 };
-Stmt SplitTail(Stmt stmt) { return TailSpliter().Mutate(stmt); }
+Stmt SplitTail(Stmt stmt) {
+  auto tail_spliter = TailSpliter();
+  auto first_round = tail_spliter.Mutate(stmt);
+  auto second_round = tail_spliter.Mutate(stmt);
+  return second_round;
+}
 
 }  // namespace ir
 }  // namespace akg

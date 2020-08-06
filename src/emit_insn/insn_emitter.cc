@@ -35,7 +35,7 @@
 #include "insn_info.h"
 #include "insn_pattern.h"
 #include "insn_emitter_multimask.h"
-
+#include "insn_args_calculator.h"
 namespace akg {
 namespace ir {
 /// Sort indexes
@@ -71,8 +71,7 @@ Stmt SingleVecEmitter(const Stmt &op, std::string intrin_name) {
 
   Array<Expr> call_args;
   int call_cnt = 0;
-  if (intrin_name == "vector_dup" || intrin_name == "vadds" ||
-    intrin_name == "vmuls" || intrin_name == "vaxpy") {
+  if (intrin_name == "vector_dup" || intrin_name == "vadds" || intrin_name == "vmuls" || intrin_name == "vaxpy") {
     auto GetCallInfo = [&intrin_name, &call_args, &call_cnt](const NodeRef &op) {
       if (op.as<Call>() && op.as<Call>()->name == intrin_name) {
         call_args = op.as<Call>()->args;
@@ -82,8 +81,8 @@ Stmt SingleVecEmitter(const Stmt &op, std::string intrin_name) {
     PostOrderVisit(op, GetCallInfo);
     CHECK_EQ(call_cnt, 1);
   }
-  SingleType insn_type {SingleType::SIMD};
-  Expr scalar_src {};
+  SingleType insn_type{SingleType::SIMD};
+  Expr scalar_src{};
   if (intrin_name == "vector_dup") {
     insn_type = SingleType::Vector_Dump;
     src_info_list = {};
@@ -93,10 +92,11 @@ Stmt SingleVecEmitter(const Stmt &op, std::string intrin_name) {
     src_info_list = {src_info_list[0]};
     scalar_src = call_args[1];
   }
-
   // check is single vector broadcast reduce mode exist
-  SingleVecPatternGenerator generator = SingleVecPatternGenerator(dst_info_list, src_info_list, for_info);
-  auto params = generator.GetInsnArgs();
+
+  SingleVecInsnArgsCalculator args_calculator = SingleVecInsnArgsCalculator(dst_info_list, src_info_list, for_info, intrin_name);
+  PatternResult params = args_calculator.GetInsnArgs();
+
   dst_info_list = params.dst_info_list;
   src_info_list = params.src_info_list;
   for_info = params.for_info;
@@ -141,23 +141,16 @@ Stmt BinaryVecEmitter(const Stmt &op, std::string intrin_name, bool enable_bisec
       if (src_info_list[0]->var_.size() > src_info_list[1]->var_.size()) {
         src_info = src_info_list[0];
       }
-      const int vec_max_len = GetVecMaxLen(dst_info->dtype_);
-      if (enable_bisect && GetIntConst(GetItem(src_info->shape_, -1)) > vec_max_len) {
-        CommentManager::GetInstance().AddComment("Bisect_optimize", "enabled");
-        auto wrapper =
-          SeparateComInfoToBisectionInfoList(dst_info_list, src_info_list, for_info, if_info, true, postfix);
-        return EmitCceBinaryVectorToBisectionReduction(wrapper, if_info, intrin_name);
-      } else {
-        CommentManager::GetInstance().AddComment("Pattern", arg_info.GetPattern());
-        ReduceLastAxisPatternGenerator generator =
-          ReduceLastAxisPatternGenerator(dst_info, src_info, for_info, intrin_name);
-        auto result = generator.GetInsnArgs();
-        arg_info = result.arg_info;
-        dst_info = result.dst_info_list[0];
-        src_info = result.src_info_list[0];
-        for_info = result.for_info;
-        return EmitCceBinaryVectorToReduceLastAxis(dst_info, src_info, if_info, for_info, arg_info, intrin_name);
-      }
+      CommentManager::GetInstance().AddComment("Pattern", arg_info.GetPattern());
+
+      LastAxisReduceInsnArgsCalculator args_calculator = LastAxisReduceInsnArgsCalculator(dst_info, src_info, for_info, intrin_name);
+      PatternResult result = args_calculator.GetInsnArgs();
+
+      arg_info = result.arg_info;
+      dst_info = result.dst_info_list[0];
+      src_info = result.src_info_list[0];
+      for_info = result.for_info;
+      return EmitCceBinaryVectorToReduceLastAxis(dst_info, src_info, if_info, for_info, arg_info, intrin_name);
     }
     case ARG_VECTOR_REDUCTION_BISECTION: {
       CommentManager::GetInstance().AddComment("Compute_type", "reduction");
@@ -192,7 +185,7 @@ Stmt BinaryVecEmitter(const Stmt &op, std::string intrin_name, bool enable_bisec
       return FoldInsnWithForInfo(insn_list, if_info, for_info, stmt);
     }
   }
-}
+}  // namespace ir
 
 /// Function to emit scalar intrin
 /// \param op         - The input stmt to be emitted as intrin
@@ -984,8 +977,9 @@ Stmt BinaryDropoutEmitter(const Stmt &op) {
   src1.GetNode()->data_ = mask->buffer_var;
   src1.GetNode()->data_alignment_ = GetInt32Const(mask->predicate);
 
-  SingleVecPatternGenerator generator = SingleVecPatternGenerator(dst_info_list, src_info_list, for_info, "elewise");
-  auto params = generator.GetInsnArgs();
+  SingleVecInsnArgsCalculator args_calculator = SingleVecInsnArgsCalculator(dst_info_list, src_info_list, for_info);
+  PatternResult params = args_calculator.GetInsnArgs();
+
   dst_info_list = params.dst_info_list;
   src_info_list = params.src_info_list;
   for_info = params.for_info;
@@ -1484,8 +1478,10 @@ Stmt BinaryArgOpEmitter(const Stmt &op, const std::string &intrin_name) {
   if (src_info_list[0]->var_.size() > src_info_list[1]->var_.size()) {
     src_info = src_info_list[0];
   }
-  ReduceLastAxisPatternGenerator generator = ReduceLastAxisPatternGenerator(dst_info, src_info, for_info, intrin_name);
-  auto result = generator.GetInsnArgs();
+
+  LastAxisReduceInsnArgsCalculator args_calculator = LastAxisReduceInsnArgsCalculator(dst_info, src_info, for_info, intrin_name);
+  PatternResult result = args_calculator.GetInsnArgs();
+
   arg_info = result.arg_info;
   dst_info = result.dst_info_list[0];
   src_info = result.src_info_list[0];

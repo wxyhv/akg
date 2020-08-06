@@ -104,10 +104,7 @@ StmtStoreInfo StmtStoreInfo::Copy() const {
 StmtInfo StmtInfo::Copy() const {
   auto stmt_info = StmtInfo();
   stmt_info.ops_ = ops_;
-  for (auto var : vars_) {
-    auto new_var = Variable::make(var->type, var->name_hint);
-    stmt_info.vars_.push_back(new_var);
-  }
+  stmt_info.vars_ = vars_;
 
   for (size_t i = 0; i < vars_.size(); ++i) {
     for (size_t j = 0; j < stmt_info.ops_.size(); ++j) {
