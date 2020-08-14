@@ -23,6 +23,12 @@
  *
  * \file build_cuda.cc
  */
+
+/*
+ * 2020.8.14 - Get thread info inside BuildCUDA function,
+ *             enbale dump cuda meta.
+ */
+
 #if defined(__linux__)
 #include <sys/stat.h>
 #endif
@@ -133,8 +139,18 @@ runtime::Module BuildCUDA(Array<LoweredFunc> funcs) {
   CodeGenCUDA cg;
   cg.Init(output_ssa);
 
+  Map<std::string, Expr> thread_info;
   for (LoweredFunc f : funcs) {
     cg.AddFunction(f);
+
+    for (const auto &axis : f->thread_axis) {
+      auto thread_tag = axis->thread_tag;
+      auto node = axis->dom.get();
+      if (node != nullptr) {
+        CHECK(axis->dom->extent.as<IntImm>());
+        thread_info.Set(thread_tag, axis->dom->extent);
+      }
+    }
   }
   std::string code = cg.Finish();
 
@@ -151,6 +167,11 @@ runtime::Module BuildCUDA(Array<LoweredFunc> funcs) {
   } else {
     ptx = NVRTCCompile(code, cg.need_include_path());
   }
+
+  if (const auto* f = Registry::Get("dump_cuda_meta")) {
+    (*f)(code, ptx, thread_info);
+  }
+
   return CUDAModuleCreate(ptx, fmt, ExtractFuncInfo(funcs), code);
 }
 

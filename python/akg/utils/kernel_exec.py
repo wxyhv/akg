@@ -42,7 +42,6 @@ from akg.utils import format_transform as ft_util
 from akg.utils import custom_tiling as ct_util
 from akg.utils import validation_check as vc_util
 from akg.utils.dsl_create import TensorUtils
-from akg.utils import dump_cuda_meta
 
 sh = logging.StreamHandler(sys.stdout)
 logging.getLogger().addHandler(sh)
@@ -746,7 +745,6 @@ def op_build(op_func, input_shapes, input_types, op_attrs=None, kernel_name="",
             with akg.tvm.build_config(dump_pass_ir=dump_ir):
                 mod = akg.build(s, op_var, "cuda", shape_var, name=kernel_name, attrs=attrs,
                                 polyhedral=polyhedral, binds=binds)
-                dump_cuda_meta.dump(mod, kernel_name, s, op_var)
                 if dump_code:
                     source_code = mod.imported_modules[0].get_source()
                     create_code(kernel_name, "./", source_code, "CUDA")

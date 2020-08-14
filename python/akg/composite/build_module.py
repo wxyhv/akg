@@ -22,7 +22,6 @@ from akg import tvm
 from akg.tvm import _api_internal
 from .repository import __all__ as repository
 import topi
-from akg.utils import dump_cuda_meta
 
 def generate_trait(desc):
     """ generate trait of kernel description """
@@ -181,5 +180,4 @@ def build_cuda(outputs, args, sch_name, kernel_name):
         dump_ir = os.getenv('MS_AKG_DUMP_IR') == "on"
         with tvm.build_config(dump_pass_ir = dump_ir):
             mod = akg.build(s, list(args), "cuda", name = kernel_name)
-            dump_cuda_meta.dump(mod, kernel_name, s, list(args))
             return mod

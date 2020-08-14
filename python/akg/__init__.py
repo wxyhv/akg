@@ -81,5 +81,6 @@ from .autodiff import get_variables
 from .autodiff import register_variables
 from .lang.cce.te_compute.common import fargmax, fargmin, mad
 from . import lang
+from .utils.dump_cuda_meta import dump_cuda_meta
 
 __all__ = ["differentiate"]
