@@ -23,6 +23,8 @@
 #include <unordered_map>
 #include <utility>
 #include <vector>
+#include <unistd.h>
+#include <sys/stat.h>
 
 #include "build_module.h"
 #include "pass/expr_alg_simplify.h"
@@ -1059,13 +1061,32 @@ BuildRst BuildToFunc(const Schedule &inputs, const Array<NodeRef> &in_args, cons
 }
 
 namespace {
-void CreateCce(const std::string &code, const std::string &kernel_name) {
-  std::string file_name = kMsDavinciKernelPath;
-  file_name.append(kernel_name).append(".cce");
-  std::ofstream of(file_name);
-  CHECK(of.is_open()) << "Failed to open " << file_name << " to dump cce.";
-  of << code << std::endl;
-  of.close();
+void CreateCode(const std::string &code, const std::string &kernel_name, const std::string &target_name) {
+  std::string file_path;
+  std::string file_suffix;
+  if (target_name.find("cce") != std::string::npos) {
+    file_path = std::string(kMsDavinciKernelPath);
+    file_suffix = ".cce";
+  } else if (target_name.find("cuda") != std::string::npos) {
+    file_path = std::string(kMsGpuKernelPath) + "_" + std::to_string(getpid()) + "/";
+    file_suffix = ".cu";
+  }
+
+  if (file_path.empty()) {
+    return;
+  }
+
+  // Dump code to meta directory if it exists.
+  struct stat info;
+  if (stat(file_path.c_str(), &info) == 0) {
+    if (info.st_mode & S_IFDIR) {
+      std::string file_name = file_path + kernel_name + file_suffix;
+      std::ofstream of(file_name);
+      CHECK(of.is_open()) << "Failed to open " << file_name << " to dump code.";
+      of << code << std::endl;
+      of.close();
+    }
+  }
 }
 }  // namespace
 
@@ -1115,7 +1136,7 @@ air::runtime::Module BuildToModule(const NodeRef &ref, const std::string &target
     auto mod0 = mhost->imports()[0];
     CHECK(mod0.defined());
 
-    CreateCce(mod0->GetSource(), build_rst->kernel_name);
+    CreateCode(mod0->GetSource(), build_rst->kernel_name, target_name);
   }
 
   return mhost;

@@ -22,6 +22,7 @@
 
 namespace akg {
 constexpr auto kMsDavinciKernelPath = "./kernel_meta/";
+constexpr auto kMsGpuKernelPath = "./cuda_meta";
 static std::unordered_map<std::string, air::Type> type_mapping = {
   {"float32", air::Float(32)}, {"float16", air::Float(16)}, {"int32", air::Int(32)}, {"bool", air::Bool()}};
 }  // namespace akg
