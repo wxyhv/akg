@@ -186,5 +186,6 @@ REGISTER_PASS(SubstituteDivVar);
 REGISTER_PASS(CastFilter);
 REGISTER_PASS(ScalarComputeRewrite);
 REGISTER_PASS(SplitTail);
+REGISTER_PASS(RemoveFakeOp);
 }  // namespace ir
 }  // namespace akg

@@ -423,6 +423,8 @@ Stmt FixBindBuffer(const Stmt &stmt, const Map<Tensor, Buffer> &extern_buffer);
 Stmt CastFilter(const Stmt &stmt);
 
 Stmt ScalarComputeRewrite(const Stmt &stmt);
+
+Stmt RemoveFakeOp(const Stmt &stmt);
 }  // namespace ir
 }  // namespace akg
 
