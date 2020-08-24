@@ -15,7 +15,6 @@
  */
 
 #include "insn_pattern.h"
-
 #include <tvm/runtime/packed_func.h>
 #include <tvm/base.h>
 #include <tvm/ir_pass.h>
@@ -198,28 +197,6 @@ ArgInfo GetMultiVecInsnArgs(StmtInfoList &dst_info_list, StmtInfoList &src_info_
   CleanForInfoVars(for_info, elim_var);
 
   return arg_info;
-}
-
-/// Get first non zero shape from input shapes
-/// \param dst_shape
-/// \param src0_shape
-/// \param src1_shape
-/// \return
-int PatternGenerator::GetNonZeroShape(const Expr &dst_shape, const Expr &src0_shape, const Expr &src1_shape) {
-  int shape = 0;
-  for (int val :
-       {GetInt32Const(dst_shape), GetInt32Const(src0_shape), src1_shape.defined() ? GetInt32Const(src1_shape) : 0}) {
-    if (val == 0) {
-      continue;
-    }
-    if (shape != 0 && val != shape) {
-      LOG(FATAL) << "Error: same var has different shapes. " << GetIntConst(dst_shape) << " "
-                 << GetIntConst(src0_shape);
-    }
-    shape = val;
-  }
-  CHECK(shape != 0) << "Error: all shapes are equal to 0.";
-  return shape;
 }
 
 /// In case
@@ -430,25 +407,6 @@ void CleanZeroStrides(Array<StmtStoreInfo> &info_list) {
   for (size_t i = 0; i < info_list.size(); ++i) {
     info_list.Set(i, _CleanComInfo(info_list[i]));
   }
-}
-
-/// Swap axis in Array
-/// \param var
-/// \param shape
-/// \param strides
-/// \param idx1
-/// \param idx2
-void PatternGenerator::GetShapeInfoAndSwap(Array<Var> &var, Array<Expr> &shape, Array<Expr> &strides, int idx1,
-                                           int idx2) {
-  auto tmp_var = GetItem(var, idx1);
-  SetItem(var, idx1, GetItem(var, idx2));
-  SetItem(var, idx2, tmp_var);
-  auto tmp_shape = GetItem(shape, idx1);
-  SetItem(shape, idx1, GetItem(shape, idx2));
-  SetItem(shape, idx2, tmp_shape);
-  auto tmp_stride = GetItem(strides, idx1);
-  SetItem(strides, idx1, GetItem(strides, idx2));
-  SetItem(strides, idx2, tmp_stride);
 }
 
 /// Get insn args of load 2D intrin
@@ -856,6 +814,38 @@ Map<std::string, Expr> GetDmaCopyInsnArgs(std::string &intrin_name, const StmtIn
   return arg_info_map;
 }
 
+/// Replace com_info's var with new for loop's var
+/// \param info
+/// \param old_for_info
+/// \param new_for_info
+void ReplaceVarWithNewForInfo(StmtStoreInfo &info, const StmtInfo &old_for_info, const StmtInfo &new_for_info) {
+  for (size_t i = 0; i < new_for_info.vars_.size(); ++i) {
+    for (size_t j = 0; j < info->var_.size(); ++j) {
+      if (info->var_[j]->name_hint == new_for_info.vars_[i]->name_hint) {
+        SetItem(info.GetNode()->var_, static_cast<int>(j), new_for_info.vars_[i]);
+      }
+    }
+    info.GetNode()->index_ = substitute(old_for_info.vars_[i], new_for_info.vars_[i], info->index_);
+  }
+}
+
+std::string GetBinaryVecMode(const StmtInfoList &dst_info_list, const StmtInfoList &src_info_list,
+                             const std::string &intrin_name, bool enable_bisect) {
+  std::set<std::string> reduce_bisect_list = {"vadd", "vsub", "vmul", "vmax"};
+  std::string mode = "reduction";
+  if (IsElementwise(dst_info_list, src_info_list)) {
+    mode = "elewise";
+  } else if (IsBroadcast(dst_info_list, src_info_list)) {
+    mode = "broadcast";
+  } else if (IsLastAxisReduction(dst_info_list, src_info_list)) {
+    mode = "reduce_last_axis";
+  } else if (enable_bisect && reduce_bisect_list.count(intrin_name) != 0 &&
+             IsBisectionReduction(dst_info_list, src_info_list)) {
+    mode = "reduce_bisection";
+  }
+
+  return mode;
+}
 const char *const DummyLastVar = "cc_last";
 
 TVM_REGISTER_API("cce_util.GetVecMask").set_body([](const TVMArgs args, TVMRetValue *ret) {

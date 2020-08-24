@@ -343,8 +343,12 @@ class BroadcastCalculate : public IRMutator {
 };
 
 Stmt MultiLastAxisReductions(Stmt stmt, bool is_dynamic = false) {
+  auto ori_stmt = stmt;
   stmt = MultiLastAxisReduction().Mutate(stmt);
   stmt = BroadcastCalculate(is_dynamic).Mutate(stmt);
+  if (!is_dynamic && !Equal(ori_stmt, stmt)) {
+    stmt = MergeLoops(stmt);
+  }
   return stmt;
 }
 }  // namespace ir
