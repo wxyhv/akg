@@ -43,6 +43,16 @@ class TestCase(TestBase):
             # [16, 16, 4, 32, 16, 16] * [16, 16, 4, 32, 16, 16] -> [16, 16, 32, 32, 16, 16]
             ("batchmatmul_run_bert_02", "matmul_run", ((16, 16, 512, 64), (16, 16, 512, 64), 0,
                 "zN", "zN", "zN", False, True, "float16", None, "float16", "batchmatmul_cce")),
+            # [24, 16, 32, 32, 16, 16] * [24, 16, 4, 32, 16, 16] -> [24, 16, 4, 32, 16, 16]
+            ("batchmatmul_run_bert_00", "matmul_run", ((24, 16, 512, 512), (24, 16, 512, 64), 0,
+                "zN", "zN", "zN", False, False, "float16", None, "float16", "batchmatmul_cce")),
+            # [24, 16, 32, 32, 16, 16] * [24, 16, 4, 32, 16, 16] -> [24, 16, 4, 32, 16, 16]
+            ("batchmatmul_run_bert_01", "matmul_run", ((24, 16, 512, 512), (24, 16, 512, 64), 0,
+                "zN", "zN", "zN", True, False, "float16", None, "float16", "batchmatmul_cce")),
+            # [24, 16, 4, 32, 16, 16] * [24, 16, 4, 32, 16, 16] -> [24, 16, 32, 32, 16, 16]
+            ("batchmatmul_run_bert_02", "matmul_run", ((24, 16, 512, 64), (24, 16, 512, 64), 0,
+                "zN", "zN", "zN", False, True, "float16", None, "float16", "batchmatmul_cce")),
+
             # bert shape
             ("matmul_run_bert_00", "matmul_run", ((16, 1024), (16, 1024), 0, "zN", "zN", "zN", False, True, "float16", None, "float16", "matmul_cce")),
             ("matmul_run_bert_01", "matmul_run", ((8192, 4096), (8192, 1024), 0, "zN", "zN", "zN", True, False, "float16", None, "float32", "matmul_cce")),
