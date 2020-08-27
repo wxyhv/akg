@@ -1,3 +1,18 @@
+# Release 0.7.0-beta
+## Major Features and Imporvements
+* Backend refactoring
+  * Rewrite instruction args calculation module in EmitInsn by implementing a new computing strategy based on axis spliting, which achieved improvement both on performance and code simplicity.
+
+## Bugfixes
+* fix dump code error when running gpu operators and set env MS_AKG_DUMP_CODE=ON(!113).
+
+## Contributors
+Thanks goes to these wonderful people:
+
+lvwenyuan, shiliang, xuhui, wYann
+
+Contributions of any kind are welcome!
+
 # Release 0.6.0-beta
 ## Major Features and Imporvements
 * AutoPoly refactor to support integrating multi-backend targets easily
@@ -23,6 +38,7 @@
 
 ## Contributors
 Thanks goes to these wonderful people:
+
 brovensmile, chengyun, chenlei_autodiff, chengbin, ConnZhai, fuxiaoteng, gaoxiong, gengzhen, hanhuifeng, KasonChan, luoyin, lvwenyuan, peiwenfang, xuhui, yangsijia, wangzhuo325, wYann
 
 Contributions of any kind are welcome!
