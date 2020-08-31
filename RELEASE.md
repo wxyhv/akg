@@ -1,5 +1,5 @@
 # Release 0.7.0-beta
-## Major Features and Imporvements
+## Major Features and Improvements
 * Backend refactoring
   * Rewrite instruction args calculation module in EmitInsn by implementing a new computing strategy based on axis spliting, which achieved improvement both on performance and code simplicity.
 
@@ -14,7 +14,7 @@ lvwenyuan, shiliang, xuhui, wYann
 Contributions of any kind are welcome!
 
 # Release 0.6.0-beta
-## Major Features and Imporvements
+## Major Features and Improvements
 * AutoPoly refactor to support integrating multi-backend targets easily
   * Employ a pass/passmgr framework to manage all the transformations of ISL schedule tree in which transformation such as InitialSchTree and tileOuterBand would be considered as a pass to schedule tree.
   * Refactor some data structure of poly so that they can de-couple with Davinci chips.
