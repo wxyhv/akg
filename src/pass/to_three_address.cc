@@ -159,12 +159,18 @@ class ExprHasher : public air::ir::ExprFunctor<size_t(const Expr &n)> {
     }
   }
   size_t VisitExpr_(const Call *op) final {
+    if (op->call_type == Call::CallType::PureIntrinsic) {
+      pure_intrinsic_level++;
+    }
     size_t ret = std::hash<const Node *>{}(op->func.get());
     if (cross_simplify_ && (op->func.get() == nullptr)) {
       ret = std::hash<std::string>{}(op->name);
     }
     for (size_t i = 0; i < op->args.size(); ++i) {
       ret = dmlc::HashCombine(ret, VisitExpr(op->args[i]));
+    }
+    if (op->call_type == Call::CallType::PureIntrinsic) {
+      pure_intrinsic_level--;
     }
     return ret;
   }
@@ -182,7 +188,7 @@ class ExprHasher : public air::ir::ExprFunctor<size_t(const Expr &n)> {
   size_t VisitExpr_(const IntImm *op) final { return std::hash<int64_t>()(op->value); }
 
   size_t VisitExprDefault_(const Node *op) final {
-    if (cross_simplify_) {
+    if (cross_simplify_ || pure_intrinsic_level > 0) {
       if (op->IsInstance<Cast>()) {  // Support for cases of float16(A), float32(A)
         auto cast_op = static_cast<const Cast *>(op);
         auto value_hash = VisitExpr(cast_op->value);
@@ -196,6 +202,7 @@ class ExprHasher : public air::ir::ExprFunctor<size_t(const Expr &n)> {
   }
 
   bool cross_simplify_{false};
+  int pure_intrinsic_level{0};
 };
 
 // poly does not support both AND and OR to exist in an expression.
@@ -503,11 +510,19 @@ class ThreeAddressExprMutator : public IRMutator {
       Array<Expr> args;
       in_call_++;
       for (const auto &x : op->args) {
-        args.push_back(Mutate(x));
+        args.push_back(is_constant(x) && op->name == "vaxpy" ? x : Mutate(x));
       }
       in_call_--;
-      if (op->name == "vmadd" || op->name == "vmla") {
-        return FixMultivarInsn(op, args);
+      if (op->name == "vmadd" || op->name == "vaxpy" || op->name == "vmla") {
+        // detect common expression
+        size_t hash_value = hasher_(e);
+        auto x = common_exprs_[hash_value];
+        if (Equal(x.first, e)) {
+          return x.second;
+        }
+        Expr ret = FixMultivarInsn(op, args);
+        common_exprs_[hash_value] = std::make_pair(e, ret);
+        return ret;
       }
       return AllocateTmp(Call::make(op->type, op->name, args, op->call_type, op->func, op->value_index));
     }
@@ -654,7 +669,47 @@ class InstructionMutator : IRMutator {
     if (is_constant(l) && is_constant(r)) {
       return ConstantFold<Add>(l, r);
     }
-    return Add::make(l, r);
+    if (is_constant(l) || is_constant(r)) {
+      return Add::make(l, r);
+    }
+
+    bool is_left_candidate = IsCandidate(l);
+    if (!is_left_candidate && !IsCandidate(r)) {
+      return Add::make(l, r);
+    }
+    Expr candidate = is_left_candidate ? l : r;
+    Expr non_candidate = is_left_candidate ? r : l;
+    if (op->type != non_candidate.type() || op->type.bits() < candidate.type().bits()) {
+      return Add::make(l, r);
+    }
+    Array<Expr> args;
+    const Mul *mul = candidate.as<Mul>();
+    bool is_left_constant = is_constant(mul->a);
+    if (is_left_constant || is_constant(mul->b)) {
+      args.push_back(is_left_constant ? mul->a : mul->b);
+      args.push_back(is_left_constant ? mul->b : mul->a);
+      args.push_back(non_candidate);
+    } else {
+      args.push_back(mul->a);
+      args.push_back(non_candidate);
+      args.push_back(mul->b);
+    }
+
+    if (is_constant(args[0]) || !args[0]->IsInstance<Call>() || !args[1]->IsInstance<Call>() ||
+        !args[2]->IsInstance<Call>()) {
+      return Add::make(l, r);
+    }
+
+    if (!is_constant(args[0]) && (op->type != args[0].type() || op->type != args[2].type())) {
+      return Add::make(l, r);
+    }
+
+    if (CountVars(args[1]) != CountVars(args[2]) ||
+        (!is_constant(args[0]) && CountVars(args[0]) != CountVars(args[1]))) {
+      return Add::make(l, r);
+    }
+
+    return Call::make(args[0].type(), is_constant(args[0]) ? "vaxpy" : "vmadd", args, Call::CallType::PureIntrinsic);
   }
 
   Expr Mutate_(const Sub *op, const Expr &e) {
