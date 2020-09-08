@@ -455,8 +455,8 @@ def mod_launch(mod, args, outputs=(-1,), tuning=False, device_id=0, expect=None)
     """
 
     gc.collect()
-    if mod.imported_modules[0].type_key == 'cuda':
-        ctx = akg.tvm.context('cuda', device_id)
+    if mod.imported_modules[0].type_key == CUDA:
+        ctx = akg.tvm.context(CUDA, device_id)
         mod_args = [akg.tvm.nd.array(a, ctx) for a in args]
         mod(*mod_args)
         out_list = [mod_args[len(args) + i if i < 0 else i].asnumpy() for i in outputs]
@@ -747,7 +747,7 @@ def op_build(op_func, input_shapes, input_types, op_attrs=None, kernel_name="",
             op_var = op_var + [output]
 
     if sch_tmpl is not None:
-        if sch_tmpl['target'] != 'cuda':
+        if sch_tmpl['target'] != CUDA:
             raise ValueError("Only support cuda as target when using schedule template.")
         global kc_air_mode
         kc_air_mode = "CUDA"
@@ -756,10 +756,10 @@ def op_build(op_func, input_shapes, input_types, op_attrs=None, kernel_name="",
             s = sch_tmpl['schedule'](sch_tmpl['output'])
             with akg.tvm.build_config(dump_pass_ir=dump_ir):
                 mod = akg.build(s, op_var, "cuda", shape_var, name=kernel_name, attrs=attrs,
-                                polyhedral=False, binds=binds)
+                                polyhedral=False, binds=gpu_binds)
                 if dump_code:
                     source_code = mod.imported_modules[0].get_source()
-                    create_code(kernel_name, "./", source_code, "CUDA")
+                    create_code(kernel_name, "./", source_code, CUDA)
                 return mod
 
     if isinstance(output, (list, tuple)):

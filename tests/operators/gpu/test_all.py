@@ -1,0 +1,416 @@
+#!/usr/bin/env python3
+# coding: utf-8
+# Copyright 2020 Huawei Technologies Co., Ltd
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License
+
+from test_utils import gen_random_shape
+
+from test_ms_add import test_ms_add
+from test_ms_addn import test_ms_addn
+from test_ms_batch_matmul import test_ms_bmm
+from test_ms_exp import test_ms_exp
+from test_ms_maximum import test_ms_maximum
+from test_ms_minimum import test_ms_minimum
+from test_ms_mul import test_ms_mul
+from test_ms_divide import test_ms_divide
+from test_ms_rsqrt import test_ms_rsqrt
+from test_ms_sub import test_ms_sub
+from test_ms_tile import test_ms_tile
+from test_ms_one_hot import test_ms_one_hot
+from test_ms_sqrt import test_ms_sqrt
+from test_ms_cast import test_ms_cast
+from test_ms_reshape import test_ms_reshape
+from test_ms_expand_dims import test_expand_dims
+from test_ms_trans_data import test_ms_trans_data
+from test_ms_log import test_ms_log
+from test_ms_pow import test_ms_pow
+from test_ms_reduce_sum import test_ms_reduce_sum
+from test_ms_abs import test_ms_abs
+from test_ms_neg import test_ms_neg
+from test_ms_round import test_ms_round
+from test_ms_select import test_ms_select
+from test_ms_equal import test_ms_equal
+from test_ms_less_equal import test_ms_less_equal
+from test_ms_greater_equal import test_ms_greater_equal
+from test_ms_reciprocal import test_ms_reciprocal
+from test_ms_reduce_max import test_ms_reduce_max
+from test_ms_reduce_min import test_ms_reduce_min
+from test_fused_relugrad import test_fused_relugrad
+from test_fused_bn_update_grad import test_fused_bn_update_grad
+from test_fused_bn_update import test_fused_bn_update
+from test_fused_conv2d_bn import test_fused_conv2d_bn
+from test_fused_bn_relu import test_fused_bn_relu
+from test_fused_bn_double_relu import test_fused_bn_double_relu
+from test_fused_bn_relu_avgpool import test_fused_bn_relu_avgpool
+from test_fused_bngrad_conv2dbp_0 import test_fused_bngrad_conv2dbp_0
+from test_fused_l2loss import test_fused_l2loss
+from test_fused_cast_pad import test_fused_cast_pad
+from test_fused_bngrad_conv2dback import test_fused_bngrad_conv2dback
+from test_fused_conv2dback_l2loss import test_fused_conv2dback_l2loss
+from test_fused_conv2dback_bngrad import test_fused_conv2dback_bngrad
+from test_fused_bn_grad import test_fused_bn_grad
+from test_fused_conv2d_bp_bn_grad import test_fused_conv2d_bp_bn_grad
+from test_fused_bngrad_conv2d_bp import test_fused_bngrad_conv2d_bp
+
+def add(poly_sch, fuzz_shape=None):
+    if fuzz_shape:
+        test_ms_add(fuzz_shape, fuzz_shape, 'float32', poly_sch=poly_sch)
+        return
+
+    test_ms_add((1, 1024), (1, 1024), 'float32', poly_sch=poly_sch)
+    test_ms_add((2, 32, 256, 32, 32), (2, 32, 256, 32, 32),
+                'float32', poly_sch=poly_sch)
+
+def addn(poly_sch, fuzz_shape=None):
+    test_ms_addn((1, 1024, 1024), "float32", 2, poly_sch=poly_sch)
+    test_ms_addn((1, 1024, 1024), "float16", 2, poly_sch=poly_sch)
+
+def bmm(poly_sch, fuzz_shape=None):
+    test_ms_bmm((1, 1024, 1024), (1, 1024, 1024), 'float32', poly_sch=poly_sch)
+    # test_ms_bmm((1, 1024, 1024), (1, 1024, 1024), 'float32', (1, 1024, 1024))  # cannot store type float32
+    test_ms_bmm((1, 1024, 512), (1, 256, 512), 'float32', poly_sch=poly_sch)
+    # test_ms_bmm((1, 1024, 1024), (1, 1024, 1024), 'float32', (1, 1024, 1024), poly_sch=True)  # storage_flatten fail
+
+
+def cast(poly_sch, fuzz_shape=None):
+    test_ms_cast((32, 32, 14, 14, 16), "float16", "float32", poly_sch=poly_sch)
+    test_ms_cast((32, 32, 14, 14, 16), "float32", "float16", poly_sch=poly_sch)
+
+
+def exp(poly_sch, fuzz_shape=None):
+    test_ms_exp((1024, 4096), 'float32', poly_sch=poly_sch)
+    test_ms_exp((1024, 4096), 'float16', poly_sch=poly_sch)
+    test_ms_exp((1024, 4095), 'float16', poly_sch=poly_sch)
+    test_ms_exp((1024, 799), 'float16', poly_sch=poly_sch)
+
+
+
+def maximum(poly_sch, fuzz_shape=None):
+    test_ms_maximum((32, 1024, 1024), (32, 1024, 1024), 'float32', poly_sch=poly_sch)
+    test_ms_maximum((32, 1024, 1024), (1, 1024, 1024), 'float16', poly_sch=poly_sch)
+    test_ms_maximum((32, 32, 32, 256), (32, 32, 1, 256), 'float16', poly_sch=poly_sch)
+
+def minimum(poly_sch, fuzz_shape=None):
+    test_ms_minimum((32, 1024, 1024), (32, 1024, 1024), 'float32', poly_sch=poly_sch)
+    test_ms_minimum((32, 1024, 1024), (1, 1024, 1024), 'float16', poly_sch=poly_sch)
+    test_ms_minimum((32, 32, 32, 256), (32, 32, 1, 256), 'float16', poly_sch=poly_sch)
+
+
+def mul(poly_sch, fuzz_shape=None):
+    test_ms_mul((1024, 4096), 'float32', poly_sch=poly_sch)
+
+
+def divide(poly_sch, fuzz_shape=None):
+    test_ms_divide((1024, 1024), 'float32', poly_sch=poly_sch)
+    test_ms_divide((1024, 1024), 'float16', poly_sch=poly_sch)
+
+
+def reshape(poly_sch, fuzz_shape=None):
+    test_ms_reshape("float32", (64, 128, 1024), (8192, 1024), poly_sch=poly_sch)
+    test_ms_reshape("float16", (64, 128, 1024), (8192, 1024), poly_sch=poly_sch)
+
+
+def rsqrt(poly_sch, fuzz_shape=None):
+    test_ms_rsqrt((32, 1024, 1024), 'float32', poly_sch=poly_sch)
+    test_ms_rsqrt((32, 1024, 1024), 'float16', poly_sch=poly_sch)
+
+
+def sqrt(poly_sch, fuzz_shape=None):
+    test_ms_sqrt((1024, 1024), "float32", poly_sch=poly_sch)
+    test_ms_sqrt((1024, 1024), "float16", poly_sch=poly_sch)
+
+
+def sub(poly_sch, fuzz_shape=None):
+    test_ms_sub((32, 1024, 1024), (32, 1024, 1024), 'float32', poly_sch=poly_sch)
+    test_ms_sub((32, 1024, 1024), (32, 1024, 1024), 'float16', poly_sch=poly_sch)
+    test_ms_sub((32, 1024, 1024), (1, 1024, 1024), 'float32', poly_sch=poly_sch)
+    test_ms_sub((4, 4, 4), (1, 4, 4), 'float32', poly_sch=poly_sch)
+
+
+def tile(poly_sch, fuzz_shape=None):
+    test_ms_tile((1024, 4096), (3,), 'float32', poly_sch=poly_sch)
+    test_ms_tile((1024, 4096), (3,), 'float16', poly_sch=poly_sch)
+
+def one_hot(poly_sch, fuzz_shape=None):
+    test_ms_one_hot((1024,), 16, "int32", 1, 0, 0, poly_sch=poly_sch)
+    test_ms_one_hot((1024,), 16, "float32", 1, 0, 0, poly_sch=poly_sch)
+    test_ms_one_hot((32,), 16, "int32", 1, 0, 0, poly_sch=poly_sch)
+    test_ms_one_hot((32,), 16, "float32", 1, 0, 0, poly_sch=poly_sch)
+
+def expand_dims(poly_sch, fuzz_shape=None):
+    test_expand_dims((32, 1024, 1024), 1, 'float32', poly_sch=poly_sch)
+    test_expand_dims((32, 1024, 1024), 2, 'float16', poly_sch=poly_sch)
+
+def trans_data(poly_sch, fuzz_shape=None):
+    test_ms_trans_data((8, 24, 38, 38), (0, 2, 1, 3), 'float32', poly_sch=poly_sch)
+    test_ms_trans_data((8, 24, 38, 38), (0, 2, 1, 3), 'float16', poly_sch=poly_sch)
+
+def log(poly_sch, fuzz_shape=None):
+    test_ms_log((9, 1024, 1024), 'float16', poly_sch=poly_sch)
+    test_ms_log((9, 1024, 1024), 'float32', poly_sch=poly_sch)
+
+def pow(poly_sch, fuzz_shape=None):
+    test_ms_pow((9, 1024, 1024), (9, 1024, 1024), 'float32', poly_sch=poly_sch)
+    test_ms_pow((9, 1024, 1024), (9, 1024, 1), 'float32', poly_sch=poly_sch)
+    test_ms_pow((9, 1024, 1024), (9, 1, 1), 'float32', poly_sch=poly_sch)
+    test_ms_pow((9, 1024, 1024), (1, 1, 1), 'float32', poly_sch=poly_sch)
+    test_ms_pow((9, 1024, 1024), (9, 1024, 1024), 'float16', poly_sch=poly_sch)
+    test_ms_pow((9, 1024, 1024), (9, 1024, 1), 'float16', poly_sch=poly_sch)
+    test_ms_pow((9, 1024, 1024), (9, 1, 1), 'float16', poly_sch=poly_sch)
+    test_ms_pow((9, 1024, 1024), (1, 1, 1), 'float16', poly_sch=poly_sch)
+
+def abs(poly_sch, fuzz_shape=None):
+    test_ms_abs((1024, 1024), "float32", poly_sch=poly_sch)
+    test_ms_abs((1024, 1024), "float16", poly_sch=poly_sch)
+    test_ms_abs((1, ), "float32", poly_sch=poly_sch)
+    test_ms_abs((1, 1), "float32", poly_sch=poly_sch)
+    test_ms_abs((1, ), "float16", poly_sch=poly_sch)
+    test_ms_abs((1, 1), "float16", poly_sch=poly_sch)
+
+def neg(poly_sch, fuzz_shape=None):
+    test_ms_neg((1024, 1024), "float32", poly_sch=poly_sch)
+    test_ms_neg((1024, 1024), "float16", poly_sch=poly_sch)
+    test_ms_neg((1, ), "float32", poly_sch=poly_sch)
+    test_ms_neg((1, 1), "float32", poly_sch=poly_sch)
+    test_ms_neg((1, ), "float16", poly_sch=poly_sch)
+    test_ms_neg((1, 1), "float16", poly_sch=poly_sch)
+
+def round(poly_sch, fuzz_shape=None):
+    test_ms_round((1024, 1024), "float32", poly_sch=poly_sch)
+    test_ms_round((1024, 1024), "float16", poly_sch=poly_sch)
+    test_ms_round((1, ), "float32", poly_sch=poly_sch)
+    test_ms_round((1, 1), "float32", poly_sch=poly_sch)
+    test_ms_round((1, ), "float16", poly_sch=poly_sch)
+    test_ms_round((1, 1), "float16", poly_sch=poly_sch)
+
+def reduce_sum(poly_sch, fuzz_shape=None):
+    test_ms_reduce_sum((9, 1024, 1024), 'float32', axis=None, keepdims=False, poly_sch=poly_sch)
+    test_ms_reduce_sum((9, 1024, 1024), 'float32', axis=2, keepdims=True, poly_sch=poly_sch)
+    test_ms_reduce_sum((9, 1024, 1024), 'float16', axis=None, keepdims=False, poly_sch=poly_sch)
+    test_ms_reduce_sum((9, 1024, 1024), 'float16', axis=2, keepdims=True, poly_sch=poly_sch)
+
+
+def select(poly_sch, fuzz_shape=None):
+    test_ms_select((2, ), (2, 2, 2),  "int8", "float16", poly_sch=poly_sch)
+
+def fused_bn_update(poly_sch, fuzz_shape=None):
+    test_fused_bn_update((2048,), 'float32', poly_sch=poly_sch)
+
+def fused_relugrad(poly_sch, fuzz_shape=None):
+    test_fused_relugrad((256, 56, 56, 256), 'float16', poly_sch=poly_sch)
+
+def fused_bn_update_grad(poly_sch, fuzz_shape=None):
+    test_fused_bn_update_grad((64,), poly_sch=poly_sch)
+
+def fused_conv2d_bn(poly_sch, fuzz_shape=None):
+    test_fused_conv2d_bn((256, 7, 7, 2048), in_dtype='float16', layout='NHWC', out_dtype='float32', poly_sch=False)
+    # TODO: node should be a band node
+    # test_fused_conv2d_bn((256, 7, 7, 2048), in_dtype='float16', layout='NHWC', out_dtype='float32', poly_sch=True)
+
+def fused_bn_relu(poly_sch, fuzz_shape=None):
+    test_fused_bn_relu((256, 7, 7, 2048), in_dtype='float16', layout='NHWC', out_dtype='float16', poly_sch=poly_sch)
+
+def fused_bn_double_relu(poly_sch, fuzz_shape=None):
+    test_fused_bn_double_relu((256, 7, 7, 2048), in_dtype='float16', layout='NHWC',
+                              out_dtype='float16', poly_sch=poly_sch)
+                            
+def fused_bn_relu_avgpool(poly_sch, fuzz_shape=None):
+    test_fused_bn_relu_avgpool((256, 7, 7, 2048), in_dtype='float16', layout='NHWC',
+                               out_dtype='float16', poly_sch=poly_sch)
+
+def fused_bngrad_conv2dbp_0(poly_sch, fuzz_shape=None):
+    test_fused_bngrad_conv2dbp_0((256, 56, 56, 256), in_dtype='float16',
+                                 layout='NHWC', out_dtype='float16', poly_sch=poly_sch)
+
+def fused_l2loss(poly_sch, fuzz_shape=None):
+    test_fused_l2loss((1, 1, 256, 1024), 'float32', poly_sch=poly_sch)
+
+def fused_cast_pad(poly_sch, fuzz_shape=None):
+    test_fused_cast_pad((7, 7, 3, 64), (0, 0, 0, 0), (0, 0, 1, 0), 'float32', 0.0, poly_sch=poly_sch)
+
+def fused_bngrad_conv2dback(poly_sch, fuzz_shape=None):
+    test_fused_bngrad_conv2dback([64], [64], (256, 112, 112, 64), (256, 112, 112, 64), [64], [64], 
+            (256, 112, 112, 64), [64], [64], (256, 112, 112, 64),  const_1=0.000000311403852, const_2=0, 
+            const_3=3211264, poly_sch=poly_sch)
+
+def fused_conv2dback_l2loss(poly_sch, fuzz_shape=None):
+    test_fused_conv2dback_l2loss((1,1,256,1024), (1,1,256,1024), layout_f16='NCHW', layout_f32='NCHW', dtype='float32',
+    poly_sch=poly_sch)
+
+def fused_conv2dback_bngrad(poly_sch, fuzz_shape=None):
+    test_fused_conv2dback_bngrad((256,56,56,256), (256,56,56,256), (256,56,56,256), (256,56,56,256), [256], 
+    (256,56,56,256), [256], 0.0, 0.0, 1.2461541e-06, poly_sch=False)
+    # TODO: check_failed: is_const_int(op->min, 0)
+    # test_fused_conv2dback_bngrad((256,56,56,256), (256,56,56,256), (256,56,56,256), (256,56,56,256), [256], 
+    # (256,56,56,256), [256], 0.0, 0.0, 1.2461541e-06, poly_sch=True)
+
+def fused_bn_grad(poly_sch, fuzz_shape=None):
+    test_fused_bn_grad((256, 56, 56, 256), (256,), 'float16', 'float32', poly_sch=False)
+    # TODO: node should be a band node
+    # test_fused_bn_grad((256, 56, 56, 256), (256,), 'float16', 'float32', poly_sch=True)
+
+def fused_bngrad_conv2d_bp(poly_sch, fuzz_shape=None):
+    test_fused_bngrad_conv2d_bp((256,), (256, 56, 56, 256), 'float32', 'float16', poly_sch=poly_sch)
+
+def fused_conv2d_bp_bn_grad(poly_sch, fuzz_shape=None):
+    test_fused_conv2d_bp_bn_grad((256, 112, 112, 64), (64,), 'float16', 'float32', poly_sch=False)
+    # TODO: check_failed: is_const_int(op->min, 0)
+    # test_fused_conv2d_bp_bn_grad((256, 112, 112, 64), (64,), 'float16', 'float32', poly_sch=True)
+
+
+def equal(poly_sch, fuzz_shape=None):
+    test_ms_equal(((1, 1024), (1, 1024)), 'float16', poly_sch=poly_sch)
+    test_ms_equal(((1, 1024), (1, 1024)), 'float32', poly_sch=poly_sch)
+
+def less_equal(poly_sch, fuzz_shape=None):
+    test_ms_less_equal((1, 1024), (1, 1024), 'float16', poly_sch=poly_sch)
+    test_ms_less_equal((1, 1024), (1, 1024), 'float32', poly_sch=poly_sch)
+
+def greater_equal(poly_sch, fuzz_shape=None):
+    test_ms_greater_equal((1, 1024), (1, 1024), 'float16', poly_sch=poly_sch)
+    test_ms_greater_equal((1, 1024), (1, 1024), 'float32', poly_sch=poly_sch)
+
+def reciprocal(poly_sch, fuzz_shape=None):
+    test_ms_reciprocal((1, 1024), 'float16', poly_sch=poly_sch)
+    test_ms_reciprocal((1, 1024), 'float32', poly_sch=poly_sch)
+
+def reduce_min(poly_sch, fuzz_shape=None):
+    test_ms_reduce_min((9, 1024, 1024), 'float32', axis=None, keepdims=False, poly_sch=poly_sch)
+    test_ms_reduce_min((9, 1024, 1024), 'float16', axis=None, keepdims=False, poly_sch=poly_sch)
+    test_ms_reduce_min((9, 1024, 1024), 'float32', axis=2, keepdims=False, poly_sch=poly_sch)
+    test_ms_reduce_min((9, 1024, 1024), 'float16', axis=2, keepdims=False, poly_sch=poly_sch)
+
+def reduce_max(poly_sch, fuzz_shape=None):
+    test_ms_reduce_max((9, 1024, 1024), 'float32', axis=None, keepdims=False, poly_sch=poly_sch)
+    test_ms_reduce_max((9, 1024, 1024), 'float16', axis=None, keepdims=False, poly_sch=poly_sch)
+    test_ms_reduce_max((9, 1024, 1024), 'float32', axis=2, keepdims=False, poly_sch=poly_sch)
+    test_ms_reduce_max((9, 1024, 1024), 'float16', axis=2, keepdims=False, poly_sch=poly_sch)
+
+class Logger(object):
+    def __init__(self, filename, stream):
+        self.terminal = stream
+        self.log = open(filename, 'a')
+
+    def write(self, message):
+        self.terminal.write(message)
+        self.log.write(message)
+
+    def flush(self):
+        pass
+
+def usage(op_map):
+    print("Usage:")
+    print("1. Run func1 and func2 with manual schedule:")
+    print("\t$python test_all.py -m func_name1 func_name2")
+    print("\t$python test_all.py --manual func_name1 func_name2")
+    print("2. Run all with auto schedule:")
+    print("\t$python test_all.py -a all\n")
+    print("\t$python test_all.py --auto all\n")
+    print("3. Both schedule methods will be tested if no option is specified")
+    print("\t$python test_all.py func_name")
+    print("4. Run fuzz test of add op with maximal dimension of shape equals 3")
+    print("\t$python test_all.py -f 3 add")
+    print("Available func:")
+    print("\t", list(op_map.keys()), "\n")
+
+
+if __name__ == '__main__':
+    import sys
+    import getopt
+    import traceback
+    from datetime import datetime
+
+    op_map = {"abs": abs, "add": add, "addn": addn, "bmm": bmm, "cast": cast, "divide": divide,
+              "equal": equal, "exp": exp, "greater_equal": greater_equal, "less_equal": less_equal,
+              "log": log, "max": maximum, "min": minimum, "mul": mul, "neg": neg, "pow": pow,
+              "reciprocal": reciprocal, "round": round, "rsqrt": rsqrt, "select": select, "sqrt": sqrt,
+              "sub": sub,
+              "reduce_max": reduce_max, "reduce_min": reduce_min, "reduce_sum": reduce_sum,
+              "expand_dims": expand_dims, "one_hot": one_hot, "reshape": reshape, "tile": tile, 
+              "trans_data": trans_data,            
+              "fused_bn_update": fused_bn_update,
+              "fused_relugrad": fused_relugrad, "fused_bn_update_grad": fused_bn_update_grad,
+              "fused_conv2d_bn": fused_conv2d_bn, "fused_bn_relu": fused_bn_relu,
+              "fused_bn_double_relu": fused_bn_double_relu, "fused_bn_relu_avgpool": fused_bn_relu_avgpool,
+              "fused_bngrad_conv2dbp_0": fused_bngrad_conv2dbp_0, 
+              "fused_l2loss": fused_l2loss, "fused_cast_pad": fused_cast_pad, 
+              "fused_bngrad_conv2dback": fused_bngrad_conv2dback, "fused_conv2dback_l2loss": fused_conv2dback_l2loss,
+              "fused_conv2dback_bngrad": fused_conv2dback_bngrad, "fused_bngrad_conv2d_bp": fused_bngrad_conv2d_bp,
+              "fused_conv2d_bp_bn_grad": fused_conv2d_bp_bn_grad, "fused_bn_grad": fused_bn_grad
+              }
+    all_f = list(op_map.values())
+    op_map["all"] = all_f
+    if len(sys.argv) == 1:
+        usage(op_map)
+        sys.exit()
+
+    options, args = getopt.getopt(sys.argv[1:], "amf:", ["auto", "manual", "fuzz="])
+    schedule_method = 'both'
+    fuzz_dim = 0
+    for name, value in options:
+        if name in ("-a", "--auto"):
+            schedule_method = "auto"
+        if name in ("-m", "--manual"):
+            schedule_method = "manual"
+        if name in ("-f", "--fuzz"):
+            fuzz_dim = int(value)
+
+    fail_op_list = dict()
+    run_op_list = list()
+    for op in args:
+        if op_map.get(op) is not None:
+            f = op_map.get(op)
+            if not isinstance(f, list):
+                run_op_list.append(f)
+            else:
+                run_op_list += f
+
+    now = datetime.now()
+    filename = "opstest_" + '-'.join(list(map(str, [now.month, now.day, now.hour, now.minute]))) + ".log"
+    sys.stdout = Logger(filename, sys.stdout)
+    sys.stderr = Logger(filename, sys.stderr)
+
+    print("Schedule method: ", schedule_method)
+    for op in run_op_list:
+        print("Operater: ", op.__name__)
+        fuzz_shape = gen_random_shape(fuzz_dim) if fuzz_dim > 0 else None
+        if fuzz_shape:
+            print("Fuzz shape: {}".format(fuzz_shape))
+        if schedule_method in ["both", "manual"]:
+            try:
+                print(" Time of manual schedule:")
+                op(poly_sch=False, fuzz_shape=fuzz_shape)
+            except:
+                if op.__name__ in fail_op_list:
+                    fail_op_list[op.__name__].extend(["using manual schedule:", traceback.format_exc()])
+                else:
+                    fail_op_list[op.__name__] = ["using manual schedule:", traceback.format_exc()]
+
+        if schedule_method in ["both", "auto"]:
+            try:
+                print("Time of auto schedule:")
+                op(poly_sch=True, fuzz_shape=fuzz_shape)
+            except:
+                if op.__name__ in fail_op_list:
+                    fail_op_list[op.__name__].extend(["using auto schedule:", traceback.format_exc()])
+                else:
+                    fail_op_list[op.__name__] = ["using auto schedule:", traceback.format_exc()]
+
+    if len(fail_op_list) == 0:
+        print("All test pass!")
+    else:
+        for op, error_info in fail_op_list.items():
+            print("Run op %s error"%op)
+            for e in error_info:
+                print(e)
