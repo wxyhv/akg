@@ -34,10 +34,9 @@ class ScheduleTreeHelper {
   std::string GetPolyPassCasePath();
   std::string GetInputScheduleTree(const std::string &file_name);
   std::string GetExpectOutputScheduleTree(const std::string &file_name);
+  std::string UndoPrettyPrintSchTree(const std::string &schedule);
 
  private:
-  static std::string UndoPrettyPrintSchTree(const std::string &schedule);
-
   const std::string input_sch_file;
   const std::string expect_output_sch_file;
 };

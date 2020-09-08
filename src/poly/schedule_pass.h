@@ -33,6 +33,8 @@ class SchedulePass {
   bool restart_{false};  // triggers restart during runtime
 };
 
+bool LoadScheduleTreeFromFile(const std::string &filename, isl::schedule &schedule);
+
 isl::schedule_node ReorderFilters(const isl::schedule_node &node,
                                   const std::unordered_map<size_t, size_t> &old_to_new_map);
 isl::union_map DependenceAnalysis(const isl::union_map &sources, const isl::union_map &targets,
@@ -69,6 +71,16 @@ isl::union_map RemoveInvariantDependence(const isl::schedule &schedule, PassInfo
  */
 isl::union_map ComputeFakeCopyin(const isl::schedule &schedule, const isl::union_map &fake_copyin,
                                  const isl::union_map &ori_reads, const isl::union_map &ori_writes);
+
+/*
+ * Insert a context node beyond to determine bound block and thread sizes for Gpu.
+ */
+isl::schedule_node InsertContextNode(isl::schedule_node &node, ScopInfo &scop_info);
+
+/*
+ * Tile a node band based on given tile sizes.
+ */
+isl::schedule_node TileBand(isl::schedule_node node, const isl::multi_val &sizes);
 
 }  // namespace poly
 }  // namespace ir

@@ -96,6 +96,7 @@ constexpr auto kUBRatio = "ub_ratio";
 constexpr auto kErrorInfo = "";
 constexpr auto kErrorScope = "";
 constexpr auto kAllocBits = "alloc_bits";
+constexpr auto kEnablePolySch = "enable_poly_sch";
 
 static std::unordered_map<std::string, int> help_tiling_level = {
   {"None", 0},

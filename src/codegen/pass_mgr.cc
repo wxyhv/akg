@@ -19,7 +19,7 @@
 #include <unordered_set>
 #include <chrono>
 
-#include "common/util_cce.h"
+#include "common/common_util.h"
 
 namespace akg {
 void PassMgr::InitializeSubName() {

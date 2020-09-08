@@ -79,6 +79,8 @@ class SpaceAnalyzer {
   void IdentifyCastAxes();
   void IdentifyModAxes();
   std::vector<Expr> FindModConstraint(const Expr &arg, std::vector<Expr> constraints);
+  void MarkBroadcastAxes(const ProvideEntry &pe);
+
   // customized cases
   void IdentifyDynamicShape();
   void IdentifyCustomTiling();

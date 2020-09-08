@@ -20,14 +20,18 @@
 #include "poly/scop_builder.h"
 #include "poly/poly_util.h"
 #include "poly/cce_isl_emitter.h"
+#include "poly/gpu_isl_emitter.h"
 #include "poly/davinci_mgr_strategy.h"
+#include "poly/gpu_mgr_strategy.h"
 #include "poly/schedule_pass_mgr.h"
 
 namespace akg {
 namespace ir {
 namespace poly {
-void Scop::ParseUserConfig(const Map<std::string, NodeRef> &attrs, const Map<Tensor, Buffer> &extern_buffer,
-                           bool is_spec_gemm, bool is_tuning, bool is_dynamic) {
+void Scop::ParseUserConfig(std::string target, const Map<std::string, NodeRef> &attrs,
+                           const Map<Tensor, Buffer> &extern_buffer, bool is_spec_gemm, bool is_tuning,
+                           bool is_dynamic) {
+  info_.user_config_.SetTarget(target);
   info_.user_config_.SetAttrs(attrs);
   info_.user_config_.SetBind(extern_buffer);
   info_.user_config_.SetOriginBind(extern_buffer);
@@ -114,22 +118,36 @@ isl::schedule Scop::GenIsl() {
 }
 
 isl::schedule Scop::Transform(const isl::schedule &input_schedule) {
-  info_.user_config_.SetConsiderCoincidence(true);
-  DavinciMgrStrategy davinci_strategy(info_);
+  auto final_schedule = input_schedule;
   SchedulePassMgr mgr(info_);
-  auto final_schedule = mgr.Run(input_schedule, davinci_strategy);
-  info_.DumpTransform("davinci_transfrom.log", davinci_strategy.pass_info_);
+  if (info_.user_config_.GetTarget() == TARGET_CCE) {
+    info_.user_config_.SetConsiderCoincidence(true);
+    DavinciMgrStrategy davinci_strategy(info_);
+    final_schedule = mgr.Run(input_schedule, davinci_strategy);
+    info_.DumpTransform("davinci_transfrom.log", davinci_strategy.pass_info_);
 
-  // We offer a restart mechanism for scalar stmt that cannot tile: do not consider coincidence
-  // and re-compute/re-tile to generate final schedule.
-  if (mgr.need_restart_) {
-    info_.user_config_.SetConsiderCoincidence(false);
-    DavinciMgrStrategy scalar_strategy(info_);
-    final_schedule = mgr.Run(input_schedule, scalar_strategy);
-    info_.DumpTransform("scalar_transform.log", scalar_strategy.pass_info_);
+    // We offer a restart mechanism for scalar stmt that cannot tile: do not consider coincidence
+    // and re-compute/re-tile to generate final schedule.
+    if (mgr.need_restart_) {
+      info_.user_config_.SetConsiderCoincidence(false);
+      DavinciMgrStrategy scalar_strategy(info_);
+      final_schedule = mgr.Run(input_schedule, scalar_strategy);
+      info_.DumpTransform("scalar_transform.log", scalar_strategy.pass_info_);
+    }
+  }
+  if (info_.user_config_.GetTarget() == TARGET_CUDA) {
+    info_.user_config_.SetConsiderCoincidence(true);
+    GPUMgrStrategy gpu_strategy(info_);
+    final_schedule = mgr.Run(input_schedule, gpu_strategy);
+    if (mgr.need_restart_) {
+      info_.user_config_.SetConsiderCoincidence(false);
+      GPUMgrStrategy scalar_strategy(info_);
+      final_schedule = mgr.Run(input_schedule, scalar_strategy);
+      info_.DumpTransform("scalar_transform.log", scalar_strategy.pass_info_);
+    }
   }
 
-  if (final_schedule.get()) info_.analysis_result_.SetTranstormedSchedule(final_schedule);
+  if (final_schedule.get()) info_.analysis_result_.SetTransformedSchedule(final_schedule);
   return final_schedule;
 }
 
@@ -202,22 +220,6 @@ Stmt GenHalide(ScopInfo &info, const isl::schedule &sch, bool used_for_tile_out_
 
   ast_node = CanonicalizeBlockInAst(ast_node);
 
-  TIMER_START;
-  Stmt stmt;
-  if (PRINT_ISL_EMMITER) {
-    if (used_for_tile_out_band) {
-      PrintHeader("CCEIslEmitter");
-      stmt = CCEIslEmitter(info, node_info_repo, iters).Emit(ast_node);
-    } else {
-      PrintHeader("IslEmitter");
-      stmt = IslEmitter(info, node_info_repo, iters).Emit(ast_node);
-    }
-  } else {
-    stmt = CCEIslEmitter(info, node_info_repo, iters).Emit(ast_node);
-  }
-
-  TIMER_SHOW("CCEIslEmitter", std::string(info.cube_info_.IsSpecGemm() ? "_specgemm" : ""));
-
   if (PRINT_EMMITER) {
     PrintHeader("FINAL SCHEDULE");
     std::cout << PrettyPrintSchTree(sch) << std::endl;
@@ -225,6 +227,35 @@ Stmt GenHalide(ScopInfo &info, const isl::schedule &sch, bool used_for_tile_out_
     std::cout << FormatMupaStr(ast_node.to_str(), false) << std::endl << std::endl;
     PrintHeader("FINAL ASTNODE TO C");
     std::cout << ast_node.to_C_str() << std::endl;
+  }
+  TIMER_START;
+  Stmt stmt;
+  if (PRINT_ISL_EMMITER) {
+    if (used_for_tile_out_band) {
+      if (info.user_config_.GetTarget() == TARGET_CCE) {
+        PrintHeader("CCEIslEmitter");
+        stmt = CCEIslEmitter(info, node_info_repo, iters).Emit(ast_node);
+      } else if (info.user_config_.GetTarget() == TARGET_CUDA) {
+        PrintHeader("GpuIslEmitter");
+        stmt = GpuIslEmitter(info, node_info_repo, iters).Emit(ast_node);
+      }
+    } else {
+      PrintHeader("IslEmitter");
+      stmt = IslEmitter(info, node_info_repo, iters).Emit(ast_node);
+    }
+  } else {
+    if (info.user_config_.GetTarget() == TARGET_CCE) {
+      PrintHeader("CCEIslEmitter");
+      stmt = CCEIslEmitter(info, node_info_repo, iters).Emit(ast_node);
+    } else if (info.user_config_.GetTarget() == TARGET_CUDA) {
+      PrintHeader("GpuIslEmitter");
+      stmt = GpuIslEmitter(info, node_info_repo, iters).Emit(ast_node);
+    }
+  }
+
+  TIMER_SHOW("IslEmitter", std::string(info.cube_info_.IsSpecGemm() ? "_specgemm" : ""));
+
+  if (PRINT_EMMITER) {
     PrintHeader("FINAL STMT");
     std::cout << stmt;
   }

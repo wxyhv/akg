@@ -18,12 +18,14 @@
 
 #include <tvm/ir.h>
 
+#include "common/common_util.h"
+#include "pass/convolution_model.h"
 #include "poly/poly_util.h"
 #include "poly/dynamic_shape.h"
 #include "poly/tiling/custom_tiling.h"
 #include "poly/dma_dataflow.h"
-#include "pass/convolution_model.h"
 #include "poly/pass_info.h"
+#include "poly/sync_manager.h"
 
 namespace akg {
 namespace ir {
@@ -57,6 +59,57 @@ struct TilingInfo {
 };
 using Tiles = std::vector<TilingInfo>;
 
+enum MappingType { NONE = -1, BLOCKS, THREADS };
+struct MappingCfg {
+  MappingType type{NONE};
+  std::pair<std::string, int> x;
+  std::pair<std::string, int> y;
+  std::pair<std::string, int> z;
+  size_t bound{0};
+  size_t MaxDim() { return 3; }
+  std::string GetPrefix(MappingType type) {
+    CHECK_NE(type, MappingType::NONE);
+    if (type == MappingType::BLOCKS) {
+      return "b";
+    } else {
+      return "t";
+    }
+  }
+  void BindFromStr(const std::string &cfg) {
+    std::vector<std::string> res = common::Split(cfg, " ");
+    CHECK_LE(res.size(), MaxDim());
+    for (size_t i = 0; i < res.size(); ++i) {
+      CHECK(!res[i].empty());
+      auto size = static_cast<int>(std::strtol(res[i].c_str(), nullptr, 10));
+      BindAt(i, size);
+    }
+  }
+  void BindAt(size_t pos, int size) {
+    CHECK_LT(pos, MaxDim());
+    bound = std::max(bound, pos + 1);
+    auto id = GetPrefix(type) + std::to_string(pos);
+    if (pos == 0) {
+      x.first = id;
+      x.second = size;
+    } else if (pos == 1) {
+      y.first = id;
+      y.second = size;
+    } else {
+      z.first = id;
+      z.second = size;
+    }
+  }
+  std::pair<std::string, int> GetAt(size_t pos) {
+    if (pos == 0) {
+      return x;
+    } else if (pos == 1) {
+      return y;
+    } else {
+      return z;
+    }
+  }
+};
+
 class TensorFootprintCluster;
 struct BufferedFootPrintInfo {
   std::shared_ptr<TensorFootprintCluster> cluster;
@@ -71,6 +124,14 @@ class UserConfig {
   UserConfig() = default;
   ~UserConfig() = default;
 
+  void SetTarget(const std::string target) {
+    if (target == "aicore") {
+      target_ = "cce";
+    } else {
+      target_ = target;
+    }
+  }
+
   void SetAttrs(const Map<std::string, NodeRef> &attrs) {
     if (attrs.empty()) return;
     ParseDynamicShapeAttr(attrs, "dynamic_shape", &dynamic_shape_);
@@ -79,12 +140,16 @@ class UserConfig {
     ParseBoolAttr(attrs, "pragma_outerband_need_split", &outer_band_need_split_);
 
     ParseStringAttr(attrs, "dim", &b_dim_);
+    ParseMappingCfgAttr(attrs, "bind_block", &block_cfg_);
+    ParseMappingCfgAttr(attrs, "bind_thread", &thread_cfg_);
     ParseCustomTilingAttr(attrs, "custom_tiling", &custom_tiling_);
     ParseBoolAttr(attrs, "pragma_analyze_reuse_buffer", &pragma_analyze_reuse_buffer_);
     ParseBoolAttr(attrs, "pragma_speedup_tiling", &pragma_speedup_tiling_);
     ParseBoolAttr(attrs, "pragma_allow_tail_tiling", &pragma_allow_tail_tiling_);
     ParseBoolAttr(attrs, "pragma_analyze_multicore", &pragma_analyze_multicore_);
     ParseBoolAttr(attrs, "pragma_checkcoincident", &tile_check_coincident_);
+    ParseIntAttr(attrs, "max_unroll_loop", &max_unroll_loop_);
+    ParseBoolAttr(attrs, "unroll_shared", &unroll_shared_);
 
     ParseBoolAttr(attrs, "pragma_rmselfdep", &remove_self_dependence_);
     ParseBoolAttr(attrs, "pragma_force_rmselfdep", &force_remove_self_dependence_);
@@ -121,12 +186,20 @@ class UserConfig {
     ParseBoolAttr(attrs, "dump_pass_ir", &dump_pass_ir_);
     ParseStringAttr(attrs, "dump_poly_dir", &dump_poly_dir_);
 
+    if (GetTarget() == TARGET_CUDA) {
+      ParseBoolAttr(attrs, "use_register_memory", &use_register_memory_);
+      ParseBoolAttr(attrs, "use_shared_memory", &use_shared_memory_);
+      ParseIntAttr(attrs, "shared_memory_depth", &shared_depth_);
+      ParseStringAttr(attrs, "shared_memory_tensors", &shared_tensors_);
+    }
+
     if (force_remove_self_dependence_) {
       LOG(WARNING) << "pragma_force_rmselfdep should be used with care. "
                    << "It removes all self dependence and cannot ensure that reduce axis do not use multicore.";
     }
   }
 
+  std::string GetTarget() { return target_; }
   // getter for dynamic shape config
   bool GetIsDynamic() const { return is_dynamic_; }
   std::vector<NodeRef> GetDynamicShape() { return dynamic_shape_; }
@@ -135,13 +208,28 @@ class UserConfig {
   bool GetOuterBandNeedSplit() const { return outer_band_need_split_; }
 
   // getter for tiling config
+  MappingCfg *GetBlockConfig() { return &block_cfg_; }
+  MappingCfg *GetThreadConfig() { return &thread_cfg_; }
+  void SetBlockConfig(const std::string &block_cfg) {
+    this->block_cfg_.type = BLOCKS;
+    this->block_cfg_.BindFromStr(block_cfg);
+  }
+  void SetThreadConfig(const std::string &thread_cfg) {
+    this->thread_cfg_.type = THREADS;
+    this->thread_cfg_.BindFromStr(thread_cfg);
+  }
   std::vector<NodeRef> GetCustomTiling() { return custom_tiling_; }
   std::string GetBDim() const { return b_dim_; }
+  void SetDefaultDim(std::string b_dim) { b_dim_ = b_dim; }
   bool GetPragmaSpeedUpTiling() const { return pragma_speedup_tiling_; }
   bool GetPragmaAnalyzeReuseBuffer() const { return pragma_analyze_reuse_buffer_; }
   bool GetPragmaAllowTailTiling() const { return pragma_allow_tail_tiling_; }
   bool GetPragmaAnalyzeMulticore() const { return pragma_analyze_multicore_; }
   bool GetTileCheckCoincident() const { return tile_check_coincident_; }
+  int GetMaxUnrollLoop() const { return max_unroll_loop_; }
+  void SetUnroll(const int max_unroll_loop) { this->max_unroll_loop_ = max_unroll_loop; }
+  bool GetUnrollShared() const { return unroll_shared_; }
+  void SetUnrollShared(const bool unroll_shared) { this->unroll_shared_ = unroll_shared; }
 
   // getter for schedule tree transform config
   bool GetRemoveSelfDependence() const { return remove_self_dependence_; }
@@ -218,6 +306,11 @@ class UserConfig {
   // dump all info
   void DumpScopDataScheduleAttrs(std::ofstream &of);
 
+  bool UseRegisterMemory() { return use_register_memory_; }
+  bool UseSharedMemory() { return use_shared_memory_; }
+  int GetSharedDepth() { return shared_depth_; }
+  std::string GetSharedTensors() { return shared_tensors_; }
+
  private:
   // tools for parsing user config
   static void ParseIntAttr(const Map<std::string, NodeRef> &attrs, const std::string &attr_name, int *attr_to_set) {
@@ -256,6 +349,14 @@ class UserConfig {
     }
   }
 
+  static void ParseMappingCfgAttr(const Map<std::string, NodeRef> &attrs, const std::string &attr_name,
+                                  MappingCfg *attr_to_set) {
+    std::string str_cfg = "";
+    ParseStringAttr(attrs, attr_name, &str_cfg);
+    attr_to_set->type = attr_name == "bind_block" ? BLOCKS : THREADS;
+    attr_to_set->BindFromStr(str_cfg);
+  }
+
   static void ParseCustomTilingAttr(const Map<std::string, NodeRef> &attrs, const std::string &attr_name,
                                     std::vector<NodeRef> *attr_to_set) {
     CHECK(attr_to_set != nullptr);
@@ -287,6 +388,8 @@ class UserConfig {
   }
 
  private:
+  isl::ctx ctx_{isl_ctx_alloc()};
+  std::string target_;
   std::vector<Stmt> outer_let_stmts_;
   std::unordered_set<isl::id, isl::IslIdIslHash> realize_from_input_;
   Binds binds_orig_;
@@ -304,14 +407,26 @@ class UserConfig {
   bool tile_size_is_var_{false};
   bool outer_band_need_split_{false};
 
+  // memory config
+  bool use_register_memory_{true};
+  bool use_shared_memory_{true};
+  // shared memory position in schedule tree
+  int shared_depth_{-1};
+  // shared memory tensor list
+  std::string shared_tensors_;
+
   // tiling config
   std::string b_dim_;
+  MappingCfg block_cfg_;
+  MappingCfg thread_cfg_;
   std::vector<NodeRef> custom_tiling_;
   bool pragma_analyze_reuse_buffer_{true};
   bool pragma_speedup_tiling_{false};
   bool pragma_allow_tail_tiling_{true};
   bool pragma_analyze_multicore_{true};
   bool tile_check_coincident_{true};
+  int max_unroll_loop_{1};
+  bool unroll_shared_{false};
 
   // schedule tree transform config
   bool remove_self_dependence_{true};
@@ -368,6 +483,9 @@ using ReduceMap = std::unordered_map<const Provide *, Array<IterVar>>;
 using CondVarsMap = std::unordered_map<isl::id, std::unordered_set<std::string>, isl::IslIdIslHash>;
 using BufferBindVec = std::vector<std::pair<const NodeRef, const Expr>>;
 
+using Mapping = std::unordered_map<isl::id, isl::union_pw_aff, isl::IslIdIslHash>;
+using UpaNodeMapping = std::vector<std::pair<isl::schedule_node, Mapping>>;
+
 class AnalysisResult {
  public:
   AnalysisResult() = default;
@@ -398,6 +516,8 @@ class AnalysisResult {
   void RecordUpdateTensor(const Tensor &tensor) { update_tensors_.push_back(tensor); }
   void RecordAttrStmt(const AttrStmt *attr_stmt) { attr_stmts_.push_back(attr_stmt); }
 
+  void RecordContextParams(const isl::set &context_params) { context_params_ = context_params; }
+  isl::set GetContextParams() { return context_params_; }
   isl::union_map GetReads() const { return reads_; }
   isl::union_map &GetWrites() { return writes_; }
   isl::union_map GetWrites() const { return writes_; }
@@ -436,7 +556,7 @@ class AnalysisResult {
   }
   void InitScheduleMapBeforeTile(const isl::ctx &ctx) { schedule_map_before_tile_ = isl::union_map::empty(ctx); }
   const isl::union_map &GetScheduleMapBeforeTile() { return schedule_map_before_tile_; }
-  void SetTranstormedSchedule(const isl::schedule &transformed_schedule) {
+  void SetTransformedSchedule(const isl::schedule &transformed_schedule) {
     transformed_schedule_ = transformed_schedule;
   }
   isl::union_set Domain() const { return transformed_schedule_.get_domain(); }
@@ -496,6 +616,7 @@ class AnalysisResult {
   bool is_tiled_{false};
   isl::union_map schedule_map_before_tile_;  // before tiling, after ungroup.
   isl::schedule transformed_schedule_;
+  isl::set context_params_;
 };
 
 class CubeInfo {
@@ -609,7 +730,8 @@ class CubeInfo {
 
 class ScopInfo {
  public:
-  explicit ScopInfo(isl::ctx ctx) : ctx_(ctx), cube_info_(CubeInfo(user_config_, analysis_result_)) {}
+  explicit ScopInfo(isl::ctx ctx)
+      : ctx_(ctx), cube_info_(CubeInfo(user_config_, analysis_result_)), sync_manager_(ctx) {}
   ~ScopInfo() = default;
 
   // dump tools
@@ -656,6 +778,8 @@ class ScopInfo {
   static bool IsRead(const isl::id &id) { return IsEndsWith(id.get_name(), kReadSuffix); }
   static bool IsWrite(const isl::id &id) { return IsEndsWith(id.get_name(), kWriteSuffix); }
   static bool IsGMWrite(const isl::id &id) { return id.get_name() == std::string("GMwrite"); }
+  static bool IsSync(const isl::id &id) { return id.name().find_first_of(SYNC_FLAG) == 0; }
+  static bool IsRealize(const isl::id &id) { return id.get_name().find_first_of("REALIZE") == 0; }
 
  public:
   isl::ctx ctx_;
@@ -663,6 +787,8 @@ class ScopInfo {
   AnalysisResult analysis_result_;
   CubeInfo cube_info_;
   TimeRecords time_records_;
+  SyncManager sync_manager_;
+  UpaNodeMapping upa_node_mapping_;
 };
 
 class PartitionSingle {

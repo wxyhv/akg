@@ -31,7 +31,7 @@
 
 #include "build_module.h"
 #include "contrib/cce_parm/cceconf.h"
-#include "common/util_cce.h"
+#include "common/common_util.h"
 #include "pass/expr_alg_simplify.h"
 #include "pass/utils.h"
 #include "poly/scop_info.h"
@@ -112,7 +112,11 @@ class TileAxis {
     Expr tile_extent_{MIN_TILE};
     std::vector<Expr> cand_factor{};  // list of available factor
   };
-
+  struct MappingConstraint {
+    int64_t map_mod_{MIN_TILE};
+    int64_t map_min_{MIN_TILE};
+    int64_t map_extent_{0};  // 0 means it is not determined yet
+  };
   TileAxis *parent{nullptr};
   int index{0};
   int dim_axis{0};
@@ -122,6 +126,8 @@ class TileAxis {
   Expr range_extent;
   Constraint l1_constraints;
   Constraint l0_constraints;
+  MappingConstraint block_constraints;
+  MappingConstraint thread_constraints;
   std::vector<const For *> loops;
   bool forbid_iso;
   bool is_inner;

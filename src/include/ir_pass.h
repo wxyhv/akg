@@ -190,7 +190,7 @@ Stmt MathIntrinRewrite(Stmt stmt);
  */
 Stmt SinkIfStmt(const Stmt &stmt);
 
-Array<NodeRef> AutoPoly(const Stmt &body, const Map<Tensor, Buffer> &extern_buffer,
+Array<NodeRef> AutoPoly(const Stmt &body, const Map<Tensor, Buffer> &extern_buffer, std::string target,
                         const Map<std::string, NodeRef> &attrs, const bool is_specgemm, const bool is_dynamic);
 
 /*!
@@ -202,7 +202,7 @@ Stmt PromoteIfStmt(Stmt stmt, bool is_dynamic = false);
 
 Stmt PromoteLetStmt(const Stmt &stmt, const Array<NodeRef> &arg_list);
 
-NodeRef GenTuningSpace(const Stmt &body, const Map<Tensor, Buffer> &extern_buffer,
+NodeRef GenTuningSpace(const Stmt &body, std::string target, const Map<Tensor, Buffer> &extern_buffer,
                        const Map<std::string, NodeRef> &attrs, const bool is_specgemm);
 
 Stmt Load3dTrans(Stmt stmt, bool is_dynamic);

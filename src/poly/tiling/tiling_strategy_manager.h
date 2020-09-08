@@ -18,6 +18,7 @@
 
 #include <iostream>
 #include <algorithm>
+#include <deque>
 
 #include "poly/tiling/tiling_analyzer.h"
 
@@ -26,16 +27,40 @@ namespace ir {
 namespace poly {
 class TilingStrategy {
  public:
-  explicit TilingStrategy(const TilingAnalyzer *a) : analyzer_(a) {}
+  explicit TilingStrategy(const TilingAnalyzer *a) : analyzer_(a), target_(a->scop_info_.user_config_.GetTarget()) {}
   ~TilingStrategy() {}
-  virtual void AddConstraint(){};
+  virtual void AddDavinciConstraint(){};
+  virtual void AddGpuConstraint(){};
+
   std::string interested_attr_key;
 
  protected:
   const TilingAnalyzer *analyzer_;
-
+  std::string target_;
   std::unordered_map<TileAxis *, std::vector<AttrInfo>> GetInterestedInfo(const std::string &attr_key,
-                                                                          bool match_whole_word = true);
+                                                                          bool match_whole_word = true) {
+    std::unordered_map<TileAxis *, std::vector<AttrInfo>> result;
+    std::vector<TileAxis *> axes =
+      match_whole_word ? analyzer_->GetAxesOfAttr(attr_key) : analyzer_->GetAxesContainsAttr(attr_key);
+    for (auto a : axes) {
+      std::vector<AttrInfo> info;
+      for (const auto &attr : a->attrs) {
+        if ((match_whole_word && attr.attr_key != attr_key) ||
+            (!match_whole_word && attr.attr_key.find(attr_key) == std::string::npos)) {
+          continue;
+        }
+        info.emplace_back(attr);
+      }
+      result[a] = info;
+    }
+    return result;
+  }
+
+  // gpu configs
+  int64_t warp_sizes_ = 32;
+  int64_t max_num_blocks_ = 256 * 256;
+  int64_t max_num_threads_ = 1024;
+  size_t max_dim_ = 3;
 };
 
 class TilingStrategyManager {
@@ -54,7 +79,13 @@ class TilingStrategyManager {
 
   void Execute() {
     for (auto strategy : this->strategies_) {
-      strategy->AddConstraint();
+      strategy->AddDavinciConstraint();
+    }
+  }
+
+  void ExecuteGpu() {
+    for (auto strategy : this->strategies_) {
+      strategy->AddGpuConstraint();
     }
   }
 
@@ -67,7 +98,9 @@ class CustomTilingStrategy : public TilingStrategy {
  public:
   explicit CustomTilingStrategy(const TilingAnalyzer *a) : TilingStrategy(a) {}
   ~CustomTilingStrategy() {}
-  void AddConstraint();
+  void AddDavinciConstraint();
+  void AddGpuConstraint();
+
 
   std::string interested_attr_key = "CUSTOM";
 };
@@ -76,14 +109,17 @@ class ConflictTreeRangeStrategy : public TilingStrategy {
  public:
   explicit ConflictTreeRangeStrategy(const TilingAnalyzer *a) : TilingStrategy(a) {}
   ~ConflictTreeRangeStrategy() {}
-  void AddConstraint();
+  void AddDavinciConstraint();
+  void AddGpuConstraint();
+
 };
 
 class ModStrategy : public TilingStrategy {
  public:
   explicit ModStrategy(const TilingAnalyzer *a) : TilingStrategy(a) {}
   ~ModStrategy() {}
-  void AddConstraint();
+  void AddDavinciConstraint();
+  void AddGpuConstraint();
 
   std::string interested_attr_key = "MOD";
 };
@@ -93,7 +129,8 @@ class CastStrategy : public TilingStrategy {
  public:
   explicit CastStrategy(const TilingAnalyzer *a) : TilingStrategy(a) {}
   ~CastStrategy() {}
-  void AddConstraint();
+  void AddDavinciConstraint();
+  void AddGpuConstraint();
 
   std::string interested_attr_key = "CAST";
 };
@@ -102,22 +139,27 @@ class ReduceStrategy : public TilingStrategy {
  public:
   explicit ReduceStrategy(const TilingAnalyzer *a) : TilingStrategy(a) {}
   ~ReduceStrategy() {}
-  void AddConstraint();
+  void AddDavinciConstraint();
+  void AddGpuConstraint();
+
 };
 
 class VectorizedStrategy : public TilingStrategy {
  public:
   explicit VectorizedStrategy(const TilingAnalyzer *a) : TilingStrategy(a) {}
   ~VectorizedStrategy() {}
-  void AddConstraint();
+  void AddDavinciConstraint();
+  void AddGpuConstraint();
+
 };
 
 class DmaAlignStrategy : public TilingStrategy {
  public:
   explicit DmaAlignStrategy(const TilingAnalyzer *a) : TilingStrategy(a) {}
   ~DmaAlignStrategy() {}
-  void AddConstraint();
-  
+  void AddDavinciConstraint();
+  void AddGpuConstraint();
+
   std::string interested_attr_key = "ALIGN";
 };
 
@@ -125,21 +167,26 @@ class TensorOfTensorStrategy : public TilingStrategy {
  public:
   explicit TensorOfTensorStrategy(const TilingAnalyzer *a) : TilingStrategy(a) {}
   ~TensorOfTensorStrategy() {}
-  void AddConstraint();
+  void AddDavinciConstraint();
+  void AddGpuConstraint();
+
 };
 
 class PassDownAttrStrategy : public TilingStrategy {
  public:
   explicit PassDownAttrStrategy(const TilingAnalyzer *a) : TilingStrategy(a) {}
   ~PassDownAttrStrategy() {}
-  void AddConstraint();
+  void AddDavinciConstraint();
+  void AddGpuConstraint();
+
 };
 
 class DynamicShapeLimitStrategy : public TilingStrategy {
  public:
   explicit DynamicShapeLimitStrategy(const TilingAnalyzer *a) : TilingStrategy(a) {}
   ~DynamicShapeLimitStrategy() {}
-  void AddConstraint();
+  void AddDavinciConstraint();
+  void AddGpuConstraint();
 
   std::string interested_attr_key = "DYN_SHAPE_LIMIT";
 };
@@ -148,7 +195,8 @@ class ShiftAxisStrategy : public TilingStrategy {
  public:
   explicit ShiftAxisStrategy(const TilingAnalyzer *a) : TilingStrategy(a) {}
   ~ShiftAxisStrategy() {}
-  void AddConstraint();
+  void AddDavinciConstraint();
+  void AddGpuConstraint();
 
   std::string interested_attr_key = "SHIFT";
 };
@@ -157,7 +205,8 @@ class ModShiftAxisStrategy : public TilingStrategy {
  public:
   explicit ModShiftAxisStrategy(const TilingAnalyzer *a) : TilingStrategy(a) {}
   ~ModShiftAxisStrategy() {}
-  void AddConstraint();
+  void AddDavinciConstraint();
+  void AddGpuConstraint();
 
   std::string interested_attr_key = "MODSHIFT";
 };
@@ -166,7 +215,8 @@ class DynamicBoundStrategy : public TilingStrategy {
  public:
   explicit DynamicBoundStrategy(const TilingAnalyzer *a) : TilingStrategy(a) {}
   ~DynamicBoundStrategy() {}
-  void AddConstraint();
+  void AddDavinciConstraint();
+  void AddGpuConstraint();
 
   std::string interested_attr_key = "DYNAMIC_BOUND";
 };
@@ -175,7 +225,8 @@ class ConvStrategy : public TilingStrategy {
  public:
   explicit ConvStrategy(const TilingAnalyzer *a) : TilingStrategy(a) {}
   ~ConvStrategy() {}
-  void AddConstraint();
+  void AddDavinciConstraint();
+  void AddGpuConstraint();
 
   std::string interested_attr_key = "CONV";
 
@@ -190,9 +241,59 @@ class GemmStrategy : public TilingStrategy {
  public:
   explicit GemmStrategy(const TilingAnalyzer *a) : TilingStrategy(a) {}
   ~GemmStrategy() {}
-  void AddConstraint();
+  void AddDavinciConstraint();
+  void AddGpuConstraint();
 
   std::string interested_attr_key = "GEMM";
+};
+
+class GpuStrategy : public TilingStrategy {
+ public:
+  explicit GpuStrategy(const TilingAnalyzer *a) : TilingStrategy(a) {}
+  ~GpuStrategy() {}
+  enum Template {
+    DEFAULT = 0,
+    PURE_ELEM,
+    REDUCTION,
+    ALL_REDUCE,
+    TRANSPOSE,
+  };
+  void AddDavinciConstraint();
+  void AddGpuConstraint();
+
+ private:
+  bool IsElemWiseAxis(TileAxis *axis);
+
+  void DetermineTemplate();
+
+  // Step 0. Init mapping limit according to operation type.
+  void InitMappingLimit();
+
+  // Step 1. Collect axes and sort them from inner to outer
+  void BuildAxesQueue();
+
+  /*
+   * Step 2. Tile inner axes first and map them to threads, and then tile outer axis and map the rest of them to blocks.
+   * e.g.
+   *   input: add op with shape [2, 32, 256, 32, 32]
+   *   tile size: [1, 1, 1, 32, 32]
+   *   band after tile:  [2, 32, 256, 1, 1] -> child [1, 1, 1, 32, 32]
+   *   mapping: [2(b0), 32(b1), 4(b2), 1, 1] -> child [1, 1, 1, 32(t1), 32(t0)]
+   */
+  void InnerThreadOuterBlock();
+
+  int64_t GetThreadSize(const int64_t rest_threads, const int64_t shape);
+
+  // Step 3. Transform list of integer into string mapping config.
+  void SetMappingConfig();
+
+  Template template_{Template::DEFAULT};
+  std::deque<std::pair<TileAxis *, int64_t>> pending_axes_;
+  std::vector<int64_t> block_limit_;
+  std::vector<int64_t> thread_limit_;
+  std::vector<int64_t> block_cfg_;
+  std::vector<int64_t> thread_cfg_;
+  std::unordered_set<std::string> excluded_attr_ = {"REDUCE_AXIS", "TRANSPOSE"};
 };
 
 class MulticoreStrategy {

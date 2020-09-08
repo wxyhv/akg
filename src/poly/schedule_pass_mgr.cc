@@ -39,9 +39,17 @@ isl::schedule SchedulePassMgr::Run(const isl::schedule &sch, const std::vector<s
   scop_info_.ClearTimeRecords();
 
   auto final_sch = sch;
+  auto replace_sch = sch;
   need_restart_ = false;
 
   for (auto &pass : passes) {
+    if (LoadScheduleTreeFromFile(scop_info_.AddDumpDir(pass->GetPassName() + ".txt"), replace_sch)) {
+      if (!replace_sch.plain_is_equal(final_sch)) {
+        final_sch = replace_sch;
+        LOG(WARNING) << (pass->GetPassName() + " input schedule had been replaced  !!!");
+      }
+    }
+
     std::stringstream time_log;
     TIMER_START;
     final_sch = pass->Run(final_sch);

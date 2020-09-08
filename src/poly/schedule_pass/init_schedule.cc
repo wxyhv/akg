@@ -72,7 +72,9 @@ isl::schedule InitSchedule::Run(isl::schedule sch) {
   pass_info_.dependences_ = ComputeAllDependences(sch, scop_info_.analysis_result_.GetReads(),
                                                   scop_info_.analysis_result_.GetWrites());
   pass_info_.orig_dependences_ = pass_info_.dependences_;
-  ModDependencesBeforeGroup(sch);
+  if (scop_info_.user_config_.GetTarget() != TARGET_CUDA) {
+    ModDependencesBeforeGroup(sch);
+  }
   return sch;
 }
 

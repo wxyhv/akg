@@ -474,6 +474,7 @@ Tensor ScopInfo::FindTensorWithLargestShape(const std::string &name) {
       }
     }
   }
+
   if (largest_size > 0) return largest_tensor;
   CHECK(false) << name << " is not declared in binds and promoted arrays";
   return Tensor();
@@ -509,6 +510,7 @@ Tensor ScopInfo::FindTensor(const isl::id &var) {
       return i.first;
     }
   }
+
   CHECK(false) << var.to_str() << " is not declared in binds and promoted arrays";
   return Tensor();
 }
@@ -1243,6 +1245,10 @@ static std::string MemTypeToString(const MemType &memType) {
       return "L0C";
     case MemType::DDR:
       return "GM";
+    case MemType::SHARED_:
+      return "SHARED";
+    case MemType::LOCAL_:
+      return "LOCAL";
     default:
       return "";
   }

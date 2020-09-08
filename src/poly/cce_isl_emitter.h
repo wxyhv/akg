@@ -22,17 +22,6 @@
 namespace akg {
 namespace ir {
 namespace poly {
-using IslIdSet = std::unordered_set<isl::id, isl::IslIdIslHash>;
-class Liveness {
- public:
-  std::vector<IslIdSet> must_def_;
-  std::vector<IslIdSet> may_def_;
-  std::vector<IslIdSet> use_;
-  std::vector<IslIdSet> use_with_may_def_;
-  std::vector<IslIdSet> out_;
-  std::vector<IslIdSet> read_;
-  std::vector<IslIdSet> write_;
-};
 enum AtomicType { Equ = 0, Add };
 /*!
  * IslEmitter for CCE

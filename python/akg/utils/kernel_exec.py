@@ -49,6 +49,9 @@ logging.getLogger().setLevel(logging.INFO)
 
 rpc_machine = {}
 rpc_lb = {}
+
+kc_air_mode = "CCE"
+
 PERFORMANCE_TEST_FILE = "PERFORMANCE_TEST_FILE"
 BINDS = "binds"
 CUDA = "cuda"
@@ -401,7 +404,10 @@ def profiling_analyse(device_id):
 
 def mod_launch_air(mod, args, outputs):
     """launch mod on kc_air."""
-    ctx = akg.tvm.ndarray.cce(0)
+    if kc_air_mode == "CUDA":
+        ctx = akg.tvm.ndarray.gpu(0)
+    else:
+        ctx = akg.tvm.ndarray.cce(0)
     arg_list = []
     for a in args:
         if isinstance(a, np.ndarray):
@@ -743,12 +749,14 @@ def op_build(op_func, input_shapes, input_types, op_attrs=None, kernel_name="",
     if sch_tmpl is not None:
         if sch_tmpl['target'] != 'cuda':
             raise ValueError("Only support cuda as target when using schedule template.")
+        global kc_air_mode
+        kc_air_mode = "CUDA"
         kernel_name = kernel_name if kernel_name != "" else sch_tmpl['op_name']
         with akg.tvm.target.cuda() as target:
             s = sch_tmpl['schedule'](sch_tmpl['output'])
             with akg.tvm.build_config(dump_pass_ir=dump_ir):
                 mod = akg.build(s, op_var, "cuda", shape_var, name=kernel_name, attrs=attrs,
-                                polyhedral=polyhedral, binds=gpu_binds)
+                                polyhedral=False, binds=binds)
                 if dump_code:
                     source_code = mod.imported_modules[0].get_source()
                     create_code(kernel_name, "./", source_code, "CUDA")
@@ -873,3 +881,4 @@ class TestUtils:
             result_file = os.environ.get(PERFORMANCE_TEST_FILE)
             with open(result_file, "a+") as f:
                 f.write("{0}; ".format(get_core_num()))
+

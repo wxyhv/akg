@@ -154,7 +154,9 @@ void TileAxis::DumpAxis(bool on_screen) {
     ss << it.first << ":" << it.second << ", ";
   }
   ss << "} | Align to = " << this->l1_constraints.tile_mod_ << "| L0 Tile [" << this->l0_constraints.tile_min_ << ","
-     << this->l0_constraints.tile_extent_ << "]"
+     << this->l0_constraints.tile_extent_ << "] "
+     << "| Thread mapping constraints: [" << this->thread_constraints.map_min_ << ", " << this->thread_constraints.map_extent_ << "]"
+     << "| Block mapping constraints: [" << this->block_constraints.map_min_ << ", " << this->block_constraints.map_extent_ << "]"
      << "| Align to = " << this->l0_constraints.tile_mod_ << "| Forbid isolate = " << this->forbid_iso
      << "| Multi-core support = " << this->mc_sup << "| Priority = " << this->priority << "| Loops : {";
   for (auto loop : this->loops) {
@@ -1319,8 +1321,25 @@ int TilingAnalyzer::GetNumOfAxisInBand(int band_idx) const {
 }
 
 void TilingAnalyzer::AddTilingConstraints() {
+  TilingStrategyManager &strategy_manager = TilingStrategyManager::GetInstance();
   std::vector<TilingStrategy *> actived_strategies;
 
+  if (scop_info_.user_config_.GetTarget() == TARGET_CUDA) {
+    ModStrategy mod_strategy(this);
+    actived_strategies.push_back(&mod_strategy);
+    
+    ReduceStrategy reduce_strategy(this);
+    actived_strategies.push_back(&reduce_strategy);
+
+    GpuStrategy gpu_strategy(this);
+    actived_strategies.push_back(&gpu_strategy);
+    
+    strategy_manager.SetStrategies(actived_strategies);
+    strategy_manager.ExecuteGpu();
+    return;
+  }
+
+  // CCE strategies
   PassDownAttrStrategy pd_attr_strategy(this);
   actived_strategies.push_back(&pd_attr_strategy);
 
@@ -1362,7 +1381,6 @@ void TilingAnalyzer::AddTilingConstraints() {
   DynamicBoundStrategy dyn_bound_strategy(this);
   actived_strategies.push_back(&dyn_bound_strategy);
 
-  TilingStrategyManager &strategy_manager = TilingStrategyManager::GetInstance();
   strategy_manager.SetStrategies(actived_strategies);
   strategy_manager.Execute();
 }
@@ -1586,9 +1604,11 @@ int TileCandidate::GetCoreNumConf() {
 int64_t TilingAnalyzer::FindDivisibleTilingFactor(int64_t limit, int64_t range) {
   CHECK(range > 0 && limit > 0) << "Need positive range and limit.";
   if (range <= limit) return range;
-  int64_t exp = range / limit;
+  int64_t exp = (range - 1 + limit) / limit;
   int64_t init = exp > 2 ? exp : 2;
-  for (auto div = init; div < static_cast<int>(sqrt(range)); ++div) {
+  int64_t end = static_cast<int>(sqrt(range));
+  end = end <= init ? range : end;
+  for (auto div = init; div < end; ++div) {
     if (range % div == 0) return (range / div);
   }
   return 1;

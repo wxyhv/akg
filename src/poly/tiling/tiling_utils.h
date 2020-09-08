@@ -32,7 +32,7 @@ enum DavinciMemScope {
   MEM_SCOPE_L0C,
   MEM_SCOPE_BULK,
 };
-enum LogStage { ANA_SCHETREE, ANA_BUF_LIVE_EXTENT, ANA_TILING_SPACE, DO_TILING, DO_TUNING, MICRO_TUNING };
+enum LogStage { ANA_SCHETREE, ANA_BUF_LIVE_EXTENT, ANA_TILING_SPACE, DO_TILING, DO_TUNING, MICRO_TUNING, GPU_MAPPING };
 
 class DavinciInfo {
  public:
@@ -89,7 +89,8 @@ class TileLogger {
   LogFile analyze_tiling_space_stage_;
   LogFile do_tiling_stage_;
   LogFile do_tuning_stage_;
-  LogFile micro_tuning_strage_;
+  LogFile micro_tuning_stage_;
+  LogFile gpu_mapping_stage_;
 };
 }  // namespace poly
 }  // namespace ir

@@ -60,7 +60,8 @@ Stmt SpecGemmBuilder::Build(const Expr &mad_init_cond) {
   attrs.Set("dump_pass_ir", makeIntImm(info_.user_config_.GetDumpPassIr()));
   attrs.Set("dump_poly_dir", StringImm::make(info_.user_config_.GetDumpPolyDir()));
   attrs.Set("pragma_tilesize_is_var", makeIntImm(info_.user_config_.GetTileSizeIsVar()));
-  Array<NodeRef> res_poly = AutoPoly(res, gemm_binds, attrs, true, info_.user_config_.GetIsDynamic());
+  Array<NodeRef> res_poly =
+    AutoPoly(res, gemm_binds, info_.user_config_.GetTarget(), attrs, true, info_.user_config_.GetIsDynamic());
   CHECK_GE(res_poly.size(), 1);
   PartitionSingle::free();
   return air::Downcast<Stmt>(res_poly[0]);
@@ -83,8 +84,9 @@ Expr SpecGemmBuilder::ReplacePragmaPrimeByVar(Expr pragma) {
 }
 
 void SpecGemmBuilder::BuildConvGemmFeatureBand(Binds &new_bind) {
-  std::string a_name = info_.cube_info_.IsConvBackpropFilter() ? info_.cube_info_.fractal_str_info_[ATTR_CONV_GMM_WEIGHT]
-                                                          : info_.cube_info_.fractal_str_info_[ATTR_CONV_GMM_FEATURE];
+  std::string a_name = info_.cube_info_.IsConvBackpropFilter()
+                         ? info_.cube_info_.fractal_str_info_[ATTR_CONV_GMM_WEIGHT]
+                         : info_.cube_info_.fractal_str_info_[ATTR_CONV_GMM_FEATURE];
   Tensor a = info_.FindTensor(a_name);
   if (!CheckFeatureTensorShape(a->shape)) {
     Array<Expr> fm_shapes;
@@ -123,8 +125,9 @@ void SpecGemmBuilder::BuildConvGemmFeatureBand(Binds &new_bind) {
 }
 
 void SpecGemmBuilder::BuildConvGemmFilterBand(Binds &new_bind) {
-  std::string b_name = info_.cube_info_.IsConvBackpropFilter() ? info_.cube_info_.fractal_str_info_[ATTR_CONV_GMM_FEATURE]
-                                                          : info_.cube_info_.fractal_str_info_[ATTR_CONV_GMM_WEIGHT];
+  std::string b_name = info_.cube_info_.IsConvBackpropFilter()
+                         ? info_.cube_info_.fractal_str_info_[ATTR_CONV_GMM_FEATURE]
+                         : info_.cube_info_.fractal_str_info_[ATTR_CONV_GMM_WEIGHT];
   Tensor b = info_.FindTensor(b_name);
   if (!CheckFilterTensorShape(b->shape)) {
     Array<Expr> filter_shapes;
@@ -188,7 +191,8 @@ void SpecGemmBuilder::BuildConvGemmResultBand(Binds &new_bind) {
     }
   }
   Tensor t = placeholder(shapes, info_.cube_info_.MadCastType(), info_.cube_info_.fractal_str_info_[ATTR_CONV_GMM_RES]);
-  const Buffer buffer = decl_buffer(shapes, info_.cube_info_.MadCastType(), info_.cube_info_.fractal_str_info_[ATTR_CONV_GMM_RES]);
+  const Buffer buffer =
+    decl_buffer(shapes, info_.cube_info_.MadCastType(), info_.cube_info_.fractal_str_info_[ATTR_CONV_GMM_RES]);
   new_bind.Set(t, buffer);
 }
 

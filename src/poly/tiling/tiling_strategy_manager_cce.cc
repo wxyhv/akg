@@ -14,32 +14,16 @@
  * limitations under the License.
  */
 #include "tiling_strategy_manager.h"
+
 #include <numeric>
-#include <iostream>
+
+#include "tiling_analyzer.h"
 
 namespace akg {
 namespace ir {
 namespace poly {
-std::unordered_map<TileAxis *, std::vector<AttrInfo>> TilingStrategy::GetInterestedInfo(const std::string &attr_key,
-                                                                                        bool match_whole_word) {
-  std::unordered_map<TileAxis *, std::vector<AttrInfo>> result;
-  std::vector<TileAxis *> axes =
-    match_whole_word ? analyzer_->GetAxesOfAttr(attr_key) : analyzer_->GetAxesContainsAttr(attr_key);
-  for (auto a : axes) {
-    std::vector<AttrInfo> info;
-    for (const auto &attr : a->attrs) {
-      if ((match_whole_word && attr.attr_key != attr_key) ||
-          (!match_whole_word && attr.attr_key.find(attr_key) == std::string::npos)) {
-        continue;
-      }
-      info.emplace_back(attr);
-    }
-    result[a] = info;
-  }
-  return result;
-}
 
-void CustomTilingStrategy::AddConstraint() {
+void CustomTilingStrategy::AddDavinciConstraint() {
   auto interested_info = GetInterestedInfo(interested_attr_key, false);
   for (auto it : interested_info) {
     TileAxis *axis = it.first;
@@ -113,7 +97,7 @@ void CustomTilingStrategy::AddConstraint() {
   }
 }
 
-void ConflictTreeRangeStrategy::AddConstraint() {
+void ConflictTreeRangeStrategy::AddDavinciConstraint() {
   auto ApplyConflictStrategy = [](TileAxis *axis) {
     int64_t const_extent = axis->GetConstExtent();
     if (const_extent == -1) {
@@ -174,7 +158,7 @@ void ConflictTreeRangeStrategy::AddConstraint() {
   analyzer_->ForEachAxisTopDown(CheckRange);
 }
 
-void ModStrategy::AddConstraint() {
+void ModStrategy::AddDavinciConstraint() {
   auto interested_info = GetInterestedInfo(interested_attr_key);
   for (auto it : interested_info) {
     TileAxis *axis = it.first;
@@ -186,7 +170,7 @@ void ModStrategy::AddConstraint() {
   }
 }
 
-void CastStrategy::AddConstraint() {
+void CastStrategy::AddDavinciConstraint() {
   auto interested_info = GetInterestedInfo(interested_attr_key);
   for (auto it : interested_info) {
     TileAxis *axis = it.first;
@@ -211,13 +195,13 @@ void CastStrategy::AddConstraint() {
   }
 }
 
-void ReduceStrategy::AddConstraint() {
+void ReduceStrategy::AddDavinciConstraint() {
   for (auto axis : analyzer_->GetAxesOfAttr("REDUCE_DST_LAST")) {
     axis->l1_constraints.tile_min_ = CastInt64ToExpr(GetMaxAlignBytes(axis->data_size));
   }
 }
 
-void VectorizedStrategy::AddConstraint() {
+void VectorizedStrategy::AddDavinciConstraint() {
   if (analyzer_->op_type_ != VECTOR_OP) {
     return;
   }
@@ -240,10 +224,9 @@ void VectorizedStrategy::AddConstraint() {
   }
 }
 
-void DmaAlignStrategy::AddConstraint() {
+void DmaAlignStrategy::AddDavinciConstraint() {
   for (auto axis : analyzer_->GetAxesContainsAttr("ALIGN")) {
     for (const auto &attr : axis->attrs) {
-      LOG(INFO) << attr.attr_key;
       if ((attr.attr_key.find("ALIGN") == std::string::npos) || (attr.attr_key.find("DMA") == std::string::npos)) {
         continue;
       }
@@ -269,20 +252,20 @@ void DmaAlignStrategy::AddConstraint() {
   }
 }
 
-void TensorOfTensorStrategy::AddConstraint() {
+void TensorOfTensorStrategy::AddDavinciConstraint() {
   for (auto axis : analyzer_->GetAxesOfAttr("TOT")) {
     if (!axis->HasAttr("ALIGN:DMA")) continue;
     axis->TileRestrainToSingleValue(CastIntToExpr(MIN_TILE), LEVEL1);
   }
 }
 
-void PassDownAttrStrategy::AddConstraint() {
+void PassDownAttrStrategy::AddDavinciConstraint() {
   for (auto axis : analyzer_->GetAxesOfAttr(AttrInfo{"ATTR", "pass_down"})) {
     axis->TileRestrainEntire(LEVEL1);
   }
 }
 
-void DynamicShapeLimitStrategy::AddConstraint() {
+void DynamicShapeLimitStrategy::AddDavinciConstraint() {
   auto interested_info = GetInterestedInfo(interested_attr_key);
   for (auto it : interested_info) {
     TileAxis *axis = it.first;
@@ -293,7 +276,7 @@ void DynamicShapeLimitStrategy::AddConstraint() {
   }
 }
 
-void DynamicBoundStrategy::AddConstraint() {
+void DynamicBoundStrategy::AddDavinciConstraint() {
   auto interested_info = GetInterestedInfo(interested_attr_key);
   for (auto it : interested_info) {
     TileAxis *axis = it.first;
@@ -306,7 +289,7 @@ void DynamicBoundStrategy::AddConstraint() {
   }
 }
 
-void ShiftAxisStrategy::AddConstraint() {
+void ShiftAxisStrategy::AddDavinciConstraint() {
   auto interested_info = GetInterestedInfo(interested_attr_key);
   for (auto it : interested_info) {
     TileAxis *axis = it.first;
@@ -323,7 +306,7 @@ void ShiftAxisStrategy::AddConstraint() {
   }
 }
 
-void ModShiftAxisStrategy::AddConstraint() {
+void ModShiftAxisStrategy::AddDavinciConstraint() {
   auto interested_info = GetInterestedInfo(interested_attr_key);
   for (auto it : interested_info) {
     TileAxis *axis = it.first;
@@ -347,7 +330,7 @@ void ModShiftAxisStrategy::AddConstraint() {
   }
 }
 
-void ConvStrategy::AddConstraint() {
+void ConvStrategy::AddDavinciConstraint() {
   conv_info_ = analyzer_->scop_info_.cube_info_.GetConvInfoForTiling();
   auto interested_info = GetInterestedInfo(interested_attr_key);
   for (auto it : interested_info) {
@@ -391,8 +374,8 @@ void ConvStrategy::RestrainH(TileAxis *axis) {
   Expr k_h_d = (k_h - 1) * d_h + 1;
   int tile_out_h = MIN_TILE + 1;
   while (arith_ana_.CanProve(
-    ((air::ir::FloorDiv::make((axis->range_extent + tile_out_h - 1), CastIntToExpr(tile_out_h)) - 1) * tile_out_h -
-     1) * s_h +
+    ((air::ir::FloorDiv::make((axis->range_extent + tile_out_h - 1), CastIntToExpr(tile_out_h)) - 1) * tile_out_h - 1) *
+          s_h +
         k_h_d >
       h + p_top &&
     tile_out_h <= axis->range_extent)) {
@@ -416,8 +399,8 @@ void ConvStrategy::RestrainW(TileAxis *axis) {
   Expr k_w_d = (k_w - 1) * d_w + 1;
   int tile_out_w = 1;
   while (arith_ana_.CanProve(
-    ((air::ir::FloorDiv::make((axis->range_extent + tile_out_w - 1), CastIntToExpr(tile_out_w)) - 1) * tile_out_w -
-     1) * s_w +
+    ((air::ir::FloorDiv::make((axis->range_extent + tile_out_w - 1), CastIntToExpr(tile_out_w)) - 1) * tile_out_w - 1) *
+          s_w +
         k_w_d >
       w + p_left &&
     tile_out_w <= axis->range_extent)) {
@@ -426,7 +409,7 @@ void ConvStrategy::RestrainW(TileAxis *axis) {
   axis->l1_constraints.tile_min_ = CastIntToExpr(tile_out_w);
 }
 
-void GemmStrategy::AddConstraint() {
+void GemmStrategy::AddDavinciConstraint() {
   auto interested_info = GetInterestedInfo(interested_attr_key);
   for (auto it : interested_info) {
     TileAxis *axis = it.first;
@@ -444,6 +427,8 @@ void GemmStrategy::AddConstraint() {
     }
   }
 }
+
+void GpuStrategy::AddDavinciConstraint() {}
 
 // Adjust max core for element-wise and inner-most reduction operations to balance core number and granularity.
 int MulticoreStrategy::GetProposalCoreNum() {

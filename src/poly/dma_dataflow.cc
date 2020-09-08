@@ -20,6 +20,12 @@
 namespace akg {
 namespace ir {
 namespace poly {
+
+isl::id GpuDstId(GpuMemType type, isl::id tensor_id) {
+  std::string pos_fix = (type == GpuMemType::SHARED ? "_shared" : "_local");
+  return isl::id(tensor_id.ctx(), tensor_id.get_name() + pos_fix);
+}
+
 bool BufferDefInfo::CompareScheduleMarkNode(const isl::schedule_node_mark &mark1,
                                             const isl::schedule_node_mark &mark2) {
   return (mark1.get_id().get_name() == mark2.get_id().get_name());
@@ -29,9 +35,9 @@ std::shared_ptr<TensorFootprintCluster> BufferDefInfo::GetFootPrintCluster(const
   for (const auto &key : footprint_cluster_map) {
     if (key.first.isa<isl::schedule_node_mark>() && mark_node.isa<isl::schedule_node_mark>() &&
         CompareScheduleMarkNode(key.first.as<isl::schedule_node_mark>(), mark_node.as<isl::schedule_node_mark>())) {
-      isl::union_map map1 = LocalSchedule(key.first);
-      isl::union_map map2 = LocalSchedule(mark_node);
-      if (map1.is_equal(map2)) return key.second;
+      isl::union_map umap1 = LocalSchedule(key.first);
+      isl::union_map umap2 = LocalSchedule(mark_node);
+      if (umap1.is_equal(umap2)) return key.second;
     }
   }
   /************************
@@ -45,6 +51,18 @@ std::shared_ptr<TensorFootprintCluster> BufferDefInfo::GetFootPrintCluster(const
   }
   return nullptr;
 }
+
+std::shared_ptr<TensorFootprintCluster> BufferDefInfo::GetFootPrintClusterGPU(const isl::schedule_node &node) {
+  for (const auto &key : footprint_cluster_map) {
+    if (key.first.isa<isl::schedule_node_band>() && node.isa<isl::schedule_node_band>()) {
+      isl::union_map umap1 = LocalSchedule(key.first);
+      isl::union_map umap2 = LocalSchedule(node);
+      if (umap1.is_equal(umap2)) return key.second;
+    }
+  }
+  return nullptr;
+}
+
 std::vector<size_t> BufferDefInfo::TensorSize(const isl::schedule_node &mark_node) {
   std::vector<size_t> res;
   /********************************************

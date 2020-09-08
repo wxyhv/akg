@@ -406,11 +406,20 @@ void ScopInfo::DumpScopDataAdvanced(std::ofstream &of) {
 
   PrintHeader(of, "active_buffer_footprints");
   for (const auto &active_buffer_footprint : analysis_result_.active_buffer_footprints_) {
-    of << "cluster_id : " << active_buffer_footprint.second.cluster_id << std::endl
-       << "domain : " << FormatMupaStr(active_buffer_footprint.first) << std::endl
-       << "cluster : " << *(active_buffer_footprint.second.cluster) << std::endl
-       << "outer_schedule : " << FormatMupaStr(active_buffer_footprint.second.outer_schedule) << std::endl
-       << std::endl;
+    bool empty_cluster = (active_buffer_footprint.second.cluster.get() == nullptr);
+    if (!empty_cluster) {
+      of << "cluster_id : " << active_buffer_footprint.second.cluster_id << std::endl
+         << "domain : " << FormatMupaStr(active_buffer_footprint.first) << std::endl
+         << "cluster : " << *(active_buffer_footprint.second.cluster) << std::endl
+         << "outer_schedule : " << FormatMupaStr(active_buffer_footprint.second.outer_schedule) << std::endl
+         << std::endl;
+    } else {
+      of << "cluster_id : " << active_buffer_footprint.second.cluster_id << std::endl
+         << "domain : " << FormatMupaStr(active_buffer_footprint.first) << std::endl
+         << "cluster : null " << std::endl
+         << "outer_schedule : " << FormatMupaStr(active_buffer_footprint.second.outer_schedule) << std::endl
+         << std::endl;
+    }
   }
 
   PrintHeader(of, "buffered_decl_infos");

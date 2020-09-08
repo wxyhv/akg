@@ -490,6 +490,14 @@ NodeRef Lower(Schedule sch, const Array<NodeRef> &in_args, const Array<NodeRef> 
   Stmt stmt = make_pass("schedule.ScheduleOps", new_sch, bounds, false);
 
   if (target == "cuda") {
+    if (polyhedral) {
+      Array<NodeRef> poly_res = NEXT_PASS(AutoPoly, stmt, binds_0, target, global_attrs, false, false);
+      CHECK_EQ(poly_res.size(), 2);
+      stmt = air::Downcast<Stmt>(poly_res[0]);
+      global_attrs.Set(kEnablePolySch, air::make_const(Int(32), true));
+    } else {
+      global_attrs.Set(kEnablePolySch, air::make_const(Int(32), false));
+    }
     // Phase 1
     stmt = NEXT_PASS(RemoveFakeOp, stmt);
     stmt = NEXT_PASS(RewriteForTensorCore, stmt, new_sch, binds_0);
@@ -516,6 +524,9 @@ NodeRef Lower(Schedule sch, const Array<NodeRef> &in_args, const Array<NodeRef> 
     stmt = NEXT_PASS(RemoveNoOp, stmt);
     if (config->instrument_bound_checkers) {
       stmt = NEXT_PASS(InstrumentBoundCheckers, stmt);
+    }
+    if (!config->disable_select_rewriting) {
+      stmt = NEXT_PASS(RewriteUnsafeSelect, stmt);
     }
     if (simple_mode) {
       return stmt;
@@ -629,7 +640,7 @@ NodeRef Lower(Schedule sch, const Array<NodeRef> &in_args, const Array<NodeRef> 
 
       Map<std::string, NodeRef> attrs_1 = global_attrs;
       attrs_1.Set(kDumpTuningLevel, air::make_const(Int(32), level));
-      NodeRef tuning_spaces = NEXT_PASS(GenTuningSpace, stmt, binds_0, attrs_1, false);
+      NodeRef tuning_spaces = NEXT_PASS(GenTuningSpace, stmt, target, binds_0, attrs_1, false);
       return tuning_spaces;
     }
   }
@@ -642,7 +653,7 @@ NodeRef Lower(Schedule sch, const Array<NodeRef> &in_args, const Array<NodeRef> 
   Stmt stmt_before_poly = stmt;
   while (enter_count < max_enter_poly_times) {
     if (target != "aicpu" && polyhedral) {
-      Array<NodeRef> poly_res = NEXT_PASS(AutoPoly, stmt_before_poly, binds_0, global_attrs, false, is_dynamic);
+      Array<NodeRef> poly_res = NEXT_PASS(AutoPoly, stmt_before_poly, binds_0, target, global_attrs, false, is_dynamic);
       enter_count++;
       CHECK_EQ(poly_res.size(), 2);
       stmt = air::Downcast<Stmt>(poly_res[0]);
@@ -961,8 +972,10 @@ void BuildForDevice(const Array<LoweredFunc> &flist, const std::string &target_n
   CHECK(out_mdev != nullptr) << "out_mdev is nullptr.";
 
   Target target = Target::Create(target_name);
-  TVMContext context{kDLCce, 0};
-  DLDeviceType device_type = context.device_type;
+  DLDeviceType device_type = DLDeviceType::kDLCce;
+  if (target->device_type == DLDeviceType::kDLGPU) {
+    device_type = DLDeviceType::kDLGPU;
+  }
 
   Array<LoweredFunc> fhost;
   Array<LoweredFunc> fdevice;
@@ -972,7 +985,9 @@ void BuildForDevice(const Array<LoweredFunc> &flist, const std::string &target_n
         if (BuildConfig::Current()->detect_global_barrier) {
           func = NEXT_PASS(ThreadSync, func, "global");
         }
-        func = NEXT_PASS(ThreadSync, func, "shared");
+        if (!global_attrs.GetBoolAttr(kEnablePolySch, false)) {
+          func = NEXT_PASS(ThreadSync, func, "shared");
+        }
         func = NEXT_PASS(ThreadSync, func, "warp");
         func = NEXT_PASS(InferFragment, func);
         func = NEXT_PASS(LowerThreadAllreduce, func, target->thread_warp_size);
