@@ -12,21 +12,27 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""operator dsl function: logical_not"""
-import akg.tvm
+"""operator dsl function: rsqrt"""
 import akg.topi
+import akg.tvm
 from akg.utils import validation_check as vc_util
 
+
 @vc_util.check_input_type(akg.tvm.tensor.Tensor)
-def logical_not(input1):
+def rsqrt(data1):
     """
-    Compute logical_not of input1.
+    Computes data1 elementwise.
 
     Args:
-        input1 (tvm.tensor.Tensor): Tensor.
+        data1 (tvm.tensor.Tensor): Tensor.
 
     Returns:
-        tvm.tensor.Tensor.
+        tvm.tensor.Tensor, inverse sqaure root of data1, with same type as input tensors.
     """
-    res = akg.topi.logical_not(input1)
+    # vc_util.elemwise_dtype_check(data1.dtype)
+    vc_util.ops_dtype_check(data1.dtype, ["float32", "float16"])
+    vc_util.check_shape(data1.shape)
+
+    res = akg.topi.rsqrt(data1)
+
     return res

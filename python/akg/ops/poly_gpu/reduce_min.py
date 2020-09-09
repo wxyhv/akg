@@ -12,21 +12,17 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""operator dsl function: logical_not"""
-import akg.tvm
-import akg.topi
-from akg.utils import validation_check as vc_util
+"""reduce_min"""
+import akg
+from akg.ops.math_gpu import reduce_min
+import akg.topi as topi
 
-@vc_util.check_input_type(akg.tvm.tensor.Tensor)
-def logical_not(input1):
-    """
-    Compute logical_not of input1.
 
-    Args:
-        input1 (tvm.tensor.Tensor): Tensor.
+@akg.schedule(topi.cuda.schedule_reduce)
+def reduce_min_manual(data, axis, keepdims):
+    """Reduce min with manual schedule."""
+    return reduce_min.reduce_min(data, axis=axis, keepdims=keepdims)
 
-    Returns:
-        tvm.tensor.Tensor.
-    """
-    res = akg.topi.logical_not(input1)
-    return res
+def reduce_min_auto(data, axis, keepdims):
+    """Reduce min with auto schedule."""
+    return reduce_min.reduce_min(data, axis=axis, keepdims=keepdims)

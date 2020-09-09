@@ -12,21 +12,24 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""operator dsl function: logical_not"""
+"""operator dsl function: trans data"""
 import akg.tvm
 import akg.topi
 from akg.utils import validation_check as vc_util
 
-@vc_util.check_input_type(akg.tvm.tensor.Tensor)
-def logical_not(input1):
+@vc_util.check_input_type(akg.tvm.tensor.Tensor, (list, tuple))
+def trans_data(data, axes):
     """
-    Compute logical_not of input1.
+    Permute the dimensions of the input data.
 
     Args:
-        input1 (tvm.tensor.Tensor): Tensor.
+        data (tvm.tensor.Tensor): Tensor.
+        axes (Union[list, tuple]): Elements must be int. The index of each dimensions.
 
     Returns:
-        tvm.tensor.Tensor.
+        tvm.tensor.Tensor, has the same dtype as data.
     """
-    res = akg.topi.logical_not(input1)
-    return res
+    vc_util.check_shape(data.shape)
+    vc_util.check_int_list(axes, "axes")
+    output = akg.topi.transpose(data, axes)
+    return output

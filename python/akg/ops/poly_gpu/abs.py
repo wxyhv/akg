@@ -12,21 +12,17 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""operator dsl function: logical_not"""
-import akg.tvm
-import akg.topi
-from akg.utils import validation_check as vc_util
+"""abs_data"""
+from akg.ops.math_gpu.abs import abs_data
+import akg.topi as topi
+import akg
 
-@vc_util.check_input_type(akg.tvm.tensor.Tensor)
-def logical_not(input1):
-    """
-    Compute logical_not of input1.
+@akg.schedule(topi.cuda.schedule_injective)
+def abs_manual(x):
+    """abs data"""
+    return abs_data(x)
 
-    Args:
-        input1 (tvm.tensor.Tensor): Tensor.
+def abs_auto(x):
+    """abs data"""
+    return abs_data(x)
 
-    Returns:
-        tvm.tensor.Tensor.
-    """
-    res = akg.topi.logical_not(input1)
-    return res

@@ -12,21 +12,31 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""operator dsl function: logical_not"""
-import akg.tvm
+"""operator dsl function: sqrt"""
 import akg.topi
+import akg.tvm
 from akg.utils import validation_check as vc_util
 
+
 @vc_util.check_input_type(akg.tvm.tensor.Tensor)
-def logical_not(input1):
+def sqrt(data):
     """
-    Compute logical_not of input1.
+    Computes square root of x element-wise.
 
     Args:
-        input1 (tvm.tensor.Tensor): Tensor.
+        data (tvm.tensor.Tensor): Tensor of type float16, float32.
 
     Returns:
-        tvm.tensor.Tensor.
+        tvm.tensor.Tensor, has same type and shape as data.
     """
-    res = akg.topi.logical_not(input1)
+    check_list = ["float16", "float32"]
+    dtype = data.dtype
+    if not dtype in check_list:
+        raise RuntimeError("Sqrt cce only support %s while dtype is %s" % (
+            ",".join(check_list), dtype))
+
+    shape = [x.value for x in data.shape]
+    vc_util.check_shape(shape)
+
+    res = akg.topi.sqrt(data)
     return res

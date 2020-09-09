@@ -20,6 +20,7 @@ import json
 import akg
 from akg import tvm
 from akg.tvm import _api_internal
+from akg.topi.cuda.injective_single_kernel import schedule_injective
 from .repository import __all__ as repository
 import topi
 
@@ -117,19 +118,19 @@ def _build_to_func(desc_s, desc_d, attr=None):
     func = tvm.get_global_func("composite_with_json_to_func")
     return func(desc_s, attr)
 
-def _build(desc_s, desc_d, attr=None):
+def _build(desc_s, desc_d, attrs=None, poly=False):
     if desc_d['process'] == 'cuda':
         func = tvm.get_global_func("composite_with_json")
-        return func(desc_s, attr)
-    rst = _build_to_func(desc_s, desc_d, attr)
+        return func(desc_s, attrs, poly)
+    rst = _build_to_func(desc_s, desc_d, attrs)
     return _api_internal._BuildToModule(rst)
 
-def build(kernel_desc, attr=None):
+def build(kernel_desc, attrs=None, poly=False):
     """
     build kernel with compute description in json format
     Args:
        kernel_desc : str or dict of compute description
-       attr   : dict of build attributes
+       attrs   : dict of build attributes
 
     Returns:
        Module.
@@ -141,7 +142,7 @@ def build(kernel_desc, attr=None):
         assert isinstance(kernel_desc, dict)
         desc_s = json.dumps(kernel_desc)
         desc_d = kernel_desc
-    return _build(desc_s, desc_d, attr)
+    return _build(desc_s, desc_d, attrs, poly)
 
 def get_tiling_space(kernel_desc, level=1, attr=None):
     """
@@ -170,14 +171,22 @@ def get_tiling_space(kernel_desc, level=1, attr=None):
     return spaces
 
 @tvm.register_func("akg_build_gpu_module")
-def build_cuda(outputs, args, sch_name, kernel_name):
+def build_cuda(outputs, args, sch_name, kernel_name, attrs, poly):
     scheduler = {
-        "injective" : topi.cuda.schedule_injective,
+        "injective" : schedule_injective,
         "reduce"    : topi.cuda.schedule_reduce,
     }
+    poly_t = bool(poly)
+    if attrs:
+        attrs_t = dict(attrs.items())
+    else:
+        attrs_t = None
     with tvm.target.cuda() as cuda:
-        s = scheduler[sch_name](outputs)
+        if poly_t:
+            s = akg.tvm.create_schedule(outputs[0].op)
+        else:
+            s = scheduler[sch_name](outputs)
         dump_ir = os.getenv('MS_AKG_DUMP_IR') == "on"
         with tvm.build_config(dump_pass_ir = dump_ir):
-            mod = akg.build(s, list(args), "cuda", name = kernel_name)
+            mod = akg.build(s, list(args), "cuda", name = kernel_name, attrs = attrs_t, polyhedral=poly_t)
             return mod

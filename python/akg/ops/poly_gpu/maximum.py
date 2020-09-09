@@ -12,21 +12,16 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""operator dsl function: logical_not"""
-import akg.tvm
-import akg.topi
-from akg.utils import validation_check as vc_util
+"""maximum"""
+import akg
+from akg.topi.cuda.injective_single_kernel import schedule_injective
+from akg.ops.math_gpu import maximum
 
-@vc_util.check_input_type(akg.tvm.tensor.Tensor)
-def logical_not(input1):
-    """
-    Compute logical_not of input1.
+@akg.schedule(schedule_injective)
+def maximum_manual(x, y):
+    """Maximum with manual schedule."""
+    return maximum.maximum(x, y)
 
-    Args:
-        input1 (tvm.tensor.Tensor): Tensor.
-
-    Returns:
-        tvm.tensor.Tensor.
-    """
-    res = akg.topi.logical_not(input1)
-    return res
+def maximum_auto(x, y):
+    """Maximum with auto poly."""
+    return maximum.maximum(x, y)

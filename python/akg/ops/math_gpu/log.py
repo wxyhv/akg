@@ -1,4 +1,4 @@
-# Copyright 2020 Huawei Technologies Co., Ltd
+# Copyright 202-0Huawei Technologies Co., Ltd
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -12,21 +12,25 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""operator dsl function: logical_not"""
-import akg.tvm
+"""operator dsl function: log"""
 import akg.topi
+import akg.tvm
 from akg.utils import validation_check as vc_util
 
+
 @vc_util.check_input_type(akg.tvm.tensor.Tensor)
-def logical_not(input1):
+def log(data):
     """
-    Compute logical_not of input1.
+    Computes log(data) elementwise
 
     Args:
-        input1 (tvm.tensor.Tensor): Tensor.
+        data (tvm.tensor.Tensor): Tensor.
 
     Returns:
-        tvm.tensor.Tensor.
+        tvm.tensor.Tensor, with same type as input tensors.
     """
-    res = akg.topi.logical_not(input1)
+    vc_util.check_shape(data.shape)
+
+    res = akg.topi.log(data)
+
     return res

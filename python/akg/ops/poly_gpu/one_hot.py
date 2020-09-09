@@ -12,21 +12,16 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""operator dsl function: logical_not"""
-import akg.tvm
-import akg.topi
-from akg.utils import validation_check as vc_util
+"""one_hot"""
+from akg.ops.array_gpu import one_hot
+from akg.topi.cuda.injective_single_kernel import schedule_injective
+import akg
 
-@vc_util.check_input_type(akg.tvm.tensor.Tensor)
-def logical_not(input1):
-    """
-    Compute logical_not of input1.
+@akg.schedule(schedule_injective)
+def one_hot_manual(indices, on_value, off_value, depth, axis, dtype):
+    """one_hot."""
+    return one_hot.one_hot(indices, on_value, off_value, depth, axis, dtype)
 
-    Args:
-        input1 (tvm.tensor.Tensor): Tensor.
-
-    Returns:
-        tvm.tensor.Tensor.
-    """
-    res = akg.topi.logical_not(input1)
-    return res
+def one_hot_auto(indices, on_value, off_value, depth, axis, dtype):
+    """one_hot."""
+    return one_hot.one_hot(indices, on_value, off_value, depth, axis, dtype)

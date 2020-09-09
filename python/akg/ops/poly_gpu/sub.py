@@ -12,21 +12,16 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""operator dsl function: logical_not"""
-import akg.tvm
-import akg.topi
-from akg.utils import validation_check as vc_util
+"""sub"""
+import akg
+from akg.topi.cuda.injective_single_kernel import schedule_injective
+from akg.ops.math_gpu import sub
 
-@vc_util.check_input_type(akg.tvm.tensor.Tensor)
-def logical_not(input1):
-    """
-    Compute logical_not of input1.
+@akg.schedule(schedule_injective) 
+def sub_manual(x, y):
+    """Sub."""
+    return sub.sub(x, y)
 
-    Args:
-        input1 (tvm.tensor.Tensor): Tensor.
-
-    Returns:
-        tvm.tensor.Tensor.
-    """
-    res = akg.topi.logical_not(input1)
-    return res
+def sub_auto(x, y):
+    """Sub with auto poly"""
+    return sub.sub(x, y)

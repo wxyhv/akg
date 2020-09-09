@@ -17,7 +17,7 @@
 """result compare function"""
 import logging
 import numpy as np
-
+import akg.tvm as tvm
 
 def result_compare(actual, bench_mark, r_tol=5e-3):
     """function for compare result."""
@@ -251,3 +251,10 @@ def allclose_nparray(data_expected, data_actual, rtol, atol=1e-08):
     """Compare whether arrays are element-wise equal within tolerances."""
     if not np.allclose(data_expected, data_actual, rtol, atol):
         count_unequal_element(data_expected, data_actual, rtol, atol)
+
+def gpu_profiling(mod, *args, repeat_time=1):
+    """Do profiling on gpu for cuda op"""
+    ctx = tvm.context("cuda", 0)
+    ftimer = mod.time_evaluator(mod.entry_name, ctx, number=repeat_time)
+    tcost = ftimer(*args).mean
+    print("{}: exec={} sec/op".format(ctx, tcost))

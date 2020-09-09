@@ -12,21 +12,29 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""operator dsl function: logical_not"""
-import akg.tvm
+"""operator dsl function: divide"""
 import akg.topi
 from akg.utils import validation_check as vc_util
 
-@vc_util.check_input_type(akg.tvm.tensor.Tensor)
-def logical_not(input1):
+
+@vc_util.check_input_type(akg.tvm.tensor.Tensor, akg.tvm.tensor.Tensor)
+def divide(lhs, rhs):
     """
-    Compute logical_not of input1.
+    Calculate divide.
 
     Args:
-        input1 (tvm.tensor.Tensor): Tensor.
+        lhs: The left tensor.
+        rhs: The right tensor.
 
     Returns:
         tvm.tensor.Tensor.
     """
-    res = akg.topi.logical_not(input1)
-    return res
+    shape_l = [x.value for x in lhs.shape]
+    shape_r = [x.value for x in rhs.shape]
+    vc_util.check_shape(shape_l)
+    vc_util.check_shape(shape_r)
+    vc_util.auto_broadcast_check(shape_l, shape_r)
+    vc_util.elemwise_dtype_check(lhs.dtype, rhs.dtype)
+    output = akg.topi.divide(lhs, rhs)
+
+    return output

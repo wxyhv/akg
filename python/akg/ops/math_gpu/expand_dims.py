@@ -12,21 +12,26 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""operator dsl function: logical_not"""
-import akg.tvm
+"""operator dsl function: expand_dims"""
 import akg.topi
+import akg.tvm
 from akg.utils import validation_check as vc_util
 
-@vc_util.check_input_type(akg.tvm.tensor.Tensor)
-def logical_not(input1):
+
+@vc_util.check_input_type(akg.tvm.tensor.Tensor, int)
+def expand_dims(data1, axis):
     """
-    Compute logical_not of input1.
+    Computes data1 elementwise.
 
     Args:
-        input1 (tvm.tensor.Tensor): Tensor.
+        data1 (tvm.tensor.Tensor): Tensor.
+        axis (int): axis.
 
     Returns:
-        tvm.tensor.Tensor.
+        tvm.tensor.Tensor, expand the dimension of data1.
     """
-    res = akg.topi.logical_not(input1)
+    vc_util.check_shape(data1.shape)
+
+    res = akg.topi.expand_dims(data1, axis)
+
     return res

@@ -12,21 +12,17 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""operator dsl function: logical_not"""
-import akg.tvm
-import akg.topi
-from akg.utils import validation_check as vc_util
+"""reduce_sum"""
+import akg
+from akg.ops.math_gpu import reduce_sum
+import akg.topi as topi
 
-@vc_util.check_input_type(akg.tvm.tensor.Tensor)
-def logical_not(input1):
-    """
-    Compute logical_not of input1.
 
-    Args:
-        input1 (tvm.tensor.Tensor): Tensor.
+@akg.schedule(topi.cuda.schedule_reduce)
+def reduce_sum_manual(data, axis, keepdims):
+    """Reduce sum with manual schedule."""
+    return reduce_sum.reduce_sum(data, axis, keepdims)
 
-    Returns:
-        tvm.tensor.Tensor.
-    """
-    res = akg.topi.logical_not(input1)
-    return res
+def reduce_sum_auto(data, axis, keepdims):
+    """Reduce sum with auto schedule."""
+    return reduce_sum.reduce_sum(data, axis, keepdims)

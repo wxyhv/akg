@@ -169,6 +169,7 @@ file(
   ${TVM_DIR}/src/codegen/stackvm/*.cc
   ${AKG_SOURCE_DIR}/src/poly/*.cc
   ${AKG_SOURCE_DIR}/src/poly/schedule_pass/*.cc
+  ${AKG_SOURCE_DIR}/src/poly/schedule_pass_gpu/*.cc
   ${AKG_SOURCE_DIR}/src/poly/tiling/*.cc
   ${AKG_SOURCE_DIR}/src/api/*.cc
   ${AKG_SOURCE_DIR}/src/pass/*.cc
