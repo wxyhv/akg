@@ -848,6 +848,9 @@ BisectionInfoWrapper SeparateComInfoToBisectionInfoList(const StmtInfoList &dst_
       new_strides.Set(i, new_strides[i + 1] * new_dims[i + 1]);
     }
     new_dims.Set(new_dims.size() - 1, simd_len);
+  } else if (simd_var->name_hint == un_def_var) {
+    new_dims.Set(var_idx, extent);
+    new_strides.Set(var_idx, last_dim_len);
   } else {
     new_dims = {extent};
   }
@@ -946,7 +949,7 @@ BisectionInfoWrapper SeparateComInfoToBisectionInfoList(const StmtInfoList &dst_
         src_tmp_info1.GetNode()->shape_ = dst_tmp_info->shape_;
         src_tmp_info1.GetNode()->strides_ = dst_tmp_info->strides_;
         src_tmp_info1.GetNode()->var_ = dst_tmp_info->var_;
-        src_tmp_info1.GetNode()->index_ = dst_tmp_info->index_;
+        src_tmp_info1.GetNode()->index_ = 0;
       }
     }
 

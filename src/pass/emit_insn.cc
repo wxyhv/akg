@@ -453,6 +453,25 @@ class RegCondition : public IRMutator {
   int reg_cnt_{0};
 };
 
+class ForSimplify : public IRMutator {
+ public:
+  ForSimplify() = default;
+  ~ForSimplify() override = default;
+
+ private:
+  Stmt Mutate_(const For *op, const Stmt &s) final {
+    if ((op->extent.as<IntImm>() && op->extent.as<IntImm>()->value == 1) ||
+        (op->extent.as<UIntImm>() && op->extent.as<UIntImm>()->value == 1)) {
+      Map<Var, Expr> var_map;
+      var_map.Set(op->loop_var, op->min);
+      auto body = Mutate(op->body);
+      body = Simplify(Substitute(body, var_map));
+      return body;
+    }
+    return IRMutator::Mutate_(op, s);
+  }
+};
+
 Stmt EmitInsn(Stmt stmt, bool enable_bisect, bool enable_cover_protect, const Map<Tensor, Buffer> &extern_buffer,
               bool is_dynamic) {
   char *debug_var = getenv("DEBUG_MODE");
@@ -463,6 +482,7 @@ Stmt EmitInsn(Stmt stmt, bool enable_bisect, bool enable_cover_protect, const Ma
   if (debug_mode) {
     stmt = EmitInsnDebug(stmt);
   }
+  stmt = ForSimplify().Mutate(stmt);
   stmt = PreEmit().Mutate(stmt);
   if (!is_dynamic) {
     char *comment_var = getenv("COMMENT_LEVEL");
