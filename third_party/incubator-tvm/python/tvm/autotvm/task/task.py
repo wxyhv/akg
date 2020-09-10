@@ -21,6 +21,7 @@ Task can be constructed from tuple of func, args, and kwargs.
 func is a state-less function, or a string that
 registers the standard task.
 """
+# 2020.9.15 - Set register's param override as True in template
 
 import numpy as np
 
@@ -283,7 +284,7 @@ def template(func):
 
     fname = get_func_name(func)
 
-    @register(fname)
+    @register(fname, override=True)
     @dispatcher
     def config_dispatcher(*args, **kwargs):
         assert not kwargs, "Do not support kwargs in template function call"

@@ -18,15 +18,15 @@
 
 # 2020.8.27 - Add file injective_single_kernel.py.
 
-
 """Schedule for composition of injective operator and generate single cuda kernel."""
 from collections import Counter
 import tvm
 import topi
+from tvm import autotvm
 from .. import generic, util
 
 @generic.schedule_injective_from_existing.register(["cuda", "gpu"])
-def schedule_injective_from_existing(sch, out, tmp_out, fork_node, fake_out):
+def schedule_injective_from_existing(sch, out, tmp_out, fork_node, fake_out, autotune=False):
     """Schedule for injective op from existing schedule.
 
     Parameters
@@ -51,8 +51,14 @@ def schedule_injective_from_existing(sch, out, tmp_out, fork_node, fake_out):
     """
     fused = sch[out].fuse(*sch[out].op.axis)
     kernel_scope, fused = sch[out].split(fused, nparts=1)
-    num_thread = tvm.target.current_target(allow_none=False).max_num_threads
-    max_block = 256
+    if autotune:
+        cfg = autotvm.get_config()
+        cfg.define_knob("tile_x", [4, 8, 16, 32, 64, 128, 256, 512, 1024])
+        num_thread = cfg['tile_x'].val
+        max_block = int(256 * 1024 / num_thread)
+    else:
+        num_thread = tvm.target.current_target(allow_none=False).max_num_threads
+        max_block = 256
 
     try:
         const_size = util.get_const_int(util.prod(out.shape))
@@ -192,6 +198,28 @@ def schedule_injective(outs):
     
     tvm.schedule.AutoInlineInjective(s)
     schedule_injective_from_existing(s, outs[0], tmp_out, fork_node, fake_out)
+    return s
+
+@generic.schedule_injective.register(["cuda", "gpu"])
+def schedule_injective_autotune(outs):
+    """Schedule for injective op.
+
+    Parameters
+    ----------
+    outs: Array of Tensor
+          The computation graph description of reduce in the format
+          of an array of tensors.
+
+    Returns
+    -------
+    sch: Schedule
+        The computation schedule for the op.
+    """
+    outs, tmp_out, fake_out, fork_node = pick_single_out(outs)
+    s = tvm.create_schedule(outs[0].op)
+    
+    tvm.schedule.AutoInlineInjective(s)
+    schedule_injective_from_existing(s, outs[0], tmp_out, fork_node, fake_out, autotune=True)
     return s
 
 schedule_elemwise = schedule_injective

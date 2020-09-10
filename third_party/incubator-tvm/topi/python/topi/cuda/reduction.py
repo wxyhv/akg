@@ -19,16 +19,22 @@
 # 2020.9.1    -  Modify all_reduce check condition.
 # 2020.9.2    -  Modify threads bind.
 # 2020.9.25   -  Add a judgement in traverse_before_reduce to allow multiple reduction calculations.
+# 2020.9.10   -  Add autotune schedule.
 
 """Schedule for reduce operators"""
 from __future__ import absolute_import as _abs
 import re
 import tvm
+from tvm import autotvm
 from .. import tag
 from .. import generic
 from .injective import schedule_injective_from_existing
 
-def _schedule_reduce(op, sch, is_idx_reduce=False, blocksize=[32, 32]):
+def _schedule_reduce(op, sch, is_idx_reduce=False, blocksize=[32, 32], autotune=False):
+    if autotune:
+        cfg = autotvm.get_config()
+        cfg.define_knob("tile_x", [1, 2, 4, 8, 16, 32, 64, 128, 256, 512, 1024])
+
     if is_idx_reduce:
         data_out = op.input_tensors[0]
     else:
@@ -45,8 +51,13 @@ def _schedule_reduce(op, sch, is_idx_reduce=False, blocksize=[32, 32]):
             break
 
     if not all_reduce:
-        num_thread_x = blocksize[0]
-        num_thread_y = blocksize[1]
+        if not autotune:
+            num_thread_x = blocksize[0]
+            num_thread_y = blocksize[1]
+        else:
+            num_thread_x = cfg['tile_x'].val
+            num_thread_y = int(1024 / num_thread_x)
+
         target = tvm.target.current_target()
         if target and target.target_name == "opencl":
             # without it, CL_INVALID_WORK_GROUP_SIZE occurred when running test_topi_reduce.py
@@ -178,3 +189,64 @@ def schedule_reduce(outs):
     for out in outs:
         traverse_after_reduce(out.op)
     return sch
+
+@generic.schedule_reduce.register(["cuda", "gpu"])
+def schedule_reduce_autotune(outs):
+    """Autotune Schedule for inject->reduce->bcast ops.
+
+    Parameters
+    ----------
+    outs: Array of Tensor
+          The computation graph description of reduce in the format
+          of an array of tensors.
+
+    Returns
+    -------
+    sch: Schedule
+        The computation schedule for the op.
+    """
+    outs = [outs] if isinstance(outs, tvm.tensor.Tensor) else outs
+    sch = tvm.create_schedule([x.op for x in outs])
+    scheduled_ops = []
+
+    def traverse_before_reduce(operator):
+        """Internal travserse function"""
+        if isinstance(operator, tvm.tensor.PlaceholderOp):
+            return
+        if tag.is_injective(operator.tag):
+            sch[operator].compute_inline()
+            for tensor in operator.input_tensors:
+                if tensor.op not in scheduled_ops:
+                    traverse_before_reduce(tensor.op)
+        else:
+            raise RuntimeError("Unsupported operator: %s" % operator.tag)
+
+        scheduled_ops.append(operator)
+
+    def traverse_after_reduce(operator):
+        """Internal travserse function"""
+        if tag.is_broadcast(operator.tag):
+            if operator not in scheduled_ops:
+                schedule_injective_from_existing(sch, operator.output(0))
+            for tensor in operator.input_tensors:
+                traverse_after_reduce(tensor.op)
+        elif operator.tag == 'comm_reduce':
+            _schedule_reduce(operator, sch, is_idx_reduce=False, autotune=True)
+            for tensor in operator.input_tensors:
+                if tensor.op not in scheduled_ops:
+                    traverse_before_reduce(tensor.op)
+        elif operator.tag == 'comm_reduce_idx':
+            _schedule_reduce(operator, sch, is_idx_reduce=True, autotune=True)
+            input_tensors = operator.input_tensors[0].op.input_tensors
+            for tensor in input_tensors:
+                if tensor.op not in scheduled_ops:
+                    traverse_before_reduce(tensor.op)
+        else:
+            raise RuntimeError("Unsupported operator: %s" % operator.tag)
+
+        scheduled_ops.append(operator)
+
+    for out in outs:
+        traverse_after_reduce(out.op)
+    return sch
+

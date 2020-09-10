@@ -53,7 +53,6 @@ file(COPY ${AKG_SOURCE_DIR}/python/akg DESTINATION
 
 # Utility functions
 include(${TVM_DIR}/cmake/util/Util.cmake)
-include(${TVM_DIR}/cmake/util/FindCUDA.cmake)
 
 tvm_option(USE_CCE_RT "Build with cce with runtime support" OFF)
 tvm_option(USE_CCE_RT_SIM "Build cce with simulate runtime support" OFF)
@@ -61,6 +60,8 @@ tvm_option(USE_KC_AIR "Build cce with kc air rpc support" OFF)
 tvm_option(USE_ASAN "Build with AddressSanitizer" OFF)
 tvm_option(USE_CUDA "Build with CUDA" OFF)
 tvm_option(USE_CUDNN "Build with cuDNN" OFF)
+tvm_option(USE_LLVM "Build with LLVM" OFF)
+
 
 tvm_option(
   USE_DEFAULT_LOG
@@ -205,7 +206,15 @@ file(
   ${TVM_DIR}/src/runtime/stackvm/*.cc)
 
 if(USE_CUDA)
+include(${TVM_DIR}/cmake/util/FindCUDA.cmake)
 include(${TVM_DIR}/cmake/modules/CUDA.cmake)
+endif()
+
+if(USE_LLVM)
+include(${TVM_DIR}/cmake/util/FindLLVM.cmake)
+file(GLOB LLVM_SRCS ${TVM_DIR}/src/codegen/llvm/*.cc)
+list(APPEND COMPILER_SRCS ${LLVM_SRCS})
+include(${TVM_DIR}/cmake/modules/LLVM.cmake)
 endif()
 
 file(GLOB RUNTIME_STUB_SRC ${AKG_SOURCE_DIR}/src/runtime/stub/*.cc)
