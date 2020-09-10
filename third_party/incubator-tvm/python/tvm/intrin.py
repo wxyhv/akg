@@ -16,6 +16,7 @@
 # under the License.
 """Expression Intrinsics and math functions in TVM."""
 # pylint: disable=redefined-builtin
+# 2020.08.10 - Add new operators.
 from __future__ import absolute_import as _abs
 
 from ._ffi.function import register_func as _register_func
@@ -471,6 +472,36 @@ def isnan(x):
         The result.
     """
     return _make.isnan(x)
+
+def isinf(x):
+    """Check if input value is inf.
+
+    Parameters
+    ----------
+    x : Expr
+        Input argument.
+
+    Returns
+    -------
+    y : Expr
+        The result.
+    """
+    return _make.isinf(x)
+
+def isfinite(x):
+    """Check if input value is finite.
+
+    Parameters
+    ----------
+    x : Expr
+        Input argument.
+
+    Returns
+    -------
+    y : Expr
+        The result.
+    """
+    return _make.isfinite(x)
 
 
 def power(x, y):

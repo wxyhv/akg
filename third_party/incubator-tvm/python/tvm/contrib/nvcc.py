@@ -15,6 +15,7 @@
 # specific language governing permissions and limitations
 # under the License.
 # pylint: disable=invalid-name
+# 2020.9.15 - Add default GPU arch: sm_70.
 """Utility to invoke nvcc compiler in the system"""
 from __future__ import absolute_import as _abs
 
@@ -69,7 +70,7 @@ def compile_cuda(code,
             # auto detect the compute arch argument
             arch = "sm_" + "".join(nd.gpu(0).compute_version.split('.'))
         else:
-            raise ValueError("arch(sm_xy) is not passed, and we cannot detect it from env")
+            arch = "sm_70"
 
     file_target = path_target if path_target else temp_target
     cmd = ["nvcc"]

@@ -19,6 +19,7 @@
 
 /*!
  * \file cuda_module.cc
+ * 2020.09.15 - Modify operator() for kc_air.
  */
 #include "cuda_module.h"
 
@@ -51,6 +52,7 @@ class CUDAModuleNode : public runtime::ModuleNode {
                           std::string cuda_source)
       : data_(data), fmt_(fmt), fmap_(fmap), cuda_source_(cuda_source) {
     std::fill(module_.begin(), module_.end(), nullptr);
+    std::fill(func_.begin(), func_.end(), nullptr);
   }
   // destructor
   ~CUDAModuleNode() {
@@ -109,8 +111,10 @@ class CUDAModuleNode : public runtime::ModuleNode {
     if (module_[device_id] == nullptr) {
       CUDA_DRIVER_CALL(cuModuleLoadData(&(module_[device_id]), data_.c_str()));
     }
-    CUfunction func;
-    CUresult result = cuModuleGetFunction(&func, module_[device_id], func_name.c_str());
+    CUresult result;
+    if (func_[device_id] == nullptr){
+      result = cuModuleGetFunction(&func_[device_id], module_[device_id], func_name.c_str());
+    }
     if (result != CUDA_SUCCESS) {
       const char *msg;
       cuGetErrorName(result, &msg);
@@ -118,7 +122,7 @@ class CUDAModuleNode : public runtime::ModuleNode {
           << "CUDAError: cuModuleGetFunction " << func_name
           << " failed with error: " << msg;
     }
-    return func;
+    return func_[device_id];
   }
   // get a global var from primary context in device_id
   CUdeviceptr GetGlobal(int device_id,
@@ -158,6 +162,7 @@ class CUDAModuleNode : public runtime::ModuleNode {
   std::array<CUmodule, kMaxNumGPUs> module_;
   // internal mutex when updating the module
   std::mutex mutex_;
+  std::array<CUfunction, kMaxNumGPUs> func_;
 };
 
 // a wrapped function class to get packed func.
@@ -168,10 +173,13 @@ class CUDAWrappedFunc {
             ObjectPtr<Object> sptr,
             const std::string& func_name,
             size_t num_void_args,
+            std::vector<size_t> arg_size,
             const std::vector<std::string>& thread_axis_tags) {
     m_ = m;
     sptr_ = sptr;
     func_name_ = func_name;
+    num_void_args_ = num_void_args;
+    arg_size_ = arg_size;
     std::fill(fcache_.begin(), fcache_.end(), nullptr);
     thread_axis_cfg_.Init(num_void_args, thread_axis_tags);
   }
@@ -184,9 +192,21 @@ class CUDAWrappedFunc {
     if (fcache_[device_id] == nullptr) {
       fcache_[device_id] = m_->GetFunc(device_id, func_name_);
     }
-    CUstream strm = static_cast<CUstream>(CUDAThreadEntry::ThreadLocal()->stream);
     ThreadWorkLoad wl = thread_axis_cfg_.Extract(args);
-    CUresult result = cuLaunchKernel(
+    CUstream strm = static_cast<CUstream>(CUDAThreadEntry::ThreadLocal()->stream);
+    CUresult result;
+    size_t raw_size = num_void_args_;
+    void** raw_args = new void*[raw_size];
+    size_t args_size = 0;
+    for (size_t i=0; i<raw_size; ++i)
+    {
+      args_size += arg_size_[i];
+      void** ptr = reinterpret_cast<void**>(void_args[i]);
+      raw_args[i] = *ptr;
+    }
+
+#ifdef USE_KC_AIR
+    result = cuLaunchKernel(
         fcache_[device_id],
         wl.grid_dim(0),
         wl.grid_dim(1),
@@ -194,7 +214,22 @@ class CUDAWrappedFunc {
         wl.block_dim(0),
         wl.block_dim(1),
         wl.block_dim(2),
-        0, strm, void_args, 0);
+        (static_cast<uint32_t>(args_size)/sizeof(void *)), strm, raw_args, 0);
+#else
+    result = cuLaunchKernel(
+        fcache_[device_id],
+        wl.grid_dim(0),
+        wl.grid_dim(1),
+        wl.grid_dim(2),
+        wl.block_dim(0),
+        wl.block_dim(1),
+        wl.block_dim(2),
+        0, strm, raw_args, 0);
+#endif
+    if (raw_args != NULL){
+    	free(raw_args);
+	raw_args = NULL;
+    }
     if (result != CUDA_SUCCESS && result != CUDA_ERROR_DEINITIALIZED) {
       const char *msg;
       cuGetErrorName(result, &msg);
@@ -222,6 +257,9 @@ class CUDAWrappedFunc {
   ObjectPtr<Object> sptr_;
   // The name of the function.
   std::string func_name_;
+
+  std::vector<size_t> arg_size_;
+  size_t num_void_args_;
   // Device function cache per device.
   // mark as mutable, to enable lazy initialization
   mutable std::array<CUfunction, kMaxNumGPUs> fcache_;
@@ -269,7 +307,15 @@ PackedFunc CUDAModuleNode::GetFunction(
   if (it == fmap_.end()) return PackedFunc();
   const FunctionInfo& info = it->second;
   CUDAWrappedFunc f;
-  f.Init(this, sptr_to_self, name, info.arg_types.size(), info.thread_axis_tags);
+  std::vector<size_t> arg_size(info.arg_types.size());
+  for (int i=0; i<static_cast<int>(info.arg_types.size()); ++i){
+    TVMType t = info.arg_types[i];
+    CHECK_EQ(t.lanes, 1U);
+    uint32_t bits = t.bits;
+    CHECK_EQ(bits % 8, 0U);
+    arg_size[i] = bits / 8;
+  }
+  f.Init(this, sptr_to_self, name, info.arg_types.size(), arg_size, info.thread_axis_tags);
   return PackFuncVoidAddr(f, info.arg_types);
 }
 
@@ -315,3 +361,4 @@ TVM_REGISTER_GLOBAL("module.loadbinary_cuda")
 .set_body_typed(CUDAModuleLoadBinary);
 }  // namespace runtime
 }  // namespace air
+

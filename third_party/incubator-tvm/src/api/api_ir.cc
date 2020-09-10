@@ -21,6 +21,10 @@
  *  Implementation of API functions related to IR build
  * \file api_ir.cc
  */
+/*!
+ *  2020.08.10 - Add new API functions of isinf and isfinite.
+ */
+
 #include <tvm/expr.h>
 #include <tvm/ir.h>
 #include <tvm/api_registry.h>
@@ -39,6 +43,13 @@ TVM_REGISTER_API("make.abs")
 
 TVM_REGISTER_API("make.isnan")
 .set_body_typed(air::isnan);
+
+TVM_REGISTER_API("make.isinf")
+.set_body_typed(air::isinf);
+
+TVM_REGISTER_API("make.isfinite")
+.set_body_typed(air::isfinite);
+
 
 TVM_REGISTER_API("make.floor")
 .set_body_typed(air::floor);

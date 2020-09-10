@@ -20,6 +20,10 @@
 /*!
  * \file expr_operator.cc
  */
+
+/*
+ * 2020.08.10 - Add operators: isinf, isfinite, infinity.
+ */
 #include <tvm/base.h>
 #include <tvm/ir.h>
 #include <tvm/expr_operator.h>
@@ -466,6 +470,35 @@ Expr isnan(Expr x) {
     return x;
   }
 }
+
+Expr infinity(const Type& dtype) {
+  CHECK_EQ(dtype.lanes(), 1);
+  if (dtype.is_float()) {
+    using ir::FloatImm;
+    if (dtype.bits() == 64) {
+      return FloatImm::make(dtype, std::numeric_limits<double>::infinity());
+    } else if (dtype.bits() == 32 || dtype.bits() == 16) {
+      return FloatImm::make(dtype, std::numeric_limits<float>::infinity());
+    }
+  }
+  LOG(FATAL) << "Cannot decide infinity for type " << dtype;
+  return Expr();
+}
+
+Expr isinf(Expr x) { 
+  Type t = Bool(x.type().lanes());
+  if (x.type().is_int() || x.type().is_uint()) {
+    return make_const(t, false);
+  } else if (x.type().is_float()) {
+    Expr infX = infinity(x.type());
+    return abs(x) == infX && !isnan(x);
+  } else {
+    LOG(FATAL) << "Data type " << x.type() << "not supported for finiteness ops. Skipping it ...";
+    return x;
+  }
+}
+
+Expr isfinite(Expr x) { return !isinf(x) && !isnan(x); }
 
 Expr sum(Expr source, Array<IterVar> rdom) {
   Var x("x", source.type()), y("y", source.type());
