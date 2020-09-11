@@ -491,6 +491,7 @@ NodeRef Lower(Schedule sch, const Array<NodeRef> &in_args, const Array<NodeRef> 
 
   if (target == "cuda") {
     // Phase 1
+    stmt = NEXT_PASS(RemoveFakeOp, stmt);
     stmt = NEXT_PASS(RewriteForTensorCore, stmt, new_sch, binds_0);
     stmt = NEXT_PASS(StorageFlatten, stmt, binds_0, 64, config->instrument_bound_checkers);
     stmt = NEXT_PASS(CanonicalSimplify, stmt);
