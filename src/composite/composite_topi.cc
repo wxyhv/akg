@@ -541,12 +541,27 @@ TVM_REGISTER_GLOBAL("Select").set_body([](TVMArgs args, TVMRetValue *rv) {
   CHECK_GE(args.size(), 1);
   auto inputs = args[0].operator Array<NodeRef>();
   CHECK(inputs[0]->IsInstance<TensorNode>());
-  CHECK(inputs[1]->IsInstance<TensorNode>());
-  CHECK(inputs[2]->IsInstance<TensorNode>());
   auto condition = Downcast<Tensor>(inputs[0]);
-  auto x = Downcast<Tensor>(inputs[1]);
-  auto y = Downcast<Tensor>(inputs[2]);
-  *rv = topi::where(condition, x, y);
+  CHECK(inputs[1]->IsInstance<TensorNode>() || inputs[2]->IsInstance<TensorNode>());
+  if (inputs[1]->IsInstance<TensorNode>() && inputs[2]->IsInstance<TensorNode>()) {
+    auto x = Downcast<Tensor>(inputs[1]);
+    auto y = Downcast<Tensor>(inputs[2]);
+    *rv = topi::where(condition, x, y);
+  } else if (inputs[1]->IsInstance<TensorNode>()) {
+    auto x = Downcast<Tensor>(inputs[1]);
+    auto shape = x->shape;
+    auto y = compute(shape, [&](const Array<Var> &indices) { return Downcast<Expr>(inputs[2]); });
+    *rv = topi::where(condition, x, y);
+  } else if (inputs[2]->IsInstance<TensorNode>()) {
+    auto y = Downcast<Tensor>(inputs[2]);
+    auto shape = y->shape;
+    auto x = compute(shape, [&](const Array<Var> &indices) { return Downcast<Expr>(inputs[1]); });
+    *rv = topi::where(condition, x, y);
+  }
+});
+
+TVM_REGISTER_GLOBAL("Greater").set_body([](TVMArgs args, TVMRetValue *rv) {
+  TOPI_TWO_INPUTS_CALL(args, rv, topi::greater);
 });
 
 TVM_REGISTER_GLOBAL("SelectGE").set_body([](TVMArgs args, TVMRetValue *rv) {
