@@ -698,6 +698,7 @@ def op_build(op_func, input_shapes, input_types, op_attrs=None, kernel_name="",
 
     compute_func = None  # func which is defined in dsl for doing compute_inline or other
     sch_tmpl = None
+    gpu_binds = None
     if isinstance(output, (list, tuple)):
         from inspect import isfunction
         new_outputs = []
@@ -717,6 +718,7 @@ def op_build(op_func, input_shapes, input_types, op_attrs=None, kernel_name="",
     elif isinstance(output, dict):
         sch_tmpl = output
         output = sch_tmpl['output']
+        gpu_binds = sch_tmpl['binds']
     binds = None if not attrs else attrs.pop(BINDS, None)
 
     op_var = []
@@ -744,7 +746,7 @@ def op_build(op_func, input_shapes, input_types, op_attrs=None, kernel_name="",
             s = sch_tmpl['schedule'](sch_tmpl['output'])
             with akg.tvm.build_config(dump_pass_ir=dump_ir):
                 mod = akg.build(s, op_var, "cuda", shape_var, name=kernel_name, attrs=attrs,
-                                polyhedral=polyhedral, binds=binds)
+                                polyhedral=polyhedral, binds=gpu_binds)
                 if dump_code:
                     source_code = mod.imported_modules[0].get_source()
                     create_code(kernel_name, "./", source_code, "CUDA")

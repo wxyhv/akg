@@ -32,3 +32,4 @@ from .hsigmoid import HSigmoid
 from .hsigmoid_grad import HSigmoidGrad
 from .hswish import HSwish
 from .hswish_grad import HSwishGrad
+from .assign import Assign

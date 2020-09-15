@@ -17,10 +17,14 @@
 
 # pylint: disable=redefined-builtin, wildcard-import
 """CUDA specific declaration and schedules."""
+
+# 2020.09.15 - Export injective_single_kernel to support GPU operators whose DSLs
+#              have multiple outputs, such as Assign
+
 from __future__ import absolute_import as _abs
 
 from . import conv2d, depthwise_conv2d, conv2d_transpose_nchw, deformable_conv2d, \
-              group_conv2d_nchw, dense
+              group_conv2d_nchw, dense, injective_single_kernel
 from .conv2d_hwcn import schedule_conv2d_hwcn
 from .depthwise_conv2d import schedule_depthwise_conv2d_backward_input_nhwc
 from .depthwise_conv2d import schedule_depthwise_conv2d_backward_weight_nhwc

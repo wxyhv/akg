@@ -67,8 +67,15 @@ class AKGMetaPathLoader:
 def schedule(sch, target = 'cuda'):
     def decorator(func):
         def wrapper(*args, **kwargs):
+            binds = None
             output = func(*args, **kwargs)
-            return {'schedule' : sch, 'target' : target, 'output' : output, 'op_name' : func.__name__}
+            if isinstance(output, tuple):
+                attrs = [t for t in output if isinstance(t, dict)]
+                for attr in attrs:
+                    if "binds" in attr.keys():
+                        binds = attr['binds']
+                output = tuple([t for t in output if not isinstance(t, dict)])
+            return {'schedule' : sch, 'target' : target, 'output' : output, 'binds': binds, 'op_name' : func.__name__}
         return wrapper
     return decorator
 
