@@ -12,8 +12,10 @@
 # See the License for the specific language governing permissions and
 # limitations under the License
 
+""" test_fused_relu_grad """
+from __future__ import absolute_import
 import numpy as np
-from akg.ops.poly_gpu import fused_relugrad_manual, fused_relugrad_auto
+from akg.ops.poly_gpu import fused_relu_grad_manual, fused_relu_grad_auto
 from gen_random import random_gaussian
 from akg.utils import kernel_exec as utils
 from akg.utils.result_analysis import gpu_profiling
@@ -36,21 +38,21 @@ def compute_expect(input, c1):
 
     return np.where(cmp_zero, data_add, data_zero)
 
-def test_fused_relugrad(shape, dtype='float16', c1=0, poly_sch=False):
+def test_fused_relu_grad(shape, dtype='float16', c1=0, poly_sch=False):
     input = gen_data(shape, dtype)
     expect = compute_expect(input, c1)
     shapes = [shape] * 3
     dtypes = [dtype] * 3
     attrs = [c1]
     if poly_sch:
-        mod = utils.op_build(fused_relugrad_auto, shapes, dtypes, op_attrs=attrs, attrs={"target": "cuda"})
+        mod = utils.op_build(fused_relu_grad_auto, shapes, dtypes, op_attrs=attrs, attrs={"target": "cuda"})
     else:
-        mod = utils.op_build(fused_relugrad_manual, shapes, dtypes, op_attrs=attrs)
+        mod = utils.op_build(fused_relu_grad_manual, shapes, dtypes, op_attrs=attrs)
     output = np.full(shape, np.nan, dtype)
     output = utils.mod_launch(mod, (*input, output), expect=expect)
-    ret = compare_tensor(output, expect, rtol=5e-3, atol=1e-8)
-    print("Test {}".format("Pass" if ret else "Failed"))
-    if not ret:
+    res = np.allclose(output, expect, rtol=5e-3, atol=1e-8)
+    print("Test {}".format("Pass" if res else "Failed"))
+    if not res:
         print("Error cuda:========================")
         print(mod.imported_modules[0].get_source())
         raise AssertionError("Test fail")

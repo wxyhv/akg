@@ -11,16 +11,17 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License
+
+from __future__ import absolute_import
 import numpy as np
 from akg.utils import kernel_exec as utils
 from gen_random import random_gaussian
 from akg.utils.result_analysis import gpu_profiling
 from akg.utils.format_transform import to_tvm_nd_array
-from akg.ops.poly_gpu import fused_bngrad_conv2d_bp_manual, fused_bngrad_conv2d_bp_auto
+from akg.ops.poly_gpu import fused_relu_grad_bn_double_reduce_grad_manual, fused_relu_grad_bn_double_reduce_grad_auto
 from test_fused_pattern_grad import relu_grad_np
 
-def bn_grad_conv2d_bp(inshp_data, outshp_data):
-    in_shape = inshp_data.shape
+def compute_expect(inshp_data, outshp_data):
     out_shape = outshp_data.shape
     scale = out_shape[0] * out_shape[1] * out_shape[2]
     mul = np.multiply(inshp_data, inshp_data)
@@ -56,28 +57,27 @@ def gen_data(shape, out_shape, dtype, out_dtype):
     inshp_data = random_gaussian(shape, miu=1, sigma=0.1).astype(support_list[dtype])
     outshp_data = random_gaussian(out_shape, miu=1, sigma=0.1).astype(support_list[out_dtype])
     output = np.full(out_shape, np.nan, out_dtype)
-    expect = bn_grad_conv2d_bp(inshp_data, outshp_data)
+    expect = compute_expect(inshp_data, outshp_data)
     return inshp_data, outshp_data, output, expect
 
-def test_fused_bngrad_conv2d_bp(shape, out_shape, dtype, out_dtype, poly_sch=False):
-    shape_list = [shape, shape, shape, shape, shape, out_shape, shape, shape, shape, out_shape, shape, shape, shape,
-                  out_shape, out_shape, out_shape]
-    dtype_list = [dtype, dtype, dtype, dtype, dtype, out_dtype, dtype, dtype, dtype, out_dtype, dtype, dtype, dtype,
-                  out_dtype, out_dtype, out_dtype]
-    op_attrs = [dtype, out_dtype, shape, out_shape]
+def test_fused_relu_grad_bn_double_reduce_grad(shape, out_shape, dtype="float32", layout="NHWC", out_dtype="float16", poly_sch=False):
+    
+    shape_list = [shape] * 5 + [out_shape] + [shape] * 3 + [out_shape] + [shape] * 3 + [out_shape] * 3
+    dtype_list = [dtype] * 5 +[out_dtype] +[dtype] * 3 + [out_dtype] + [dtype] * 3 +[out_dtype] * 3
+    op_attrs = [layout, out_dtype]
     if poly_sch:
         mod = utils.op_build(
-            fused_bngrad_conv2d_bp_auto,
+            fused_relu_grad_bn_double_reduce_grad_auto,
             shape_list,
             dtype_list,
             op_attrs=op_attrs,
             attrs={
                 "target": "cuda"})
     else:
-        mod = utils.op_build(fused_bngrad_conv2d_bp_manual, shape_list, dtype_list, op_attrs=op_attrs)
+        mod = utils.op_build(fused_relu_grad_bn_double_reduce_grad_manual, shape_list, dtype_list, op_attrs=op_attrs)
+
     inshp_data, outshp_data, output, expect = gen_data(shape, out_shape, dtype, out_dtype)
-    inputs = [inshp_data] * 5 + [outshp_data] + [inshp_data] * 3 + [outshp_data] +\
-        [inshp_data] * 3 + [outshp_data] * 3
+    inputs = [inshp_data] * 5 + [outshp_data] + [inshp_data] * 3 + [outshp_data] + [inshp_data] * 3 + [outshp_data] * 3
     outputs = [output, output]
     arg_list = inputs + outputs
     outputs = utils.mod_launch(mod, arg_list, outputs=tuple(range(-len(outputs), 0)), expect=expect)

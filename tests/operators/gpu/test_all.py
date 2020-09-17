@@ -46,22 +46,22 @@ from test_ms_greater_equal import test_ms_greater_equal
 from test_ms_reciprocal import test_ms_reciprocal
 from test_ms_reduce_max import test_ms_reduce_max
 from test_ms_reduce_min import test_ms_reduce_min
-from test_fused_relugrad import test_fused_relugrad
-from test_fused_bn_update_grad import test_fused_bn_update_grad
+from test_fused_relu_grad import test_fused_relu_grad
+from test_fused_mul_div_rsqrt_mul_isfinite_red import test_fused_mul_div_rsqrt_mul_isfinite_red
 from test_fused_bn_update import test_fused_bn_update
-from test_fused_conv2d_bn import test_fused_conv2d_bn
-from test_fused_bn_relu import test_fused_bn_relu
-from test_fused_bn_double_relu import test_fused_bn_double_relu
-from test_fused_bn_relu_avgpool import test_fused_bn_relu_avgpool
-from test_fused_bngrad_conv2dbp_0 import test_fused_bngrad_conv2dbp_0
-from test_fused_l2loss import test_fused_l2loss
-from test_fused_cast_pad import test_fused_cast_pad
-from test_fused_bngrad_conv2dback import test_fused_bngrad_conv2dback
-from test_fused_conv2dback_l2loss import test_fused_conv2dback_l2loss
-from test_fused_conv2dback_bngrad import test_fused_conv2dback_bngrad
-from test_fused_bn_grad import test_fused_bn_grad
-from test_fused_conv2d_bp_bn_grad import test_fused_conv2d_bp_bn_grad
-from test_fused_bngrad_conv2d_bp import test_fused_bngrad_conv2d_bp
+from test_fused_bn_reduce import test_fused_bn_reduce
+from test_fused_bn_follow_relu import test_fused_bn_follow_relu
+from test_fused_bn_double_follow_relu import test_fused_bn_double_follow_relu
+from test_fused_bn_follow_relu_avgpool import test_fused_bn_follow_relu_avgpool
+from test_fused_bn_reduce_grad import test_fused_bn_reduce_grad
+from test_fused_is_finite import test_fused_is_finite
+from test_fused_pad import test_fused_pad
+from test_fused_relu_grad_bn_reduce_grad import test_fused_relu_grad_bn_reduce_grad
+from test_fused_l2loss_grad import test_fused_l2loss_grad
+from test_fused_relu_grad_bn_double_update_grad import test_fused_relu_grad_bn_double_update_grad
+from test_fused_bn_update_grad import test_fused_bn_update_grad
+from test_fused_relu_grad_bn_update_grad import test_fused_relu_grad_bn_update_grad
+from test_fused_relu_grad_bn_double_reduce_grad import test_fused_relu_grad_bn_double_reduce_grad
 
 def add(poly_sch, fuzz_shape=None):
     if fuzz_shape:
@@ -207,66 +207,59 @@ def select(poly_sch, fuzz_shape=None):
 def fused_bn_update(poly_sch, fuzz_shape=None):
     test_fused_bn_update((2048,), 'float32', poly_sch=poly_sch)
 
-def fused_relugrad(poly_sch, fuzz_shape=None):
-    test_fused_relugrad((256, 56, 56, 256), 'float16', poly_sch=poly_sch)
+def fused_relu_grad(poly_sch, fuzz_shape=None):
+    test_fused_relu_grad((256, 56, 56, 256), 'float16', poly_sch=poly_sch)
 
-def fused_bn_update_grad(poly_sch, fuzz_shape=None):
-    test_fused_bn_update_grad((64,), poly_sch=poly_sch)
+def fused_mul_div_rsqrt_mul_isfinite_red(poly_sch, fuzz_shape=None):
+    test_fused_mul_div_rsqrt_mul_isfinite_red((64,), poly_sch=poly_sch)
 
-def fused_conv2d_bn(poly_sch, fuzz_shape=None):
-    test_fused_conv2d_bn((256, 7, 7, 2048), in_dtype='float16', layout='NHWC', out_dtype='float32', poly_sch=False)
+def fused_bn_reduce(poly_sch, fuzz_shape=None):
+    test_fused_bn_reduce((256, 7, 7, 2048), layout='NHWC', poly_sch=False)
     # TODO: node should be a band node
-    # test_fused_conv2d_bn((256, 7, 7, 2048), in_dtype='float16', layout='NHWC', out_dtype='float32', poly_sch=True)
+    # test_fused_bn_reduce((256, 7, 7, 2048), layout='NHWC', poly_sch=True)
 
-def fused_bn_relu(poly_sch, fuzz_shape=None):
-    test_fused_bn_relu((256, 7, 7, 2048), in_dtype='float16', layout='NHWC', out_dtype='float16', poly_sch=poly_sch)
+def fused_bn_follow_relu(poly_sch, fuzz_shape=None):
+    test_fused_bn_follow_relu((256, 7, 7, 2048), layout='NHWC', poly_sch=poly_sch)
 
-def fused_bn_double_relu(poly_sch, fuzz_shape=None):
-    test_fused_bn_double_relu((256, 7, 7, 2048), in_dtype='float16', layout='NHWC',
-                              out_dtype='float16', poly_sch=poly_sch)
+def fused_bn_double_follow_relu(poly_sch, fuzz_shape=None):
+    test_fused_bn_double_follow_relu((256, 7, 7, 2048), layout='NHWC', poly_sch=poly_sch)
                             
-def fused_bn_relu_avgpool(poly_sch, fuzz_shape=None):
-    test_fused_bn_relu_avgpool((256, 7, 7, 2048), in_dtype='float16', layout='NHWC',
-                               out_dtype='float16', poly_sch=poly_sch)
+def fused_bn_follow_relu_avgpool(poly_sch, fuzz_shape=None):
+    test_fused_bn_follow_relu_avgpool((256, 7, 7, 2048), layout='NHWC', poly_sch=poly_sch)
 
-def fused_bngrad_conv2dbp_0(poly_sch, fuzz_shape=None):
-    test_fused_bngrad_conv2dbp_0((256, 56, 56, 256), in_dtype='float16',
-                                 layout='NHWC', out_dtype='float16', poly_sch=poly_sch)
+def fused_bn_reduce_grad(poly_sch, fuzz_shape=None):
+    test_fused_bn_reduce_grad((256, 56, 56, 256), layout='NHWC', poly_sch=poly_sch)
 
-def fused_l2loss(poly_sch, fuzz_shape=None):
-    test_fused_l2loss((1, 1, 256, 1024), 'float32', poly_sch=poly_sch)
+def fused_is_finite(poly_sch, fuzz_shape=None):
+    test_fused_is_finite((1, 1, 256, 1024), layout='NHWC', poly_sch=poly_sch)
 
-def fused_cast_pad(poly_sch, fuzz_shape=None):
-    test_fused_cast_pad((7, 7, 3, 64), (0, 0, 0, 0), (0, 0, 1, 0), 'float32', 0.0, poly_sch=poly_sch)
+def fused_pad(poly_sch, fuzz_shape=None):
+    test_fused_pad((7, 7, 3, 64), (0, 0, 0, 0), (0, 0, 1, 0), layout='NHWC', pad_value=0.0, poly_sch=poly_sch)
 
-def fused_bngrad_conv2dback(poly_sch, fuzz_shape=None):
-    test_fused_bngrad_conv2dback([64], [64], (256, 112, 112, 64), (256, 112, 112, 64), [64], [64], 
-            (256, 112, 112, 64), [64], [64], (256, 112, 112, 64),  const_1=0.000000311403852, const_2=0, 
-            const_3=3211264, poly_sch=poly_sch)
+def fused_relu_grad_bn_reduce_grad(poly_sch, fuzz_shape=None):
+    test_fused_relu_grad_bn_reduce_grad((64, ), (256, 112, 112, 64),  layout='NHWC', poly_sch=poly_sch)
 
-def fused_conv2dback_l2loss(poly_sch, fuzz_shape=None):
-    test_fused_conv2dback_l2loss((1,1,256,1024), (1,1,256,1024), layout_f16='NCHW', layout_f32='NCHW', dtype='float32',
-    poly_sch=poly_sch)
+def fused_l2loss_grad(poly_sch, fuzz_shape=None):
+    test_fused_l2loss_grad((1,1,256,1024), layout='NHWC', poly_sch=poly_sch)
 
-def fused_conv2dback_bngrad(poly_sch, fuzz_shape=None):
-    test_fused_conv2dback_bngrad((256,56,56,256), (256,56,56,256), (256,56,56,256), (256,56,56,256), [256], 
-    (256,56,56,256), [256], 0.0, 0.0, 1.2461541e-06, poly_sch=False)
+def fused_relu_grad_bn_double_update_grad(poly_sch, fuzz_shape=None):
+    test_fused_relu_grad_bn_double_update_grad((256,56,56,256), (256, ), layout='NHWC', poly_sch=False)
     # TODO: check_failed: is_const_int(op->min, 0)
     # test_fused_conv2dback_bngrad((256,56,56,256), (256,56,56,256), (256,56,56,256), (256,56,56,256), [256], 
     # (256,56,56,256), [256], 0.0, 0.0, 1.2461541e-06, poly_sch=True)
 
-def fused_bn_grad(poly_sch, fuzz_shape=None):
-    test_fused_bn_grad((256, 56, 56, 256), (256,), 'float16', 'float32', poly_sch=False)
+def fused_bn_update_grad(poly_sch, fuzz_shape=None):
+    test_fused_bn_update_grad((256, 56, 56, 256), (256,), layout="NHWC", poly_sch=False)
     # TODO: node should be a band node
-    # test_fused_bn_grad((256, 56, 56, 256), (256,), 'float16', 'float32', poly_sch=True)
+    # test_fused_bn_update_grad((256, 56, 56, 256), (256,), layout="NHWC", poly_sch=True)
 
-def fused_bngrad_conv2d_bp(poly_sch, fuzz_shape=None):
-    test_fused_bngrad_conv2d_bp((256,), (256, 56, 56, 256), 'float32', 'float16', poly_sch=poly_sch)
+def fused_relu_grad_bn_double_reduce_grad(poly_sch, fuzz_shape=None):
+    test_fused_relu_grad_bn_double_reduce_grad((256,), (256, 56, 56, 256), layout="NHWC", poly_sch=poly_sch)
 
-def fused_conv2d_bp_bn_grad(poly_sch, fuzz_shape=None):
-    test_fused_conv2d_bp_bn_grad((256, 112, 112, 64), (64,), 'float16', 'float32', poly_sch=False)
+def fused_relu_grad_bn_update_grad(poly_sch, fuzz_shape=None):
+    test_fused_relu_grad_bn_update_grad((256, 112, 112, 64), (64,), layout="NHWC", poly_sch=False)
     # TODO: check_failed: is_const_int(op->min, 0)
-    # test_fused_conv2d_bp_bn_grad((256, 112, 112, 64), (64,), 'float16', 'float32', poly_sch=True)
+    # test_fused_relu_grad_bn_update_grad((256, 112, 112, 64), (64,), layout="NHWC", poly_sch=True)
 
 
 def equal(poly_sch, fuzz_shape=None):
@@ -340,14 +333,21 @@ if __name__ == '__main__':
               "expand_dims": expand_dims, "one_hot": one_hot, "reshape": reshape, "tile": tile, 
               "trans_data": trans_data,            
               "fused_bn_update": fused_bn_update,
-              "fused_relugrad": fused_relugrad, "fused_bn_update_grad": fused_bn_update_grad,
-              "fused_conv2d_bn": fused_conv2d_bn, "fused_bn_relu": fused_bn_relu,
-              "fused_bn_double_relu": fused_bn_double_relu, "fused_bn_relu_avgpool": fused_bn_relu_avgpool,
-              "fused_bngrad_conv2dbp_0": fused_bngrad_conv2dbp_0, 
-              "fused_l2loss": fused_l2loss, "fused_cast_pad": fused_cast_pad, 
-              "fused_bngrad_conv2dback": fused_bngrad_conv2dback, "fused_conv2dback_l2loss": fused_conv2dback_l2loss,
-              "fused_conv2dback_bngrad": fused_conv2dback_bngrad, "fused_bngrad_conv2d_bp": fused_bngrad_conv2d_bp,
-              "fused_conv2d_bp_bn_grad": fused_conv2d_bp_bn_grad, "fused_bn_grad": fused_bn_grad
+              "fused_relu_grad": fused_relu_grad, 
+              "fused_mul_div_rsqrt_mul_isfinite_red": fused_mul_div_rsqrt_mul_isfinite_red,
+              "fused_bn_reduce": fused_bn_reduce, 
+              "fused_bn_follow_relu": fused_bn_follow_relu,
+              "fused_bn_double_follow_relu": fused_bn_double_follow_relu, 
+              "fused_bn_follow_relu_avgpool": fused_bn_follow_relu_avgpool,
+              "fused_bn_reduce_grad": fused_bn_reduce_grad, 
+              "fused_is_finite": fused_is_finite, 
+              "fused_pad": fused_pad, 
+              "fused_relu_grad_bn_reduce_grad": fused_relu_grad_bn_reduce_grad, 
+              "fused_l2loss_grad": fused_l2loss_grad,
+              "fused_relu_grad_bn_double_update_grad": fused_relu_grad_bn_double_update_grad, 
+              "fused_relu_grad_bn_double_reduce_grad": fused_relu_grad_bn_double_reduce_grad,
+              "fused_relu_grad_bn_update_grad": fused_relu_grad_bn_update_grad, 
+              "fused_bn_update_grad": fused_bn_update_grad
               }
     all_f = list(op_map.values())
     op_map["all"] = all_f
