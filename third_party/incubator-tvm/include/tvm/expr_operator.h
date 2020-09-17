@@ -28,6 +28,7 @@
 
 /*
  * 2019.12.30 - Add new operator for expr.
+ * 2020.08.10 - Add isinf, isfinite, infinity.
  */
 
 #ifndef TVM_EXPR_OPERATOR_H_
@@ -519,6 +520,27 @@ TVM_DLL Expr abs(Expr x);
  * \return The result expression.
  */
 TVM_DLL Expr isnan(Expr x);
+
+/*!
+ * \brief Check if x is infinite.
+ * \param x The input data
+ * \return The result expression.
+ */
+TVM_DLL Expr isinf(Expr x);
+
+/*!
+ * \brief Check if x is finite.
+ * \param x The input data
+ * \return The result expression.
+ */
+TVM_DLL Expr isfinite(Expr x);
+
+/*!
+ * \brief Get the value of infinity.
+ * \param dtype The data type.
+ * \return The infinity value in this format.
+ */
+TVM_DLL Expr infinity(const Type& dtype);
 
 /*!
  * \brief sum of of source expression over axis

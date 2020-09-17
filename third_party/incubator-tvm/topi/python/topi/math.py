@@ -18,6 +18,7 @@
 # pylint: disable=redefined-builtin
 
 # 2019.12.30 - Add new param 'name' in tvm.compute.
+# 2020.08.10 - Add new operators of isinf and isfinite.
 
 from __future__ import absolute_import as _abs
 import tvm
@@ -261,6 +262,38 @@ def isnan(x):
         The result.
     """
     return tvm.compute(x.shape, lambda *i: tvm.isnan(x(*i)))
+
+@tvm.tag_scope(tag=tag.ELEMWISE)
+def isinf(x):
+    """Check if value of x is infinite, element-wise.
+
+    Parameters
+    ----------
+    x : tvm.Tensor
+        Input argument.
+
+    Returns
+    -------
+    y : tvm.Tensor
+        The result.
+    """
+    return tvm.compute(x.shape, lambda *i: tvm.isinf(x(*i)))
+
+@tvm.tag_scope(tag=tag.ELEMWISE)
+def isfinite(x):
+    """Check if value of x is finite, element-wise.
+
+    Parameters
+    ----------
+    x : tvm.Tensor
+        Input argument.
+
+    Returns
+    -------
+    y : tvm.Tensor
+        The result.
+    """
+    return tvm.compute(x.shape, lambda *i: tvm.isfinite(x(*i)))
 
 
 @tvm.tag_scope(tag=tag.ELEMWISE)

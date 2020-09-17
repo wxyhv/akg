@@ -15,14 +15,19 @@
 # specific language governing permissions and limitations
 # under the License.
 # pylint: disable=invalid-name,unused-variable,too-many-locals,len-as-condition
+# 2020.08.29  -  Iterate each output in func "schedule_reduce" to allow multiple outputs
+# 2020.9.1    -  Modify all_reduce check condition.
+# 2020.9.2    -  Modify threads bind.
+
 """Schedule for reduce operators"""
 from __future__ import absolute_import as _abs
+import re
 import tvm
 from .. import tag
 from .. import generic
 from .injective import schedule_injective_from_existing
 
-def _schedule_reduce(op, sch, is_idx_reduce=False):
+def _schedule_reduce(op, sch, is_idx_reduce=False, blocksize=[32, 32]):
     if is_idx_reduce:
         data_out = op.input_tensors[0]
     else:
@@ -31,33 +36,55 @@ def _schedule_reduce(op, sch, is_idx_reduce=False):
 
     if not sch[data_out].op.reduce_axis:
         return schedule_injective_from_existing(sch, op.output(0))
+    
+    all_reduce = True
+    for i in data_out.shape:
+        if i.value != 1:
+            all_reduce = False
+            break
 
-    if len(sch[data_out].op.axis) > 0:
-        all_reduce = False
-        num_thread = 32
+    if not all_reduce:
+        num_thread_x = blocksize[0]
+        num_thread_y = blocksize[1]
         target = tvm.target.current_target()
         if target and target.target_name == "opencl":
             # without it, CL_INVALID_WORK_GROUP_SIZE occurred when running test_topi_reduce.py
             # don't know why
-            num_thread = 16
+            num_thread_x = 16
+            num_thread_y = 16
         block_x = tvm.thread_axis("blockIdx.x")
-        thread_x = tvm.thread_axis((0, num_thread), "threadIdx.x")
-        thread_y = tvm.thread_axis((0, num_thread), "threadIdx.y")
+        thread_x = tvm.thread_axis((0, num_thread_x), "threadIdx.x")
+        thread_y = tvm.thread_axis((0, num_thread_y), "threadIdx.y")
     else:
-        all_reduce = True
-        num_thread = tvm.target.current_target(allow_none=False).max_num_threads
-        thread_x = tvm.thread_axis((0, num_thread), "threadIdx.x")
+        num_thread_x = tvm.target.current_target(allow_none=False).max_num_threads
+        thread_x = tvm.thread_axis((0, num_thread_x), "threadIdx.x")
 
     # Fuse and refactor the reduce axis
     fused_reduce = sch[data_out].fuse(*[sch[data_out].op.reduce_axis[i]
                                         for i in range(len(sch[data_out].op.reduce_axis))])
-    ko, ki = sch[data_out].split(fused_reduce, factor=num_thread)
+    
+    reduce_axis = list(map(int, re.findall('\d+', str(fused_reduce.var))))
+    reduce_with_inner_axis = len(data_in.shape) - 1 in reduce_axis
+    
+    if all_reduce or reduce_with_inner_axis:
+        ko, ki = sch[data_out].split(fused_reduce, factor=num_thread_x)
+        reduce_axis_bind_with = thread_x
+        if not all_reduce:
+            output_axis_bind_with = thread_y
+            output_factor = num_thread_y
+    else:
+        ko, ki = sch[data_out].split(fused_reduce, factor=num_thread_y)
+        reduce_axis_bind_with = thread_y
+        output_axis_bind_with = thread_x
+        output_factor = num_thread_x
+
     if is_idx_reduce:
         data_out_rf, _ = sch.rfactor(data_out, ki)
     else:
         data_out_rf = sch.rfactor(data_out, ki)
+
     tx = sch[data_out].op.reduce_axis[0]
-    sch[data_out].bind(tx, thread_x)
+    sch[data_out].bind(tx, reduce_axis_bind_with)
     sch[data_out_rf].compute_at(sch[data_out], tx)
     if is_idx_reduce:
         real_output = op.output(0)
@@ -69,10 +96,10 @@ def _schedule_reduce(op, sch, is_idx_reduce=False):
         # Fuse and split the axis
         fused_outer = sch[real_output].fuse(*[sch[real_output].op.axis[i]
                                               for i in range(len(sch[real_output].op.axis))])
-        bx, outer_in = sch[real_output].split(fused_outer, factor=num_thread)
+        bx, outer_in = sch[real_output].split(fused_outer, factor=output_factor)
 
         # Bind the axes to threads and blocks
-        sch[real_output].bind(outer_in, thread_y)
+        sch[real_output].bind(outer_in, output_axis_bind_with)
         sch[real_output].bind(bx, block_x)
         if is_idx_reduce:
             sch[temp_idx_input].compute_at(sch[real_output], outer_in)
@@ -85,7 +112,7 @@ def _schedule_reduce(op, sch, is_idx_reduce=False):
                                            spatial_axis)
             sch[temp_val_input].compute_at(sch[real_output],
                                            spatial_axis)
-    sch[real_output].set_store_predicate(thread_x.equal(0))
+    sch[real_output].set_store_predicate(reduce_axis_bind_with.equal(0))
     return sch
 
 
@@ -145,5 +172,6 @@ def schedule_reduce(outs):
 
         scheduled_ops.append(operator)
 
-    traverse_after_reduce(outs[0].op)
+    for out in outs:
+        traverse_after_reduce(out.op)
     return sch
