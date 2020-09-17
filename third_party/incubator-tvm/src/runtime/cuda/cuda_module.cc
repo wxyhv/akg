@@ -111,7 +111,7 @@ class CUDAModuleNode : public runtime::ModuleNode {
     if (module_[device_id] == nullptr) {
       CUDA_DRIVER_CALL(cuModuleLoadData(&(module_[device_id]), data_.c_str()));
     }
-    CUresult result;
+    CUresult result = CUDA_SUCCESS;
     if (func_[device_id] == nullptr){
       result = cuModuleGetFunction(&func_[device_id], module_[device_id], func_name.c_str());
     }
@@ -196,9 +196,12 @@ class CUDAWrappedFunc {
     CUstream strm = static_cast<CUstream>(CUDAThreadEntry::ThreadLocal()->stream);
     CUresult result;
     size_t raw_size = num_void_args_;
-    void** raw_args = new void*[raw_size];
+    void** raw_args = new  (std::nothrow) void*[raw_size];
+    if (*raw_args == nullptr){
+      LOG(FATAL)  << "Memory alloc fail.";
+    }
     size_t args_size = 0;
-    for (size_t i=0; i<raw_size; ++i)
+    for (size_t i = 0; i < raw_size; ++i)
     {
       args_size += arg_size_[i];
       void** ptr = reinterpret_cast<void**>(void_args[i]);
