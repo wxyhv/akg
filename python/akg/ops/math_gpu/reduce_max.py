@@ -12,7 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""operator dsl function: sum"""
+"""operator dsl function: max"""
 
 import akg.topi
 import akg.tvm
@@ -21,9 +21,9 @@ from akg.utils import validation_check as vc_util
 
 
 @vc_util.check_input_type(akg.tvm.tensor.Tensor, (list, tuple, int, type(None)), (bool, type(None)))
-def sum_value(inputs, axis=None, keepdims=False):
+def reduce_max(inputs, axis=None, keepdims=False):
     """
-    Compute the sum of elements across dimensions of a tensor.
+    Compute the max of elements across dimensions of a tensor.
 
     Args:
         inputs (tvm.tensor.Tensor): Tensor.
@@ -37,9 +37,13 @@ def sum_value(inputs, axis=None, keepdims=False):
     axis = ft_util.refine_reduce_axis(inputs, axis)
     vc_util.check_shape(inputs.shape)
 
-    if not axis:
-        output = akg.topi.identity(inputs)
-    else:
-        output = akg.topi.sum(inputs, axis=axis, keepdims=keepdims)
+    in_dtype = inputs.dtype
+    if in_dtype == 'float16':
+        inputs = akg.topi.cast(inputs, 'float32')
+
+    output = akg.topi.max(inputs, axis=axis, keepdims=keepdims)
+    
+    if in_dtype == 'float16':
+        output = akg.topi.cast(output, 'float16')
 
     return output

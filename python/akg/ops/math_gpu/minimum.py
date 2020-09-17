@@ -12,21 +12,30 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""operator dsl function: logical_not"""
-import akg.tvm
-import akg.topi
+"""operator dsl function: minimum"""
+import akg.topi as topi
+import akg.tvm as tvm
 from akg.utils import validation_check as vc_util
 
-@vc_util.check_input_type(akg.tvm.tensor.Tensor)
-def logical_not(input1):
+
+@vc_util.check_input_type(tvm.tensor.Tensor, tvm.tensor.Tensor)
+def minimum(data1, data2):
     """
-    Compute logical_not of input1.
+    Take element-wise minimum of two tensors with auto-broadcasting.
 
     Args:
-        input1 (tvm.tensor.Tensor): Tensor.
+        data1: tvm.tensor.Tensor
+        data2: tvm.tensor.Tensor
 
     Returns:
-        tvm.tensor.Tensor.
+        tvm.tensor.Tensor of minimum of two tensors.
     """
-    res = akg.topi.logical_not(input1)
+    shape1 = [x.value for x in data1.shape]
+    shape2 = [x.value for x in data2.shape]
+    vc_util.check_shape(shape1)
+    vc_util.check_shape(shape2)
+    vc_util.auto_broadcast_check(shape1, shape2)
+    vc_util.elemwise_dtype_check(data1.dtype, data2.dtype)
+
+    res = topi.minimum(data1, data2)
     return res

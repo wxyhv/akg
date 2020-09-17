@@ -12,21 +12,30 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""operator dsl function: logical_not"""
-import akg.tvm
+"""operator dsl function: addn"""
 import akg.topi
 from akg.utils import validation_check as vc_util
 
-@vc_util.check_input_type(akg.tvm.tensor.Tensor)
-def logical_not(input1):
+
+@vc_util.check_input_type(((list, tuple), akg.tvm.tensor.Tensor))
+def addn(data):
     """
-    Compute logical_not of input1.
+    Compute sum of all elements in tensor.
 
     Args:
-        input1 (tvm.tensor.Tensor): Tensor.
+        data (tvm.tensor.Tensor): Tensor of of type float16, float32.
 
     Returns:
-        tvm.tensor.Tensor.
+        tvm.tensor.Tensor, compute result, get all elements' sum.
     """
-    res = akg.topi.logical_not(input1)
+    # check types
+    dtype = data[0].dtype
+    vc_util.ops_dtype_check(dtype, vc_util.DtypeForDavinci.ALL_FLOAT)
+
+    res = data[0]
+    for i in range(1, len(data)):
+        vc_util.elemwise_dtype_check(res.dtype, data[i].dtype)
+        vc_util.elemwise_shape_check(res.shape, data[i].shape)
+    res = akg.topi.elemwise_sum(data)
+
     return res

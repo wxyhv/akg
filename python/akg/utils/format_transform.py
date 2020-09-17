@@ -197,3 +197,13 @@ def convert_to_list(something, convert_all=True):
         else:
             out = something
     return out
+
+def to_tvm_nd_array(data, ctx=None):
+    """convert other types to tvm nd array with specified context"""
+    if ctx is None:
+        ctx = akg.tvm.context("cuda", 0)
+    if isinstance(data, list):
+        return [akg.tvm.nd.array(d, ctx) for d in data]
+    if isinstance(data, tuple):
+        return (akg.tvm.nd.array(d, ctx) for d in data)
+    return akg.tvm.nd.array(data, ctx)

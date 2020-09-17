@@ -12,21 +12,17 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""operator dsl function: logical_not"""
-import akg.tvm
-import akg.topi
-from akg.utils import validation_check as vc_util
+"""pad"""
+import akg
+from akg.topi.cuda.injective_single_kernel import schedule_injective
+import akg.tvm as tvm
+import akg.topi as topi
 
-@vc_util.check_input_type(akg.tvm.tensor.Tensor)
-def logical_not(input1):
-    """
-    Compute logical_not of input1.
+@akg.schedule(schedule_injective)
+def pad_manual(data, pad_before, pad_after=None, pad_value=0.0, name="PadInput"):
+    """pad with manual schedule."""
+    return topi.nn.pad(data, pad_before, pad_after, pad_value, name)
 
-    Args:
-        input1 (tvm.tensor.Tensor): Tensor.
-
-    Returns:
-        tvm.tensor.Tensor.
-    """
-    res = akg.topi.logical_not(input1)
-    return res
+def pad_auto(data, pad_before, pad_after=None, pad_value=0.0, name="PadInput"):
+    """pad with auto schedule."""
+    return topi.nn.pad(data, pad_before, pad_after, pad_value, name)

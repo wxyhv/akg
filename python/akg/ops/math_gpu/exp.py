@@ -12,21 +12,24 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""operator dsl function: logical_not"""
-import akg.tvm
+"""operator dsl function: exp"""
 import akg.topi
 from akg.utils import validation_check as vc_util
 
+
 @vc_util.check_input_type(akg.tvm.tensor.Tensor)
-def logical_not(input1):
+def exp(input):
     """
-    Compute logical_not of input1.
+    Calculate exponential of input x.
 
     Args:
-        input1 (tvm.tensor.Tensor): Tensor.
+        input (tvm.tensor.Tensor): Tensor.
 
     Returns:
-        tvm.tensor.Tensor.
+        tvm.tensor.Tensor, has the same type as input.
     """
-    res = akg.topi.logical_not(input1)
-    return res
+    shape = [x.value for x in input.shape]
+    vc_util.check_shape(shape)
+    output = akg.topi.exp(input)
+
+    return output

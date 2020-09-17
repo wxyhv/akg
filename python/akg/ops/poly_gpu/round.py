@@ -12,21 +12,17 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""operator dsl function: logical_not"""
-import akg.tvm
-import akg.topi
-from akg.utils import validation_check as vc_util
+"""round"""
+from akg.ops.math_gpu.round import round
+import akg.topi as topi
+import akg
 
-@vc_util.check_input_type(akg.tvm.tensor.Tensor)
-def logical_not(input1):
-    """
-    Compute logical_not of input1.
+@akg.schedule(topi.cuda.schedule_injective)
+def round_manual(x):
+    """round"""
+    return round(x)
 
-    Args:
-        input1 (tvm.tensor.Tensor): Tensor.
+def round_auto(x):
+    """round"""
+    return round(x)
 
-    Returns:
-        tvm.tensor.Tensor.
-    """
-    res = akg.topi.logical_not(input1)
-    return res

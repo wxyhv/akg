@@ -51,6 +51,8 @@ rpc_machine = {}
 rpc_lb = {}
 PERFORMANCE_TEST_FILE = "PERFORMANCE_TEST_FILE"
 BINDS = "binds"
+CUDA = "cuda"
+CCE = "cce"
 RANDOM_SEED_NUM = 20
 PROF_ERROR_CODE = 9999999999
 
@@ -66,7 +68,7 @@ def func_time_required(func_name):
     return wrapper
 
 
-def create_code(kernel_name, code_path=None, code=None, code_type="CCE"):
+def create_code(kernel_name, code_path=None, code=None, code_type=CCE):
     """
     Create cce or cuda file.
 
@@ -76,9 +78,9 @@ def create_code(kernel_name, code_path=None, code=None, code_type="CCE"):
         code: code.
         code_type: code type.
     """
-    if code_type == "CCE":
+    if code_type == CCE:
         postfix = ".cce"
-    elif code_type == "CUDA":
+    elif code_type == CUDA:
         postfix = ".cu"
     else:
         logging.info("the target code type %s is not supported.", code_type)
@@ -86,9 +88,9 @@ def create_code(kernel_name, code_path=None, code=None, code_type="CCE"):
     if not code_path:
         code_path = "./"
     
-    if code_type == "CCE" and len(code_path) > 4 and code_path[-4:].lower() == postfix:
+    if code_type == CCE and len(code_path) > 4 and code_path[-4:].lower() == postfix:
         real_path = code_path
-    elif code_type == "CUDA" and len(code_path) > 3 and code_path[-3:].lower() == postfix:
+    elif code_type == CUDA and len(code_path) > 3 and code_path[-3:].lower() == postfix:
         real_path = code_path
     else:
         if code_path[-1] == r"/":
@@ -628,7 +630,7 @@ def op_build(op_func, input_shapes, input_types, op_attrs=None, kernel_name="",
     """
     inputs = []
     set_dim_key = ""
-    shape_params = []
+    shape_params = []    # save all the shape params for dynamic_shape cases
     for i, (shape, dtype) in enumerate(zip(input_shapes, input_types)):
         if isinstance(shape, (list, tuple)) and shape and isinstance(shape[0], (list, tuple)):
             tmp_input = []
@@ -777,7 +779,7 @@ def op_build(op_func, input_shapes, input_types, op_attrs=None, kernel_name="",
             func_ = ct_util.gen_key_func_map[op_func.__name__]
             if inspect.isfunction(func_):
                 set_dim_key = func_(*args)
-        with akg.build_config(add_lower_pass=cce.debug_mode(0), dump_pass_ir=True):
+        with akg.build_config(dump_pass_ir=True):
             spaces = akg.lower(s, op_var, name=kernel_name, attrs=attrs, polyhedral=polyhedral, tuning=tuning)
             if set_dim_key == "":
                 set_dim_key = str(args)
@@ -790,18 +792,17 @@ def op_build(op_func, input_shapes, input_types, op_attrs=None, kernel_name="",
         with os.fdopen(os.open("./cpu/ir/" + kernel_name + ".cc", os.O_WRONLY | os.O_CREAT, 0o400), 'w') as irf:
             irf.write(akg.tvm.lower(s, op_var, shape_var, simple_mode=True))
         return mod
-    with akg.build_config(add_lower_pass=cce.debug_mode(0), dump_pass_ir=dump_ir):
-        mod = akg.build(s, op_var, "cce", shape_var, name=kernel_name, attrs=attrs, polyhedral=polyhedral, binds=binds)
-        if mod is None:
-            return None
-        source_code = mod.imported_modules[0].get_source()
+    target = CUDA if attrs and attrs.get("target", "cce") == CUDA else CCE
+    with akg.build_config(dump_pass_ir=dump_ir):
+        mod = akg.build(s, op_var, target, shape_var, name=kernel_name, attrs=attrs, polyhedral=polyhedral, binds=binds)
+    if mod is None:
+        return None
+    source_code = mod.imported_modules[0].get_source()
     if log_cce:
         logging.debug("#################cce code####################")
         logging.debug(source_code)
     if dump_code:
-        code_path = "./"
-        create_code(kernel_name, code_path, source_code)
-
+        create_code(kernel_name, "./", source_code, target)
     return mod
 
 

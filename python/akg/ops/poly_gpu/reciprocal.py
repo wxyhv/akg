@@ -12,21 +12,17 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""operator dsl function: logical_not"""
-import akg.tvm
-import akg.topi
-from akg.utils import validation_check as vc_util
+"""Reciprocal"""
+import akg
+import akg.topi as topi
+from akg.ops.math import reciprocal
 
-@vc_util.check_input_type(akg.tvm.tensor.Tensor)
-def logical_not(input1):
-    """
-    Compute logical_not of input1.
+@akg.schedule(topi.cuda.schedule_injective)
+def reciprocal_manual(tensor):
+    """Reciprocal with manual schedule."""
+    return reciprocal.reciprocal(tensor)
 
-    Args:
-        input1 (tvm.tensor.Tensor): Tensor.
 
-    Returns:
-        tvm.tensor.Tensor.
-    """
-    res = akg.topi.logical_not(input1)
-    return res
+def reciprocal_auto(tensor):
+    """Reciprocal with auto schedule."""
+    return reciprocal.reciprocal(tensor)
