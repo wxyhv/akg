@@ -648,6 +648,21 @@ TVM_REGISTER_GLOBAL("InplaceAssign").set_body([](TVMArgs args, TVMRetValue *rv) 
   *rv = Map<Tensor, Buffer>({{ref, buf}, {val, buf}});
 });
 
+TVM_REGISTER_GLOBAL("Assign").set_body([](TVMArgs args, TVMRetValue *rv) {
+  CHECK_GE(args.size(), 1);
+  auto inputs = args[0].operator Array<NodeRef>();
+  CHECK_GE(inputs.size(), 2);
+  bool in2_is_expr = inputs[1]->IsInstance<ExprNode>();
+  bool in2_is_tensor = inputs[1]->IsInstance<TensorNode>();
+  CHECK(inputs[0]->IsInstance<TensorNode>()) << "Input1 should be of type Tensor";
+  CHECK(in2_is_expr || in2_is_tensor) << "Input2 should be of type Expr or Tensor";
+  auto ref = Downcast<Tensor>(inputs[0]);
+  auto val = in2_is_expr ? compute(ref->shape, [&](const Array<Var> &indices) { return Downcast<Expr>(inputs[1]); })
+                         : compute(ref->shape, [&](const Array<Var> &indices) { return Downcast<Tensor>(inputs[1])(indices); }, "val");
+  auto fake_out = compute(ref->shape, [&](const Array<Var> &indices) { return val(indices); }, "fake_output");
+  *rv = Array<Tensor>{fake_out, val};;
+});
+
 TVM_REGISTER_GLOBAL("EquivFormat").set_body([](TVMArgs args, TVMRetValue *rv) {
   CHECK_GE(args.size(), 1);
   auto inputs = args[0].operator Array<NodeRef>();
