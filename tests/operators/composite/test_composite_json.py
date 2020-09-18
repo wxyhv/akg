@@ -20,53 +20,78 @@ import logging
 from akg import composite
 from akg.utils import custom_tiling
 from akg.utils import kernel_exec as utils
+from akg.utils.result_analysis import gpu_profiling
+from akg.utils.format_transform import to_tvm_nd_array
 from gen_json_data import gen_json_data
 from base import get_rtol_atol
 from tensorio import compare_tensor
+
 logging.getLogger().setLevel(logging.INFO)
 
 def print_usage():
-    logging.info("Usage: test_composite_json.py <JSON_FILE> to run single file.")
-    logging.info("Usage: test_composite_json.py -d to run files in a directory, default to be ./json_dir.")
-    logging.info("Usage: test_composite_json.py -ci to run ci files.")
-    logging.info("compile composite op")
+    logging.info("\nUsage:")
+    logging.info("1. To run single file :")
+    logging.info("  python test_composite_json.py [-c, -a/--auto] -f <filename>.")
+    logging.info("2. To run files in a directory, default to be ./json_dir :")
+    logging.info("  python test_composite_json.py -d [-a or --auto]")
+    logging.info("3. To run ci files :")
+    logging.info("  python test_composite_json.py --ci [-a/--auto, --profile]")
+    logging.info("\nOptions:")
+    logging.info("-f <filename>")
+    logging.info("  single file name, '*.info' or '*.json'.")
+    logging.info("-c")
+    logging.info("  use tiling dim attribute.")
+    logging.info("-a, --auto")
+    logging.info("  use poly schedule mode.")
+    logging.info("--profile")
+    logging.info("  use profiling env.")
+    logging.info("\n")
 
-def get_result(desc, attrs=None):
+
+def get_result(desc, poly, attrs=None):
     input_for_mod, expect, output_indexes = gen_json_data(desc)
 
     if attrs:
-        mod = composite.build(desc, attrs)
+        mod = composite.build(desc, attrs, poly=poly)
     else:
-        mod = composite.build(desc)
+        mod = composite.build(desc, poly=poly)
     output = utils.mod_launch(mod, input_for_mod, output_indexes)
 
     rtol, atol = get_rtol_atol("FUSED", "float32")
     flag = True
     if len(output_indexes) > 1:
         if not all(map(lambda x, y: compare_tensor(x, y, rtol=rtol, atol=atol), output, expect)):
+            logging.info(mod.imported_modules[0].get_source())
             flag = False
     else:
         if not compare_tensor(output, expect, rtol=rtol, atol=atol):
+            logging.info(mod.imported_modules[0].get_source())
             flag = False
+    desc_d = json.loads(desc)
+    if desc_d["process"] == "cuda":
+        inputs = to_tvm_nd_array(input_for_mod)
+        expect = to_tvm_nd_array(expect)
+        gpu_profiling(mod, *inputs, *expect, repeat_time=400)
     return flag
 
 @pytest.mark.skip
-def test_single_file(input_file, use_custom):
+def test_single_file(input_file, use_custom, poly=False):
     with open(input_file, 'r') as f:
         desc = f.read()
         if use_custom:
             attrs = {}
             attrs["dim"] = custom_tiling.set_dims(((4, 1), (4, 1)))
-            flag = get_result(desc, attrs)
+            flag = get_result(desc, poly, attrs)
         else:
-            flag = get_result(desc)
+            flag = get_result(desc, poly)
         if flag:
             logging.info("Run Pass!")
         else:
             logging.info("Precision Error")
 
-@pytest.mark.skip
-def test_json_dir():
+@pytest.mark.level0
+@pytest.mark.platform_gpu
+def test_json_dir(poly=False):
     json_dir = "./json_dir/"
     json_dims_file = "./json_dir/dims.json"
     files = os.listdir(json_dir)
@@ -74,17 +99,20 @@ def test_json_dir():
     with open(json_dims_file, 'r') as f:
         base = f.read()
         dims_dict = json.loads(base)
+    idx = 1
     for input_file in files:
         with open(json_dir + input_file, 'r') as f:
             if input_file == "dims.json":
                 continue
+            logging.info("Begin run No.%d file:%s"%(idx, input_file))
+            idx = idx + 1
             desc = f.read()
             if input_file in dims_dict:
                 dim_info = dims_dict[input_file]
                 attrs = {'dim': dim_info}
-                flag = get_result(desc, attrs)
+                flag = get_result(desc, poly, attrs)
             else:
-                flag = get_result(desc)
+                flag = get_result(desc, poly)
             if not flag:
                 logging.info("----------Error Json name is----------")
                 logging.info(input_file)
@@ -98,7 +126,8 @@ def get_op_cycles_info(desc, cycle_info_file, old_op_cycles=100000000):
     return op_cycles, diff
 
 @pytest.mark.level0
-def test_ci(profile=False):
+@pytest.mark.platform_gpu
+def test_ci(profile=False, poly=False):
     ci_path = "./need_adapt/"
     if profile:
         need_update = False
@@ -115,7 +144,7 @@ def test_ci(profile=False):
             if fi == "base.json":
                 continue
             desc = f.read()
-            flag = get_result(desc)
+            flag = get_result(desc, poly)
             if not flag:
                 logging.info("----------Error Json info is----------")
                 logging.info(desc)
@@ -149,15 +178,37 @@ def test_ci(profile=False):
             logging.info("No significant performance improvement. Do not need to update Baseline!")
 
 def main(argv):
-    if len(argv) in [1, 2] and (argv[0].endswith(".info") or argv[0].endswith(".json")):
-        use_custom = len(argv) == 2 and argv[1] == 'c'
-        test_single_file(argv[0], use_custom)
-    elif len(argv) == 1 and argv[0] == "-d":
-        test_json_dir()
-    elif len(argv) == 1 and argv[0] == "-ci":
-        test_ci(profile=False)
-    elif len(argv) == 1 and argv[0] == "-cip":
-        test_ci(profile=True)
+    import getopt
+    try:
+        options, args = getopt.getopt(argv, "adcf:", ["auto", "ci", "profile"])
+        poly = False
+        use_custom = False
+        single_file = False
+        dir_test = False
+        ci_test = False
+        use_profiling = False
+        for option, value in options:
+            if option in ("-a", "--auto"):
+                poly = True
+            elif option == "-d":
+                dir_test = True
+            elif option == "-c":
+                use_custom = True
+            elif option == "-f":
+                single_file = True
+                file_name = value
+            elif option == "--profile":
+                use_profiling = True
+    except:
+        print_usage()
+        return
+
+    if single_file and (file_name.endswith(".info") or file_name.endswith(".json")):
+        test_single_file(file_name, use_custom, poly)
+    elif dir_test:
+        test_json_dir(poly)
+    elif ci_test:
+        test_ci(use_profiling, poly)
     else:
         print_usage()
 
