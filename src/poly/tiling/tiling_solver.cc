@@ -31,6 +31,7 @@ namespace poly {
  *               size used in auto tiling shoulde reduce 0.4 times.
  */
 double TilingSolver::GetNewAllocRatioWhenFlattenFail(const std::string &error_info) {
+  is_retry_ = true;
   std::vector<std::string> sub_strs;
   sub_strs = akg::common::Split(error_info, "(");
   CHECK_GE(sub_strs.size(), 2U);
@@ -56,6 +57,7 @@ double TilingSolver::GetNewAllocRatioWhenFlattenFail(const std::string &error_in
  * helps to recover from memory allocation failure such as the one in storage rewrite cce pass.
  */
 double TilingSolver::GetNewAllocRatioWhenRewriteFail(int64_t memory_bits) {
+  is_retry_ = true;
   auto actual_allocs = global_attrs.GetFloatAttr(kAllocBits, 0.0);
   auto last_adjust_ratio = global_attrs.GetFloatAttr(kUBRatio, 1.0);
   auto adjust_ratio = 1.0;
@@ -334,7 +336,8 @@ void InequalitySolver::DetermineTileFactor(TileAxis *axis, TileLevel level, cons
     if (!res.defined()) {
       ss << "No memory constraint on " << to_tile << " for now, use maximal tile " << cons.tile_extent_;
       analyzer_.logger_.AppendLog(DO_TILING, ss);
-      res = (to_tile <= cons.tile_extent_);
+      auto size = is_retry_ ? MIN_TILE : cons.tile_extent_;
+      res = (to_tile <= size);
     }
     res = RemoveCast(Substitute(res, defined_vars_));
     ss << "Result after substitute defined vars: " << res;

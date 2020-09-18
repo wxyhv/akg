@@ -437,7 +437,8 @@ std::pair<TileSizes, std::deque<ParamInfo>> GenerateTiling(const isl::schedule &
   TilingGenerator generator(analyzer);
   if (analyzer.is_dynamic_) {
     std::tie(dims, param_info) = generator.GenerateDynamic();
-  } else if (scop_info.user_config_.GetPragmaSpeedUpTiling() && analyzer.op_type_ == VECTOR_OP) {
+  } else if ((scop_info.user_config_.GetPragmaSpeedUpTiling() && analyzer.op_type_ == VECTOR_OP) ||
+             !global_attrs.GetStringAttr(kErrorInfo, "").empty()) {
     dims = generator.GenerateQuickly();
   } else {
     dims = generator.Generate();

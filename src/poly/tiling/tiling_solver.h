@@ -39,6 +39,7 @@ class TilingSolver {
   int tiling_band_{0};
   double percentage_ = 0.5;
   double exceed_ratio_ = 1;  // allow memory allocation to exceed memory_size * percentage, may disable double buffer
+  bool is_retry_ = false;
 };
 
 class InequalitySolver : TilingSolver {
