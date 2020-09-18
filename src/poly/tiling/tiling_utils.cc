@@ -30,7 +30,9 @@ void TileLogger::AppendLine(LogStage stage, const std::string &line) {
   } else if (stage == DO_TILING) {
     do_tiling_stage_.emplace_back(line);
   } else if (stage == MICRO_TUNING) {
-    micro_tuning_strage_.emplace_back(line);
+    micro_tuning_stage_.emplace_back(line);
+  } else if (stage == GPU_MAPPING) {
+    gpu_mapping_stage_.emplace_back(line);
   } else {
     do_tuning_stage_.emplace_back(line);
   }
@@ -47,36 +49,35 @@ bool TileLogger::DumpLogFile() {
   if (!of.is_open()) {
     return false;
   }
-  of << " >>>>>>>>>> Analyze schedule tree stage <<<<<<<<<<<<" << std::endl;
+  of << " ============ Analyze schedule tree stage ============" << std::endl;
   for (const auto &line : analyze_schedule_tree_stage_) {
     of << line << std::endl;
   }
-  of << "=========================" << std::endl;
-  of << " >>>>>>>>>> Analyze buffer live extent stage <<<<<<<<<<<<" << std::endl;
+  of << " ============ Analyze buffer live extent stage ============" << std::endl;
   for (const auto &line : analyze_buffer_live_extent_stage_) {
     of << line << std::endl;
   }
-  of << "=========================" << std::endl;
-  of << ">>>>>>>>>> Analyze tiling space stage <<<<<<<<<<<<" << std::endl;
+  of << "============ Analyze tiling space stage ============" << std::endl;
   for (const auto &line : analyze_tiling_space_stage_) {
     of << line << std::endl;
   }
-  of << "=========================" << std::endl;
-  of << ">>>>>>>>>> Do tiling stage <<<<<<<<<<<<" << std::endl;
+  of << "============ Do tiling stage ============" << std::endl;
   for (const auto &line : do_tiling_stage_) {
     of << line << std::endl;
   }
-  of << "=========================" << std::endl;
-  of << ">>>>>>>>>> Do tuning stage <<<<<<<<<<<<" << std::endl;
+  of << "============ Do tuning stage ============" << std::endl;
   for (const auto &line : do_tuning_stage_) {
     of << line << std::endl;
   }
-  of << "=========================" << std::endl;
-  of << ">>>>>>>>>> Micro tuning stage <<<<<<<<<<<<" << std::endl;
-  for (const auto &line : micro_tuning_strage_) {
+  of << "============ Micro tuning stage ============" << std::endl;
+  for (const auto &line : micro_tuning_stage_) {
     of << line << std::endl;
   }
-  of << "=========================" << std::endl;
+  of << "============ Gpu mapping stage ============" << std::endl;
+  for (const auto &line : gpu_mapping_stage_) {
+    of << line << std::endl;
+  }
+  of << "===========================================" << std::endl;
   of.close();
   return true;
 }

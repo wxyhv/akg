@@ -30,12 +30,12 @@ class Poly {
     isl_ctx_free(isl_ctx_.get());
   }
 
-  void Run(const Stmt &stmt, const Map<Tensor, Buffer> &extern_buffer, const Map<std::string, NodeRef> &attrs,
-           const bool is_spec_gemm, bool is_tuning, bool is_dynamic) {
+  void Run(const Stmt &stmt, const Map<Tensor, Buffer> &extern_buffer, std::string target,
+           const Map<std::string, NodeRef> &attrs, const bool is_spec_gemm, bool is_tuning, bool is_dynamic) {
     stmt_ = stmt;
     scop_.reset(new poly::Scop(Simplify_cce(stmt_), isl_ctx_));
     CHECK(scop_ != nullptr);
-    scop_->ParseUserConfig(attrs, extern_buffer, is_spec_gemm, is_tuning, is_dynamic);
+    scop_->ParseUserConfig(target, attrs, extern_buffer, is_spec_gemm, is_tuning, is_dynamic);
 
     std::chrono::high_resolution_clock::time_point timer_start;
     // generate isl schedule from Halide
@@ -103,17 +103,17 @@ class Poly {
 };
 
 /// Interface for lower pass
-Array<NodeRef> AutoPoly(const Stmt &stmt, const Map<Tensor, Buffer> &extern_buffer,
+Array<NodeRef> AutoPoly(const Stmt &stmt, const Map<Tensor, Buffer> &extern_buffer, std::string target,
                         const Map<std::string, NodeRef> &attrs, const bool is_specgemm, const bool is_dynamic) {
   Poly poly;
-  poly.Run(stmt, extern_buffer, attrs, is_specgemm, false, is_dynamic);
+  poly.Run(stmt, extern_buffer, target, attrs, is_specgemm, false, is_dynamic);
   return Array<NodeRef>({poly.GetStmt(), poly.GetTilingParams()});
 }
 
-NodeRef GenTuningSpace(const Stmt &stmt, const Map<Tensor, Buffer> &extern_buffer,
+NodeRef GenTuningSpace(const Stmt &stmt, std::string target, const Map<Tensor, Buffer> &extern_buffer,
                        const Map<std::string, NodeRef> &attrs, const bool is_specgemm) {
   Poly poly;
-  poly.Run(stmt, extern_buffer, attrs, is_specgemm, true, false);
+  poly.Run(stmt, extern_buffer, target, attrs, is_specgemm, true, false);
   return poly.GetSpaces();
 }
 }  // namespace ir

@@ -476,7 +476,7 @@ std::string get_schedule(Array<Tensor> &outputs) {
   return "injective";
 }
 
-Module composite_with_json_gpu(const std::string &json_str, Map<std::string, NodeRef> attrs) {
+Module composite_with_json_gpu(const std::string &json_str, Map<std::string, NodeRef> attrs, bool poly) {
   picojson::value v;
   std::string err = picojson::parse(v, json_str);
   if (!err.empty()) {
@@ -487,15 +487,15 @@ Module composite_with_json_gpu(const std::string &json_str, Map<std::string, Nod
   Map<Tensor, Buffer> in_binds;
   std::string kernel_name;
   extract_op_info(v, &tensors, &args, &kernel_name, &in_binds);
-  const auto* build_func = air::runtime::Registry::Get("akg_build_gpu_module");
+  const auto *build_func = air::runtime::Registry::Get("akg_build_gpu_module");
   CHECK(build_func != nullptr);
   std::string sch = get_schedule(tensors);
-  return (*build_func)(tensors, args, sch, kernel_name);
+  return (*build_func)(tensors, args, sch, kernel_name, attrs, poly);
 }
 
-Module composite_with_json(const std::string &json_str, Map<std::string, NodeRef> attrs) {
+Module composite_with_json(const std::string &json_str, Map<std::string, NodeRef> attrs, bool poly) {
   if (get_process(json_str) == "cuda") {
-    return composite_with_json_gpu(json_str, attrs);
+    return composite_with_json_gpu(json_str, attrs, poly);
   }
   auto build_rst = composite_with_json_to_func(json_str, attrs);
   return BuildToModule(build_rst);

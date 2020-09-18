@@ -31,15 +31,27 @@ constexpr int ONE_ARGS = 1;
 constexpr int TWO_ARGS = 2;
 
 bool AOutThanB(std::vector<const Node *> a, std::vector<const Node *> b);
+inline Expr DivRoundToZero(const Expr &x, const Expr &y);
+int ToSInt(const isl::val &v);
+int IslExprToSInt(const isl::ast_expr &e);
 using IterMap = std::unordered_map<isl::id, const Variable *, isl::IslIdIslHash>;
 using VarMap = std::unordered_map<isl::id, Expr, isl::IslIdIslHash>;
-
+using IslIdSet = std::unordered_set<isl::id, isl::IslIdIslHash>;
+class Liveness {
+ public:
+  std::vector<IslIdSet> must_def_;
+  std::vector<IslIdSet> may_def_;
+  std::vector<IslIdSet> use_;
+  std::vector<IslIdSet> use_with_may_def_;
+  std::vector<IslIdSet> out_;
+  std::vector<IslIdSet> read_;
+  std::vector<IslIdSet> write_;
+};
 /*!
  * \brief transfer ISL to Halide
  */
 class IslEmitter {
  private:
-  Expr InterpretOp(const isl::ast_expr_op &e);
   Expr InterpretMultiargsOp(const isl::ast_expr_op &e);
   Expr InterpretUnaryOp(const isl::ast_expr_op &e);
   Expr InterpretBinaryOp(const isl::ast_expr_op &e);
@@ -49,8 +61,9 @@ class IslEmitter {
       : info_(info), node_info_map_(n), iter_names_(i) {}
   virtual ~IslEmitter() = default;
 
+  Expr InterpretOp(const isl::ast_expr_op &e);
   // Interpret isl::ast_expr to Halide Expr
-  Expr Interpret(const isl::ast_expr &e);
+  virtual Expr Interpret(const isl::ast_expr &e);
 
   // helper functions, which may can be moved into a separated class
   isl::space GetDomainSpace(const isl::id &stmt_id);

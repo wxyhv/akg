@@ -565,7 +565,7 @@ int64_t InequalitySolver::DetermineTileForStatic(TileAxis *axis, const Expr &mem
     }
 
     if (analyzer_.scop_info_.user_config_.GetPragmaAnalyzeMulticore() && !analyzer_.is_dynamic_ &&
-        analyzer_.op_type_ == VECTOR_OP) {
+        analyzer_.op_type_ == VECTOR_OP && analyzer_.scop_info_.user_config_.GetTarget() != TARGET_CUDA) {
       MulticoreStrategy mc_strategy_ = MulticoreStrategy(cand_, analyzer_.logger_.GetDumpDir());
       final_factor = mc_strategy_.AdjustTilingAccordingToMulticoreConstraint(axis, final_factor);
     }
@@ -1058,7 +1058,7 @@ int64_t TraverseSolver::PostprocessFinalFactor(int64_t final_factor, TileAxis *a
   }
 
   if (analyzer_.scop_info_.user_config_.GetPragmaAnalyzeMulticore() && !analyzer_.is_dynamic_ &&
-      analyzer_.op_type_ == VECTOR_OP) {
+      analyzer_.op_type_ == VECTOR_OP && analyzer_.scop_info_.user_config_.GetTarget() != TARGET_CUDA) {
     MulticoreStrategy mc_strategy_ = MulticoreStrategy(cand_, analyzer_.logger_.GetDumpDir());
     processed = mc_strategy_.AdjustTilingAccordingToMulticoreConstraint(axis, processed);
   }

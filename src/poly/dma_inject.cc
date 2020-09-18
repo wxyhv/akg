@@ -293,6 +293,14 @@ std::vector<size_t> TensorFootprintCluster::GetFixedBoxSizes() const {
   return fix_box_size;
 }
 
+std::unordered_set<isl::id, isl::IslIdIslHash> TensorFootprintCluster::FootPrintIds() const {
+  std::unordered_set<isl::id, isl::IslIdIslHash> res;
+  for (const auto &item : tensor_foot_prints) {
+    res.insert(item->id);
+  }
+  return res;
+}
+
 isl::map RichAccessRelation(const TensorFootprintCluster &cluster, ReferenceType type) {
   auto accesses = isl::map::empty(cluster.tensor_foot_prints.front()->scoped_access.space());
   if (!cluster.tensor_foot_prints.empty()) {
@@ -307,6 +315,24 @@ isl::map RichAccessRelation(const TensorFootprintCluster &cluster, ReferenceType
     LOG(FATAL) << "no tensor_foot_prints in the group";
   }
   return accesses;
+}
+
+isl::union_map RichOriginalAccessRelation(const TensorFootprintCluster &cluster, ReferenceType type) {
+  auto accesses = isl::union_map::empty(cluster.tensor_foot_prints.front()->original_access.get_space().params());
+  for (const auto &foot : cluster.tensor_foot_prints) {
+    if (foot->type == type) {
+      accesses = accesses.unite(isl::union_map(foot->original_access));
+    }
+  }
+  return accesses;
+}
+
+isl::union_map TensorFootprintCluster::OriginalWriteRelations() const {
+  return RichOriginalAccessRelation(*this, ReferenceType::Write);
+}
+
+isl::union_map TensorFootprintCluster::OriginalReadRelations() const {
+  return RichOriginalAccessRelation(*this, ReferenceType::Read);
 }
 
 bool NeedDmaImpl(const TensorFootprintCluster &cluster, ReferenceType type) {
@@ -1161,6 +1187,18 @@ isl::schedule_node InsertExtensionHere(isl::schedule_node &tree, const isl::sche
   return tree.ancestor(level_distance_from_original_pos);
 }
 
+isl::schedule_node InsertExtensionSimple(isl::schedule_node &tree, const isl::schedule_node &graft, isl_bool before,
+                                         int index) {
+  if (isl_bool_true == before) {
+    tree = tree.graft_before(graft);
+    tree = tree.ancestor(2).child(index + 1).child(0);
+  } else {
+    tree = tree.graft_after(graft);
+    tree = tree.ancestor(2).child(index).child(0);
+  }
+  return tree;
+}
+
 /*
  * Insert the extension to the filters that access the promoted tensors, and remove redundant extensions.
  * If the extension is the first filter that access the promoted tensor, the extension is needed.
@@ -1262,7 +1300,7 @@ isl::schedule_node DefaultInsertExtension(isl::schedule_node tree, const isl::sc
  *         - filter: S_1[i0]
  *           ... (original schedule)
  */
-isl::schedule_node InsertExtensionBeforeOrAfter(const ScopInfo &scop_info, isl::schedule_node tree,
+isl::schedule_node InsertExtensionBeforeOrAfter(ScopInfo &scop_info, isl::schedule_node tree,
                                                 const isl::union_map &extension,
                                                 const isl::multi_union_pw_aff &schedule, isl_bool before) {
   if (tree.isa<isl::schedule_node_filter>() && tree.parent().isa<isl::schedule_node_sequence>()) {
@@ -1300,6 +1338,10 @@ isl::schedule_node InsertExtensionBeforeOrAfter(const ScopInfo &scop_info, isl::
       int size = tree.ancestor(2).n_children();
       tree = tree.ancestor(2).child(size - 1).child(0);
     }
+  }
+
+  if (scop_info.user_config_.GetTarget() == TARGET_CUDA && USE_SIMPLE_EXTENSION) {
+    return InsertExtensionSimple(tree, graft, before, index);
   }
 
   bool found_extension_in_schedule = false;
@@ -1957,6 +1999,23 @@ std::unique_ptr<TensorFootprintCluster> TensorFootprintCluster::HoistBufferFootp
   if (tensor_info.empty()) return nullptr;
 
   return std::move(tensor_info[0]);
+}
+
+TensorClusterInfo TensorFootprintCluster::HoistBufferFootprintClusterInfo(
+  const isl::union_map &outer_schedule, const isl::id &target_id, const isl::union_map &reads,
+  const isl::union_map &copyin, const isl::union_map &writes, const isl::union_map &fake_copyin) {
+  TensorClusterInfo tensor_info;
+
+  auto domain = outer_schedule.domain();
+
+  CreateTensorFootprintClusters(tensor_info, target_id, writes, copyin, fake_copyin, domain, outer_schedule,
+                                ReferenceType::Write);
+  CreateTensorFootprintClusters(tensor_info, target_id, reads, copyin, fake_copyin, domain, outer_schedule,
+                                ReferenceType::Read);
+
+  UniteInterleavedReadsAndWrites(tensor_info);
+
+  return tensor_info;
 }
 
 }  // namespace poly

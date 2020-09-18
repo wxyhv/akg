@@ -181,13 +181,13 @@ class SpaceVisitor : public IRVisitor {
   }
 
   std::string GetBasicOpType(const Tensor dst, const std::vector<Tensor> &srcs) {
-    auto IsNum = [&](std::string name) -> bool {
+    auto IsNum = [](std::string name) -> bool {
       for (auto c : name)
         if (c > '9' || c < '0') return false;
       return true;
     };
 
-    auto CountUniqueLoopName = [&](std::vector<VarNames> var_names) -> size_t {
+    auto CountUniqueLoopName = [&IsNum](std::vector<VarNames> var_names) -> size_t {
       std::unordered_set<std::string> uni_name;
       for (auto names : var_names) {
         for (auto n : names) {
@@ -198,7 +198,7 @@ class SpaceVisitor : public IRVisitor {
       return uni_name.size();
     };
 
-    auto GetSingleOpType = [&](const Tensor d, const Tensor s) -> std::string {
+    auto GetSingleOpType = [&IsNum, &CountUniqueLoopName, this](const Tensor d, const Tensor s) -> std::string {
       auto dst_vars = d.var_names;
       auto src_vars = s.var_names;
       auto dst_vars_size = CountUniqueLoopName(dst_vars);
@@ -206,7 +206,9 @@ class SpaceVisitor : public IRVisitor {
       std::string type = "";
       if (this->local_buf_.find(s.name) == this->local_buf_.end()) type += "DMA2_";
       if (this->local_buf_.find(d.name) == this->local_buf_.end()) type += "DMA3_";
-
+      if (src_vars_size == 0) {
+        return type + "SP_CALL";
+      }
       if (dst_vars_size < src_vars_size) {
         if (d.loops.size() < s.loops.size() && d.name != s.name) {
           // A[i,0] = B[i,j]
@@ -299,12 +301,45 @@ void SpaceAnalyzer::IdentifyInsnType() {
     for (auto pe : pes) {
       for (auto ct : care_types) {
         if (pe.basic_op_type.find(ct) == std::string::npos) continue;
+        if (ct == "BROADCAST") {
+          MarkBroadcastAxes(pe);
+        }
         analyzer_->RootAxis()->MarkWithAttr(AttrInfo{pe.basic_op_type, pe.dst.name});
         for (auto src : pe.src) {
           analyzer_->RootAxis()->MarkWithAttr(AttrInfo{pe.basic_op_type, src.name});
         }
       }
     }
+  }
+}
+
+void SpaceAnalyzer::MarkBroadcastAxes(const ProvideEntry &pe) {
+  std::unordered_set<TileAxis*> broadcasted;
+  for (auto dst_it : pe.dst.loops) {
+    for (auto l : dst_it.second) {
+      auto axis = analyzer_->Axis(l);
+      if (axis != nullptr) {
+        broadcasted.insert(axis);
+      }
+    }
+  }
+
+  for (auto src : pe.src) {
+    if (src.loops.size() == 0 || src.loops.size() >= pe.dst.loops.size()) {
+      continue;
+    }
+    for (auto src_it : src.loops) {
+      for (auto l : src_it.second) {
+        auto axis = analyzer_->Axis(l);
+        if (axis != nullptr && broadcasted.count(axis)) {
+          broadcasted.erase(axis);
+        }
+      }
+    }
+  }
+
+  for (auto axis : broadcasted) {
+    axis->MarkWithAttr(AttrInfo{"OP_TYPE", "BROADCAST"});
   }
 }
 

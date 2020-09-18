@@ -160,7 +160,7 @@ isl::union_map LocalScheduleImpl(const isl::schedule_node &node, bool use_node) 
   int new_tree_depth = tree_depth;
   if (use_node) ++new_tree_depth;
   isl::schedule_node tmp_node;
-  isl::union_map schedule = isl::union_map::from_domain(node.get_domain());
+  isl::union_map schedule = isl::union_map::from_domain(node.get_schedule().get_domain());
   for (int i = 0; i < new_tree_depth; ++i) {
     tmp_node = node.ancestor(tree_depth - i);
     if (auto band_node = tmp_node.as<isl::schedule_node_band>()) {
@@ -179,6 +179,34 @@ isl::union_map LocalScheduleImpl(const isl::schedule_node &node, bool use_node) 
 isl::union_map ShortSchedule(const isl::schedule_node &node) { return LocalScheduleImpl(node, false); }
 
 isl::union_map LocalSchedule(const isl::schedule_node &node) { return LocalScheduleImpl(node, true); }
+
+isl::multi_union_pw_aff ShortScheduleMupaImpl(const isl::schedule_node &root, const isl::schedule_node &relative_root,
+                                              const isl::schedule_node &node) {
+  if (!root.isa<isl::schedule_node_domain>()) {
+    LOG(FATAL) << "Root node should be domain: " << root;
+  }
+
+  auto domain = root.as<isl::schedule_node_domain>();
+  auto domain_uni = domain.get_domain().universe();
+  auto zero = isl::multi_val::zero(domain_uni.get_space().set_from_params());
+  auto init = isl::multi_union_pw_aff(domain_uni, zero);
+  int tree_depth = node.get_tree_depth();
+  for (int i = 0; i < tree_depth; ++i) {
+    auto tmp_node = node.ancestor(i);
+    if (tmp_node.isa<isl::schedule_node_band>()) {
+      auto tmp_mupa = tmp_node.as<isl::schedule_node_band>().get_partial_schedule();
+      init = init.flat_range_product(tmp_mupa);
+    }
+  }
+  return init;
+}
+
+isl::multi_union_pw_aff ShortScheduleMupa(const isl::schedule_node &root, const isl::schedule_node &tree) {
+  auto prefix = ShortScheduleMupaImpl(root, root, tree);
+  return tree.isa<isl::schedule_node_band>()
+           ? prefix.flat_range_product(tree.as<isl::schedule_node_band>().get_partial_schedule())
+           : prefix;
+}
 
 }  // namespace poly
 }  // namespace ir

@@ -334,6 +334,12 @@ void ParseStmtOpCall(const isl::id &id, const Call *call, AnalysisResult &result
       // do nothing
     } else if (0 == strcmp(call->name.c_str(), "sub_relu")) {
       // do nothing
+    } else if (0 == strcmp(call->name.c_str(), "pow")) {
+      // do nothing
+    } else if (0 == strcmp(call->name.c_str(), "isnan")) {
+      // do nothing
+    } else if (0 == strcmp(call->name.c_str(), "tvm_if_then_else")) {
+      // do nothing
     } else if (0 == strcmp(call->name.c_str(), "load3d_l1_ub")) {
       result.GetStmtOpInfoMap().at(id).isLoad3d = true;
       ParseStmtOps(id, call->args[0], result, func);

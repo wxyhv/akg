@@ -36,8 +36,11 @@ class TensorFootprintCluster;
 struct TensorDataFlow;
 class StmtDataFlowInfo;
 
-enum MemType { DDR = 1, L1_, UB_, L0A_, L0B_, L0C_, UBL0_, UBL1_ };
+enum MemType { DDR = 1, L1_, UB_, L0A_, L0B_, L0C_, UBL0_, UBL1_, SHARED_, LOCAL_ };
 enum DataStreamIndex { DS_ZERO = 0, DS_FIRST, DS_SECOND, DS_THIRD };
+enum GpuMemType { SHARED = 0, LOCAL };
+
+isl::id GpuDstId(GpuMemType type, isl::id tensor_id);
 
 struct BufferDefInfo {
   isl::id tensor_id;
@@ -63,6 +66,7 @@ struct BufferDefInfo {
   std::vector<std::pair<isl::schedule_node, std::vector<size_t>>> sizes_map_;
 
   std::shared_ptr<TensorFootprintCluster> GetFootPrintCluster(const isl::schedule_node &mark_node);
+  std::shared_ptr<TensorFootprintCluster> GetFootPrintClusterGPU(const isl::schedule_node &node);
   bool CompareScheduleMarkNode(const isl::schedule_node_mark &mark1, const isl::schedule_node_mark &mark2);
   void AddSize(const isl::schedule_node &node, const std::vector<size_t> &sizes);
   isl::id GetIndexDstId(const isl::ctx &ctx, const isl::id &id, const int index);

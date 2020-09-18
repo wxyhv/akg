@@ -28,7 +28,7 @@
 #include <unordered_set>
 
 #include "common/array_api.h"
-#include "common/util_cce.h"
+#include "common/common_util.h"
 #include "src/common/util.h"
 #include "cce_params.h"
 #include "pass/expr_alg_simplify.h"

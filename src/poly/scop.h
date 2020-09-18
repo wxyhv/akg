@@ -27,8 +27,8 @@ class Scop {
   Scop(Stmt body, isl::ctx ctx) : info_(ScopInfo(ctx)), body_(std::move(body)), ctx_(ctx) {}
   ~Scop() = default;
 
-  void ParseUserConfig(const Map<std::string, NodeRef> &attrs, const Map<Tensor, Buffer> &extern_buffer,
-                       bool is_spec_gemm, bool is_tuning, bool is_dynamic);
+  void ParseUserConfig(std::string target, const Map<std::string, NodeRef> &attrs,
+                       const Map<Tensor, Buffer> &extern_buffer, bool is_spec_gemm, bool is_tuning, bool is_dynamic);
   isl::schedule GenIsl();
   isl::schedule Transform(const isl::schedule &input_schedule);
   Stmt GenHalide(const isl::schedule &sch);

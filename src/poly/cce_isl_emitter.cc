@@ -285,23 +285,6 @@ class IfThenElseSplitter {
   }
 };
 
-class FindInnerRealize : public air::ir::IRMutator {
- public:
-  explicit FindInnerRealize(std::string name) : name_(std::move(name)) {}
-  ~FindInnerRealize() override = default;
-
- private:
-  Stmt Mutate_(const Realize *op, const Stmt &s) final {
-    if (op->func->func_name() == name_) {
-      return this->Mutate(op->body);
-    }
-    return IRMutator::Mutate_(op, s);
-  }
-
- private:
-  std::string name_;
-};
-
 class TransposeLoopVarOrderInMad : public IRMutator {
  private:
   Stmt Mutate_(const AttrStmt *op, const Stmt &s) override {

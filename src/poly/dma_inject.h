@@ -82,12 +82,21 @@ class TensorFootprintCluster {
     const isl::union_map &outer_schedule, const isl::id &target_id, const isl::union_map &reads,
     const isl::union_map &copyin, const isl::union_map &writes, const isl::union_map &fake_copyin);
 
+  static TensorClusterInfo HoistBufferFootprintClusterInfo(const isl::union_map &outer_schedule,
+                                                           const isl::id &target_id, const isl::union_map &reads,
+                                                           const isl::union_map &copyin, const isl::union_map &writes,
+                                                           const isl::union_map &fake_copyin);
+
   bool UnWriteable() const;
   bool UnReadable() const;
 
   isl::map RichWriteRelations() const;
   isl::map RichReadRelations() const;
   isl::map RichAccessRelations() const { return RichWriteRelations().unite(RichReadRelations()); }
+
+  isl::union_map OriginalWriteRelations() const;
+  isl::union_map OriginalReadRelations() const;
+  isl::union_map OrigianlAccessRelations() const { return OriginalWriteRelations().unite(OriginalReadRelations()); }
 
   bool WriteNeedDma() const;
   bool ReadNeedDma() const;
@@ -108,6 +117,7 @@ class TensorFootprintCluster {
   isl::set BufferedFootprint() const;
 
   std::vector<size_t> GetFixedBoxSizes() const;
+  std::unordered_set<isl::id, isl::IslIdIslHash> FootPrintIds() const;
 
   static std::unique_ptr<TensorFootprintCluster> ClusteringFootprints(
     std::unique_ptr<TensorFootprintCluster> &&cluster1, std::unique_ptr<TensorFootprintCluster> &&cluster2);

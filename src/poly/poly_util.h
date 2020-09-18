@@ -36,6 +36,7 @@ namespace poly {
 #define PRINT_EMMITER (PRINT_ISL_EMMITER || PRINT_CCE_ISL_EMMITER)
 #define SPEC_GEMM true
 #define DELETE_FRACTAL true
+#define USE_SIMPLE_EXTENSION true
 
 /// conv_backward options
 #define SELECT_DOMAIN_OPT true
@@ -65,6 +66,7 @@ Stmt PeelOuterLetStmt(const Stmt &s, std::vector<Stmt> &outer_stmts);
 
 isl::union_map ShortSchedule(const isl::schedule_node &node);
 isl::union_map LocalSchedule(const isl::schedule_node &node);
+isl::multi_union_pw_aff ShortScheduleMupa(const isl::schedule_node &root, const isl::schedule_node &tree);
 void GetAffOffsetAndNumVars(const isl::aff &aff, int &offset, int &num_vars);
 bool IsAffVarPlusOffset(const isl::aff &aff);
 bool IsAffNonZeroConst(const isl::aff &aff);
@@ -99,7 +101,27 @@ class ConsolidateExprMutator : public IRMutator {
 
   const std::unordered_map<std::string, Var> &params;
 };
+class FindInnerRealize : public air::ir::IRMutator {
+ public:
+  explicit FindInnerRealize(std::string name) : name_(std::move(name)) {}
+  ~FindInnerRealize() override = default;
+
+ private:
+  Stmt Mutate_(const Realize *op, const Stmt &s) final {
+    if (op->func->func_name() == name_) {
+      return this->Mutate(op->body);
+    }
+    return IRMutator::Mutate_(op, s);
+  }
+
+ private:
+  std::string name_;
+};
+
 }  // namespace poly
+constexpr auto TARGET_CCE = "cce";
+constexpr auto TARGET_CUDA = "cuda";
+
 constexpr auto ATTR_CONV_FEATURE_NAME = "feature";
 constexpr auto ATTR_CONV_FILTER_NAME = "filter";
 constexpr auto ATTR_CONV_BIAS_NAME = "bias";
@@ -172,6 +194,26 @@ constexpr auto ATOMIC_COND_CLEAN = "atomic_cond_clean";
 
 constexpr auto UBL0 = "UBL0";
 constexpr auto REALIZE_ = "realize_";
+
+constexpr auto B0 = "b0";
+constexpr auto B1 = "b1";
+constexpr auto B2 = "b2";
+constexpr auto T0 = "t0";
+constexpr auto T1 = "t1";
+constexpr auto T2 = "t2";
+constexpr auto BLOCK_IDX_X = "blockIdx.x";
+constexpr auto BLOCK_IDX_Y = "blockIdx.y";
+constexpr auto BLOCK_IDX_Z = "blockIdx.z";
+constexpr auto THREAD_IDX_X = "threadIdx.x";
+constexpr auto THREAD_IDX_Y = "threadIdx.y";
+constexpr auto THREAD_IDX_Z = "threadIdx.z";
+
+constexpr auto SYNC_FLAG = "_sync_";
+constexpr auto STORAGE_SYNC = "tvm_storage_sync";
+constexpr auto SYNC_SCOP_WARP = "warp";
+constexpr auto SYNC_SCOP_SHARED = "shared";
+constexpr auto SYNC_SCOP_GLOBAL = "global";
+
 /******************************************************
  * Following const is the mark tags for schedule tree
  ******************************************************/
@@ -191,6 +233,12 @@ constexpr auto ALLOC_REALIZE_OUT = "alloc_out";
 
 constexpr auto CALL_IM2COL_UB = "cce_img2col_ub";
 constexpr auto ATTR_IM2COL_KEY = "im2colKey";
+
+constexpr auto THREAD_MARKER = "thread_marker";
+constexpr auto BLOCK_MARKER = "block_marker";
+
+constexpr auto READ_ID_NAME = "GMread";
+constexpr auto WRITE_ID_NAME = "GMwrite";
 
 const std::vector<std::string> ConvATTRList = {ATTR_CONV_FEATURE_W,  ATTR_CONV_KERNEL_H,   ATTR_CONV_KERNEL_W,
                                                ATTR_CONV_STRIDE_H,   ATTR_CONV_STRIDE_W,   ATTR_CONV_DILATION_H,

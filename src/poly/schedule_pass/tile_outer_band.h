@@ -45,6 +45,8 @@ class TileOuterBand : public SchedulePass {
     Invalid,
   };
   virtual isl::schedule Run(isl::schedule sch);
+  isl::schedule RunCuda(isl::schedule sch);
+  isl::schedule RunCce(isl::schedule sch);
   void InitDimensionInfo(const isl::schedule &);
   void MergeTilingInfo();
   std::vector<std::vector<int>> AddTileInfo(const std::vector<std::vector<int>> &partition_info);
@@ -52,7 +54,10 @@ class TileOuterBand : public SchedulePass {
   std::string GetcDim();
 
   void ShowDimInfo();
-  isl::schedule_node MarkOuterPermutable(isl::schedule_node node);
+  isl::schedule_node ReverseTraverseChild(isl::schedule_node node,
+                                          const std::function<isl::schedule_node(isl::schedule_node)> f);
+  isl::schedule_node MarkOuterPermutableCuda(isl::schedule_node node);
+  isl::schedule_node MarkOuterPermutableCce(isl::schedule_node node);
   int IsOuterTilable(const isl::schedule_node &node);
   int IsCandidate(const isl::schedule_node &node);
   bool IsPermutable(const isl::schedule_node &node, bool checkCoincident);
@@ -65,10 +70,9 @@ class TileOuterBand : public SchedulePass {
   isl::multi_val MultiValFromIntList(const isl::space &space, int dim, const int *list);
   void TileTypeL0(isl::schedule_node &node, int *full_tile_min, int *full_tile_max, TileType &tile_type, bool &isolate,
                   isl::multi_val &sizes);
-  isl::schedule_node TileBand(isl::schedule_node node, const isl::multi_val &sizes, TileType tile_type,
-                              const int *full_tile_min, const int *full_tile_max, bool isolation);
   isl::schedule_node IsolateTiles(const isl::schedule_node &original_node, isl::schedule_node tiled_node,
-                                  TileType tile_type, const int *full_tile_min, const int *full_tile_max);
+                                  TileType tile_type, const int *full_tile_min, const int *full_tile_max,
+                                  bool isolation);
   std::pair<isl::set, isl::set> ComputeFullTile(const isl::schedule_node &original_node,
                                                 const isl::schedule_node &tiled_node);
   isl::map ComputeTileMap(const isl::schedule_node &original_node, const isl::schedule_node &tiled_node);

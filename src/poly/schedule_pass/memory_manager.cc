@@ -17,76 +17,11 @@
 #include "memory_manager.h"
 #include "poly/dma_inject.h"
 #include "poly/scop_builder.h"
+#include "poly/schedule_tree_util.h"
 
 namespace akg {
 namespace ir {
 namespace poly {
-
-isl::union_set CollectDomain(const isl::schedule_node &node) {
-  int depth = node.get_tree_depth();
-  isl::schedule_node tmp_node;
-  isl::union_set domain = node.get_domain();
-  for (int i = 0; i < depth; ++i) {
-    tmp_node = node.ancestor(depth - i);
-    if (auto filter_node = tmp_node.as<isl::schedule_node_filter>()) {
-      domain = domain.intersect(filter_node.get_filter());
-    }
-    if (auto extension_node = tmp_node.as<isl::schedule_node_extension>()) {
-      auto parent_schedule = ShortSchedule(tmp_node);
-      auto extension = extension_node.get_extension();
-      parent_schedule = parent_schedule.intersect_domain(domain);
-      domain = domain.unite(parent_schedule.range().apply(extension));
-    }
-  }
-  return domain;
-}
-
-isl::schedule_node MapDescendantTopDown(isl::schedule_node node,
-                                        const std::function<isl::schedule_node(isl::schedule_node)> &fn) {
-  unsigned int depth_ = node.get_tree_depth();
-  do {
-    do {
-      node = fn(node);
-    } while (node.has_children() && (node = node.first_child()));
-
-    while (node.get_tree_depth() > depth_ && !node.has_next_sibling()) {
-      node = node.parent();
-    }
-
-    if (node.get_tree_depth() > depth_) {
-      node = node.next_sibling();
-    }
-  } while (node.get_tree_depth() > depth_);
-
-  return node;
-}
-
-void GetVisitedStmts(const isl::schedule_node &root) {
-  int n = root.n_children();
-  if (n <= 0) return;
-
-  isl::schedule_node node;
-  if (root.isa<isl::schedule_node_sequence>()) {
-    isl::union_set visited_stmts;
-    for (int i = 0; i < n; ++i) {
-      node = root.child(i);
-      auto filter_node = node.as<isl::schedule_node_filter>();
-      CHECK(filter_node) << "expected children of sequence to be filters";
-      auto filter = filter_node.get_filter().universe();
-      if (visited_stmts.get()) {
-        CHECK(visited_stmts.intersect(filter).is_empty()) << "filters are expected to be disjoint as stmt level";
-        visited_stmts = visited_stmts.unite(filter);
-      } else {
-        visited_stmts = filter;
-      }
-    }
-  }
-
-  for (int i = 0; i < n; ++i) {
-    node = root.child(i);
-    GetVisitedStmts(node);
-  }
-}
 
 std::vector<isl::schedule_node> CollectMarkNode(const isl::schedule_node &tree, const std::string &mark_tag) {
   std::vector<isl::schedule_node> mark_nodes;

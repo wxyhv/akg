@@ -22,6 +22,32 @@
 namespace akg {
 namespace ir {
 namespace poly {
+
+isl::schedule_node TileBand(isl::schedule_node node, const isl::multi_val &sizes) {
+  isl::ctx ctx = node.ctx();
+  int scale_tile;
+  int shift_point;
+
+  if (!node.isa<isl::schedule_node_band>()) {
+    return node;
+  }
+  scale_tile = isl_options_get_tile_scale_tile_loops(ctx.get());
+  isl_stat status = isl_options_set_tile_scale_tile_loops(ctx.get(), 0);
+  CHECK(status == isl_stat_ok);
+  shift_point = isl_options_get_tile_shift_point_loops(ctx.get());
+  status = isl_options_set_tile_shift_point_loops(ctx.get(), 1);
+  CHECK(status == isl_stat_ok);
+
+  isl::schedule_node before_tile = node;
+  node = node.as<isl::schedule_node_band>().tile(sizes);
+
+  status = isl_options_set_tile_scale_tile_loops(ctx.get(), scale_tile);
+  CHECK(status == isl_stat_ok);
+  status = isl_options_set_tile_shift_point_loops(ctx.get(), shift_point);
+  CHECK(status == isl_stat_ok);
+
+  return node;
+}
 /* Reorder filters of a sequence/set node.
  * node: must be a sequence or set node.
  * old_to_new_map: map from original child position to new child position.
@@ -48,6 +74,42 @@ isl::schedule_node ReorderFilters(const isl::schedule_node &node,
   isl_schedule_node *new_node = isl_schedule_node_graft_tree(node.copy(), new_tree);
   CHECK(new_node != nullptr);
   return isl::manage(new_node);
+}
+
+isl::schedule_node InsertContextNode(isl::schedule_node &node, ScopInfo &scop_info) {
+  // step1. get config
+  std::unordered_map<isl::id, int, isl::IslIdIslHash> mapping_ids_with_sizes;
+  auto block_cfg = scop_info.user_config_.GetBlockConfig();
+  CHECK(block_cfg != nullptr) << "blockconfig is null";
+
+  auto thread_cfg = scop_info.user_config_.GetThreadConfig();
+  CHECK(thread_cfg != nullptr) << "threadconfig is null";
+
+  for (size_t i = 0; i < block_cfg->bound; ++i) {
+    std::pair<std::string, int> bi = block_cfg->GetAt(i);
+    auto id = isl::id(node.ctx(), bi.first);
+    mapping_ids_with_sizes.insert({id, bi.second});
+  }
+  for (size_t i = 0; i < thread_cfg->bound; ++i) {
+    std::pair<std::string, int> ti = thread_cfg->GetAt(i);
+    auto id = isl::id(node.ctx(), ti.first);
+    mapping_ids_with_sizes.insert({id, ti.second});
+  }
+
+  // step2. construct context
+  auto space = node.domain().get_space();
+  for (auto it = mapping_ids_with_sizes.begin(); it != mapping_ids_with_sizes.end(); ++it) {
+    space = space.add_param(it->first);
+  }
+  isl::set context_set(isl::set::universe(space));
+  for (auto it = mapping_ids_with_sizes.begin(); it != mapping_ids_with_sizes.end(); ++it) {
+    isl::aff a(isl::aff::param_on_domain(space, it->first));
+    context_set = context_set & (isl::aff(a) >= 0) & (isl::aff(a) < it->second);
+  }
+  scop_info.analysis_result_.RecordContextParams(context_set);
+  // step3. insert context
+  node = node.insert_context(context_set.from_params());
+  return node;
 }
 
 isl::union_map DependenceAnalysis(const isl::union_map &sources, const isl::union_map &targets,
