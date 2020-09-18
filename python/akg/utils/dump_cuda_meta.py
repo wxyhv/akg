@@ -68,6 +68,9 @@ def dump_cuda_meta(code, ptx, thread_info):
         if f.tell() == 0:
             f.write(ptx)
 
+    # modify the file permisson to 400
+    os.chmod(ptx_file, 0o400)
+
     # save json file to cuda meta
     json_file = os.path.realpath(meta_path + kernel_name + ".json")
     if os.path.exists(json_file):
