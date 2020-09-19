@@ -116,7 +116,7 @@ def lower(sch, args, shape_params=None, name="default_function", binds=None, att
 
 
 @vc_util.check_input_type(schedule.Schedule, (list, tuple), (list, tuple, type(None)), str,
-                          (dict, type(None)), (dict, type(None)), bool, str)
+                          (dict, akg.tvm.container.Map, type(None)), (dict, type(None)), bool, str)
 def build_to_func(inputs, args, shape_params=None, name="default_function",
                   binds=None, attrs=None, polyhedral=False, target="cce"):
     """Build module."""
@@ -135,7 +135,7 @@ def build_to_func(inputs, args, shape_params=None, name="default_function",
                                       polyhedral, target, cfg)
 
 @vc_util.check_input_type(schedule.Schedule, (list, tuple), str, (list, tuple), str,
-                          (dict, type(None)), (dict, type(None)), bool)
+                          (dict, akg.tvm.container.Map, type(None)), (dict, type(None)), bool)
 def build(inputs, args, target='cce', shape_params=None, name="default_function",
           binds=None, attrs=None, polyhedral=False):
     tmp_rst = build_to_func(inputs, args, shape_params=shape_params, name=name, binds=binds,

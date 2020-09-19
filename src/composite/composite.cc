@@ -224,11 +224,13 @@ static void parse_attrs(const picojson::array &arr, Array<NodeRef> *attrs_arr) {
   }
 }
 
-void extract_op_info(const picojson::array &arr, std::unordered_map<std::string, Tensor> *tensor_index_map,
-                     Map<Tensor, Buffer> *in_binds, std::unordered_set<std::string> *fake_output) {
+void extract_op_desc(const picojson::array &arr, std::unordered_map<std::string, Tensor> *tensor_index_map,
+                     Map<Tensor, Buffer> *in_binds, std::unordered_set<std::string> *fake_output,
+                     std::vector<Tensor> *tensor_sch_only) {
   CHECK(tensor_index_map) << "input tensor_index_map is invalid.";
   CHECK(in_binds) << "input in_binds is invalid.";
   CHECK(fake_output) << "input fake_output is invalid.";
+  CHECK(tensor_sch_only) << "tensor_sch_only is invalid.";
   std::string fusionOpName;
   Array<Tensor> fusion_tensor_arr;
   Array<NodeRef> current_op_inputs;
@@ -344,6 +346,14 @@ void extract_op_info(const picojson::array &arr, std::unordered_map<std::string,
           fake_output->insert(output_tensor_labels[0]);
         }
       }
+    } else if (op_name == "Assign") {
+      CHECK(output_tensor_labels.size() == 1 && final_op_inputs.size() == 2);
+      Array<Tensor> outs = (*topi_f)(final_op_inputs);
+      (*tensor_index_map)[output_tensor_labels.front()] = outs[0];
+      tensor_sch_only->emplace_back(outs[1]);
+      auto buf = decl_buffer(outs[1]->shape, outs[1]->dtype, "assign_buf");
+      in_binds->Set(outs[1], buf);
+      in_binds->Set(Downcast<Tensor>(final_op_inputs[0]), buf);
     } else if (output_tensor_labels.size() == 1) {
       Tensor t;
       t = (*topi_f)(final_op_inputs, attrs_arr);
@@ -394,7 +404,8 @@ void extract_op_info(const picojson::value &v, Array<Tensor> *ops, Array<NodeRef
 
   std::unordered_map<std::string, Tensor> tensor_index_map;
   std::unordered_set<std::string> fake_output;
-  extract_op_info(op_desc, &tensor_index_map, in_binds, &fake_output);
+  std::vector<Tensor> tensor_sch_only;
+  extract_op_desc(op_desc, &tensor_index_map, in_binds, &fake_output, &tensor_sch_only);
 
   for (auto i = input_desc.begin(); i != input_desc.end(); ++i) {
     CHECK(i->is<picojson::array>());
@@ -431,6 +442,10 @@ void extract_op_info(const picojson::value &v, Array<Tensor> *ops, Array<NodeRef
         LOG(FATAL) << "Tensor " << tensor_name << " not built.";
       }
     }
+  }
+
+  for (const auto tensor : tensor_sch_only) {
+    ops->push_back(tensor);
   }
 }
 
@@ -490,7 +505,7 @@ Module composite_with_json_gpu(const std::string &json_str, Map<std::string, Nod
   const auto *build_func = air::runtime::Registry::Get("akg_build_gpu_module");
   CHECK(build_func != nullptr);
   std::string sch = get_schedule(tensors);
-  return (*build_func)(tensors, args, sch, kernel_name, attrs, poly);
+  return (*build_func)(tensors, args, sch, kernel_name, attrs, poly, in_binds);
 }
 
 Module composite_with_json(const std::string &json_str, Map<std::string, NodeRef> attrs, bool poly) {

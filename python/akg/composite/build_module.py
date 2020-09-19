@@ -171,9 +171,9 @@ def get_tiling_space(kernel_desc, level=1, attr=None):
     return spaces
 
 @tvm.register_func("akg_build_gpu_module")
-def build_cuda(outputs, args, sch_name, kernel_name, attrs, poly):
+def build_cuda(outputs, args, sch_name, kernel_name, attrs = False, poly = False, binds = None):
     scheduler = {
-        "injective" : schedule_injective,
+        "injective" : topi.cuda.injective_single_kernel.schedule_injective,
         "reduce"    : topi.cuda.schedule_reduce,
     }
     poly_t = bool(poly)
@@ -188,5 +188,5 @@ def build_cuda(outputs, args, sch_name, kernel_name, attrs, poly):
             s = scheduler[sch_name](outputs)
         dump_ir = os.getenv('MS_AKG_DUMP_IR') == "on"
         with tvm.build_config(dump_pass_ir = dump_ir):
-            mod = akg.build(s, list(args), "cuda", name = kernel_name, attrs = attrs_t, polyhedral=poly_t)
+            mod = akg.build(s, list(args), "cuda", name = kernel_name, binds = binds, attrs = attrs_t, polyhedral=poly_t)
             return mod
