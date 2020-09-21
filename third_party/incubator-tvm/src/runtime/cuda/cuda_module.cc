@@ -19,7 +19,7 @@
 
 /*!
  * \file cuda_module.cc
- * 2020.09.15 - Modify operator() for kc_air.
+ * 2020.09.19 - Modify operator() for kc_air.
  */
 #include "cuda_module.h"
 
@@ -195,9 +195,11 @@ class CUDAWrappedFunc {
     ThreadWorkLoad wl = thread_axis_cfg_.Extract(args);
     CUstream strm = static_cast<CUstream>(CUDAThreadEntry::ThreadLocal()->stream);
     CUresult result;
+
+#ifdef USE_KC_AIR
     size_t raw_size = num_void_args_;
     void** raw_args = new  (std::nothrow) void*[raw_size];
-    if (*raw_args == nullptr){
+    if (*raw_args == nullptr) {
       LOG(FATAL)  << "Memory alloc fail.";
     }
     size_t args_size = 0;
@@ -207,8 +209,6 @@ class CUDAWrappedFunc {
       void** ptr = reinterpret_cast<void**>(void_args[i]);
       raw_args[i] = *ptr;
     }
-
-#ifdef USE_KC_AIR
     result = cuLaunchKernel(
         fcache_[device_id],
         wl.grid_dim(0),
@@ -218,6 +218,10 @@ class CUDAWrappedFunc {
         wl.block_dim(1),
         wl.block_dim(2),
         (static_cast<uint32_t>(args_size)/sizeof(void *)), strm, raw_args, 0);
+    if (raw_args != NULL) {
+      free(raw_args);
+      raw_args = NULL;
+    }
 #else
     result = cuLaunchKernel(
         fcache_[device_id],
@@ -227,12 +231,9 @@ class CUDAWrappedFunc {
         wl.block_dim(0),
         wl.block_dim(1),
         wl.block_dim(2),
-        0, strm, raw_args, 0);
+        0, strm, void_args, 0);
 #endif
-    if (raw_args != NULL){
-    	free(raw_args);
-	raw_args = NULL;
-    }
+    
     if (result != CUDA_SUCCESS && result != CUDA_ERROR_DEINITIALIZED) {
       const char *msg;
       cuGetErrorName(result, &msg);
