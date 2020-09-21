@@ -12,6 +12,8 @@
 # See the License for the specific language governing permissions and
 # limitations under the License
 
+""" test_fused_bn_update """
+from __future__ import absolute_import
 import numpy as np
 from akg.ops.poly_gpu import fused_bn_update_manual, fused_bn_update_auto
 from gen_random import random_gaussian
@@ -53,10 +55,10 @@ def test_fused_bn_update(shape, dtype, c1=(1 / (256 * 7 * 7)), c2=1.001e-05, c3=
         mod = utils.op_build(fused_bn_update_manual, shapes, dtypes, op_attrs=attrs)
     outputs =  [np.full(shape, np.nan, dtype)] * 3
     attrs_list =  input + outputs
-    output = utils.mod_launch(mod, attrs_list, outputs=(range(-len(outputs), 0)))
-    ret = compare_tensor(output, expect, rtol=5e-03, atol=1.e-8)
-    print("Test {}".format("Pass" if ret else "Failed"))
-    if not ret:
+    output = utils.mod_launch(mod, attrs_list, outputs=(range(-len(outputs), 0)), expect=expect)
+    res = np.allclose(output, expect, rtol=5e-03, atol=1.e-8)
+    print("Test {}".format("Pass" if res else "Failed"))
+    if not res:
         print("Error cuda:========================")
         print(mod.imported_modules[0].get_source())
         raise AssertionError("Test fail")

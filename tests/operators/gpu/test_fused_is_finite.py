@@ -13,36 +13,36 @@
 # limitations under the License
 
 import numpy as np
-from akg.ops.poly_gpu import fused_l2loss_manual, fused_l2loss_auto
 from gen_random import random_gaussian
 from akg.utils import kernel_exec as utils
 from akg.utils.result_analysis import gpu_profiling
 from akg.utils.format_transform import to_tvm_nd_array
-from tensorio import compare_tensor
+from akg.ops.poly_gpu import fused_is_finite_manual, fused_is_finite_auto
 
-def gen_data(shape, dtype):
+def gen_data(shape, dtype, layout='NHWC'):
     support_list = {"float16": np.float16, "float32": np.float32}
     data = random_gaussian(shape, miu=1, sigma=0.1).astype(dtype)
+    if layout == "NCHW":
+        data = np.transpose(data, axes=(0, 2, 3, 1))
+    elif layout != "NHWC":
+        raise NotImplementedError('Layout not supported {} '.format(layout))
+
     data_isfinite = np.isfinite(data)
     n, h, w, c = np.shape(data_isfinite)
-    data_reshape = np.reshape(data_isfinite, (n*h*w*c, ))
-    expect = np.sum(data_reshape)
-    if (expect == data_reshape.shape):
-        expect = [True]
-    else:
-        expect = [False]
+    expect = np.all(data_isfinite, axis = (0, 1, 2, 3))
     output = expect
     return data, expect, output    
 
-def test_fused_l2loss(shape, dtype, poly_sch=False):
+def test_fused_is_finite(shape, layout='NHWC', poly_sch=False):
+
     if poly_sch:
-        mod = utils.op_build(fused_l2loss_auto, [shape], [dtype], attrs={"target": "cuda"})    
+        mod = utils.op_build(fused_is_finite_auto, [shape], ['float32'], op_attrs=[layout], attrs={"target": "cuda"})    
     else:
-        mod = utils.op_build(fused_l2loss_manual, [shape], [dtype])    
-    data, expect, output = gen_data(shape, 'float32')
+        mod = utils.op_build(fused_is_finite_manual, [shape], ['float32'], op_attrs=[layout])    
+    data, expect, output = gen_data(shape, 'float32', layout)
     args = (data, output)
     output = utils.mod_launch(mod, args, expect = expect)
-    res = compare_tensor(output, expect, rtol=5e-03, atol=1e-8)
+    res = np.allclose(output, expect, rtol=5e-03, atol=1e-8)
     print("Test {}".format("Pass" if res else "Fail"))
     if not res:
         print("Error cuda:========================")
