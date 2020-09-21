@@ -62,6 +62,8 @@ def dump_cuda_meta(code, ptx, thread_info):
 
     # save ptx file to cuda meta
     ptx_file = os.path.realpath(meta_path + kernel_name + ".ptx")
+    if os.path.exists(ptx_file):
+        os.remove(ptx_file)
     with open(ptx_file, "at") as f:
         fcntl.flock(f.fileno(), fcntl.LOCK_EX)
         f.seek(0, 2)
