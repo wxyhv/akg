@@ -42,6 +42,3 @@ def test_ms_select(shape_cond, shape_x, dtype_cond, dtype_x, poly_sch=False):
         print("Error cuda:========================")
         print(mod.imported_modules[0].get_source())
         raise AssertionError("Test fail")
-
-    x1, x2, expect = to_tvm_nd_array([x1, x2, expect])
-    gpu_profiling(mod, x1, x2, expect, 400)

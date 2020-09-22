@@ -20,6 +20,7 @@
 /*!
  * \file cuda_module.cc
  * 2020.09.19 - Modify operator() for kc_air.
+ * 2020.09.22 - Separate the implementation of KC and GPU. 
  */
 #include "cuda_module.h"
 
@@ -112,8 +113,13 @@ class CUDAModuleNode : public runtime::ModuleNode {
       CUDA_DRIVER_CALL(cuModuleLoadData(&(module_[device_id]), data_.c_str()));
     }
     CUresult result = CUDA_SUCCESS;
-    if (func_[device_id] == nullptr){
+    CUfunction func = nullptr;
+    if (func_[device_id] == nullptr) {
+#ifdef USE_KC_AIR
       result = cuModuleGetFunction(&func_[device_id], module_[device_id], func_name.c_str());
+#else
+      result = cuModuleGetFunction(&func, module_[device_id], func_name.c_str());
+#endif
     }
     if (result != CUDA_SUCCESS) {
       const char *msg;
@@ -122,7 +128,11 @@ class CUDAModuleNode : public runtime::ModuleNode {
           << "CUDAError: cuModuleGetFunction " << func_name
           << " failed with error: " << msg;
     }
+#ifdef USE_KC_AIR
     return func_[device_id];
+#else
+    return func;
+#endif
   }
   // get a global var from primary context in device_id
   CUdeviceptr GetGlobal(int device_id,
