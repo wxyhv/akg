@@ -65,16 +65,63 @@ void InitSchedule::ComputeCopyIn(const isl::schedule &schedule) {
   scop_info_.analysis_result_.RecordCopyin(scop_info_.analysis_result_.GetReads().intersect_range(mayNoSource.range()));
 }
 
+/* 
+ * Force dependences between multiple liveout operations. This function should
+ * only be called when there exist multiple liveouts. As the fusion heuristic
+ * of the isl scheduler only fuses operations that depend on each other, one 
+ * may have to use this function to introduce additional dependences between
+ * liveouts that are originally independent.
+ * 
+ * Note that introducing dependences between two operations never violates the
+ * semantics of the program; it is thus safe to call this function and unnecessary
+ * to check the correctness. However, redundant fake dependences may hamper the
+ * tilabily and parallelism, one should introduce as few dependences as possible.
+ * 
+ * This function first traverses the sets in "liveouts", and obtains the sample
+ * points of each set, from which two union_sets are constructed. This is to
+ * guarantee the minimum of the introduced dependences. The dependence "dep"
+ * contructed from this two union_sets are then added to the dependences of the 
+ * program.
+ * 
+ * TODO: prohibit forcely introducing dependences when the intermediate 
+ * operations of different liveouts intersect?
+ */
+void InitSchedule::ForceDepBetweenLiveouts(const isl::union_set liveouts) {
+  auto list = liveouts.get_set_list();
+  auto n = liveouts.n_set();
+  for (unsigned i = 1; i < n; i++) {
+    auto pnt1 = list.get_at(0).sample_point();
+    auto pnt2 = list.get_at(i).sample_point();
+    auto dep = isl::union_map::from_domain_and_range(isl::union_set(pnt1), isl::union_set(pnt2));
+    pass_info_.dependences_ = pass_info_.dependences_.unite(dep);
+  }
+}
+
 isl::schedule InitSchedule::Run(isl::schedule sch) {
   ComputeCopyIn(sch);
   RemoveUninitializedCopyin(scop_info_.analysis_result_.GetCopyin(), scop_info_.user_config_.GetOriginBind());
 
   pass_info_.dependences_ = ComputeAllDependences(sch, scop_info_.analysis_result_.GetReads(),
                                                   scop_info_.analysis_result_.GetWrites());
+  /*
+   * Collect all statements into a union_set that do not appear as a source of a dependence.
+   * When union_set is not a set, i.e., there exist multiple liveouts, introduce dependences
+   * between these liveouts by calling ForceDepBetweenLiveouts.
+   */
+  if (scop_info_.user_config_.GetTarget() == TARGET_CUDA) {
+    auto sinks = pass_info_.dependences_.domain();
+    auto domain = sch.get_root().as<isl::schedule_node_domain>().get_domain();
+    sinks = domain.subtract(sinks);
+    if(!sinks.isa_set())
+      ForceDepBetweenLiveouts(sinks);
+  }
+
   pass_info_.orig_dependences_ = pass_info_.dependences_;
+  
   if (scop_info_.user_config_.GetTarget() != TARGET_CUDA) {
     ModDependencesBeforeGroup(sch);
   }
+  
   return sch;
 }
 
