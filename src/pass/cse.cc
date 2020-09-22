@@ -1,5 +1,5 @@
 /**
- * Copyright 2019 Huawei Technologies Co., Ltd
+ * Copyright 2019-2020 Huawei Technologies Co., Ltd
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -96,6 +96,23 @@ class Replace : public IRMutator {
   const Operation &to_;
 };
 
+class RemoveMultiVarInsnInit : public IRMutator {
+ public:
+  explicit RemoveMultiVarInsnInit(const Provide *multi_var_insn_init) : multi_var_insn_init_(multi_var_insn_init) {}
+
+  Stmt Mutate_(const Provide *op, const Stmt &s) final {
+    // Remove initialization stmt of replaced vmadd.
+    if (multi_var_insn_init_ && op->func == multi_var_insn_init_->func &&
+        Equal(op->value, multi_var_insn_init_->value)) {
+      return Evaluate::make(0);
+    }
+    return IRMutator::Mutate_(op, s);
+  }
+
+ private:
+  const Provide *multi_var_insn_init_;
+};
+
 class MultiStageCSE : public IRMutator {
  public:
   explicit MultiStageCSE(const Map<Tensor, Buffer> &extern_buffer) : extern_buffer_(extern_buffer) {}
@@ -128,6 +145,9 @@ class MultiStageCSE : public IRMutator {
     shape_[op->func.get()] = op->bounds;
     Stmt stmt = IRMutator::Mutate_(op, s);
     if (replace_.count(op->func.get())) {
+      if (replace_multi_var_insn_.count(op->func.get()) > 0 && multi_var_insn_init_.count(op->func.get()) > 0) {
+        stmt = RemoveMultiVarInsnInit(multi_var_insn_init_[op->func.get()]).Mutate(stmt);
+      }
       stmt = Replace(op->func.get(), replace_[op->func.get()]).Mutate(stmt);
     }
     return stmt;
@@ -137,24 +157,43 @@ class MultiStageCSE : public IRMutator {
     Stmt stmt = IRMutator::Mutate_(op, s);
     op = stmt.as<Provide>();
     CHECK(op);
+
+    auto value = op->value;
+    auto call = value.as<Call>();
+    bool vmadd_call = (call && call->name == "vmadd");
+    if (vmadd_call) {
+      // Record the initialization of vmadd
+      if (provide_.count(op->func.get()) > 0 && multi_var_insn_init_.count(op->func.get()) == 0) {
+        multi_var_insn_init_[op->func.get()] = provide_[op->func.get()];
+      }
+      value = RewriteVmadd(op);
+    }
+    provide_[op->func.get()] = op;
+
     bool found{false};
     for (auto i : defs_) {
+      auto defs_value = i.second.first->value;
+      auto defs_call = defs_value.as<Call>();
+      if (defs_call && defs_call->name == "vmadd") {
+        defs_value = RewriteVmadd(i.second.first);
+      }
+
       // make sure use has the same number of var
-      if (CountVars(i.second.first->value) != CountVars(op->value)) {
+      if (CountVars(defs_value) != CountVars(value)) {
         continue;
       }
-      Expr a = Substitute(i.second.first->value, loop_vars_);
-      Expr b = Substitute(op->value, loop_vars_);
+      Expr a = Substitute(defs_value, loop_vars_);
+      Expr b = Substitute(value, loop_vars_);
       if (!Equal(a, b)) continue;
 
-      Expr adef = Call::make(op->value.type(), "T", i.second.first->args, Call::Halide, op->func, op->value_index);
-      Expr bdef = Call::make(op->value.type(), "T", op->args, Call::Halide, op->func, op->value_index);
+      Expr adef = Call::make(value.type(), "T", i.second.first->args, Call::Halide, op->func, op->value_index);
+      Expr bdef = Call::make(value.type(), "T", op->args, Call::Halide, op->func, op->value_index);
       if (CountVars(adef) != CountVars(bdef)) {
         continue;
       }
       if (i.second.second == curr_for_id) {
         // if within the same "For" block then we compare directly the formulas
-        if (!Equal(i.second.first->value, op->value)) {
+        if (!Equal(defs_value, value)) {
           continue;
         }
       }
@@ -172,6 +211,9 @@ class MultiStageCSE : public IRMutator {
                                      old_op->func, old_op->value_index);
           stmt = Provide::make(op->func, op->value_index, new_call, op->args);
         } else {
+          if (vmadd_call) {
+            replace_multi_var_insn_.insert(op->func.get());
+          }
           replace_[op->func.get()] = Operation(GetObjPtr(i.first));
           stmt = Evaluate::make(0);
           found = true;
@@ -283,77 +325,42 @@ loop-nest-b: j(0,32), i(0,64), m(0,16)
     }
   }
 
+  Expr RewriteVmadd(const Provide *op) {
+    /*
+     * vmadd has initialization stmt, e.g.
+     * T_sign_1(cc0) = input_6(cc0)
+     * T_sign_1(cc0) = vmadd(input_6(cc0), input_2(cc0), T_sign_1(cc0))
+     * To compare if two vmadd are same, we should replace the third
+     *   arg of vmadd with the initialization value.
+     * vmadd(input_6(cc0), input_2(cc0), T_sign_1(cc0)) -->
+     * vmadd(input_6(cc0), input_2(cc0), input_6(cc0))
+     */
+    CHECK(op);
+    auto call = op->value.as<Call>();
+    if (call && call->name == "vmadd" && multi_var_insn_init_.count(op->func.get()) > 0) {
+      auto args = call->args;
+      CHECK(args.size() >= 3);
+      Array<Expr> new_args;
+      new_args.push_back(args[0]);
+      new_args.push_back(args[1]);
+      new_args.push_back(multi_var_insn_init_[op->func.get()]->value);
+      return Call::make(call->type, call->name, new_args, call->call_type);
+    }
+    return op->value;
+  }
+
   std::unordered_map<const Node *, std::pair<const Provide *, int>> defs_;
   // immediate enclosing for loop's id
   std::unordered_map<const Node *, Operation> replace_;
   std::unordered_map<const Variable *, Expr> loop_vars_;
   std::unordered_map<const Node *, Region> shape_;
+  std::unordered_map<const Node *, const Provide *> provide_;
+  std::unordered_map<const Node *, const Provide *> multi_var_insn_init_;  // Record init stmt of multi-var insn
+  std::unordered_set<const Node *> replace_multi_var_insn_;  // Record multi-var insn(e.g. vmadd) that can be replaced
   int curr_for_id{0};
   std::map<int, const Variable *> loop_vars_idmap;          // loop_id, for-loop-var
   std::map<const Variable *, int> loop_vars_idmap_reverse;  // for-loop-var, loop_id
   const Map<Tensor, Buffer> &extern_buffer_;
-};
-
-class Compact : public IRMutator {
- public:
-  Compact() {}
-  ~Compact() override = default;
-
-  Stmt Mutate_(const Provide *op, const Stmt &s) final {
-    Array<Expr> new_args = compact(op->args);
-    Stmt stmt = IRMutator::Mutate_(op, s);
-    op = stmt.as<Provide>();
-    CHECK(op);
-    return Provide::make(op->func, op->value_index, op->value, new_args);
-  }
-
-  Expr Mutate_(const Call *op, const Expr &e) final {
-    Array<Expr> new_args = compact(op->args);
-    Expr expr = IRMutator::Mutate_(op, e);
-    op = expr.as<Call>();
-    CHECK(op);
-    if (op->call_type == Call::Halide) {
-      expr = Call::make(op->type, op->name, new_args, op->call_type, op->func, op->value_index);
-    }
-    return expr;
-  }
-
-  Stmt Mutate_(const Realize *op, const Stmt &s) final {
-    Region new_bounds;
-    Expr cone = make_const(Int(32), 1);
-    air::arith::Analyzer analyzer_;
-    for (size_t i = 0; i < op->bounds.size(); i++) {
-      if (analyzer_.CanProve(op->bounds[i]->extent > cone) || i == 0 || i == op->bounds.size() - 1) {
-        new_bounds.push_back(op->bounds[i]);
-      }
-    }
-    Stmt stmt = IRMutator::Mutate_(op, s);
-    if (op->bounds.size() == 1 || new_bounds.size() == 0) return stmt;
-    op = stmt.as<Realize>();
-    CHECK(op);
-    return Realize::make(op->func, op->value_index, op->type, new_bounds, op->condition, op->body);
-  }
-
- private:
-  Array<Expr> compact(const Array<Expr> &in) {
-    Array<Expr> out;
-    if (in.size() == 1) {
-      out = in;
-      return out;
-    }
-    for (size_t i = 0; i < in.size(); i++) {
-      if (!Equal(in[i], Expr(0)) || i == 0 || i == in.size() - 1) {
-        out.push_back(in[i]);
-      }
-    }
-
-    // for rank0 tensor
-    if (out.size() == 0) {
-      out = in;
-    }
-
-    return out;
-  }
 };
 
 Stmt StmtCSE(Stmt stmt, const Map<Tensor, Buffer> &extern_buffer) {
