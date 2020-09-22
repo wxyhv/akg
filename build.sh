@@ -22,7 +22,41 @@ mkdir -p $BUILD_DIR
 
 cd $BUILD_DIR
 
-cmake .. -DUSE_CCE_RT=1
+usage()
+{
+    echo "Usage:"
+    echo "bash build.sh [-t gpu|ascend]"
+    echo ""
+    echo "Options:"
+    echo "      -t hardware environment: gpu or ascend"
+}
+
+if [ ! -n "$1" ]; then
+    echo "Must input paramter!"
+    usage
+    exit 1
+fi
+
+while getopts 't:' opt
+do
+    case "${opt}" in
+        t)  
+            if [ "${OPTARG}" == "gpu" ]; then
+                cmake .. -DUSE_CUDA=ON -DUSE_RPC=ON
+            elif [ "${OPTARG}" == "ascend" ]; then
+                cmake .. -DUSE_CCE_RT=1
+            else
+                echo "Unkonwn parameter ${OPTARG}!"
+                usage
+                exit 1
+            fi
+            ;;
+        *)
+            echo "Unkonwn option ${opt}!"
+            usage
+            exit 1
+    esac
+done
 
 if [ $? -ne 0 ]
 then
