@@ -14,9 +14,7 @@
 
 """ fused operator dsl function: fused_pad ResNet50 fused_computation. 957 in XLA patterns  """
 from __future__ import absolute_import
-import akg.tvm as tvm
 import akg.topi as topi
-from akg.topi.util import equal_const_int
 
 def fused_pad(input, pad_before, pad_after, layout='NHWC', pad_value=0.0):
     """
@@ -38,32 +36,5 @@ def fused_pad(input, pad_before, pad_after, layout='NHWC', pad_value=0.0):
             'Layout not supported {} '.format(layout))
             
     cast_after = topi.cast(input, 'float16')
-    n = len(cast_after.shape)
-    pad_after = pad_after if pad_after else pad_before
-    if len(pad_before) != n:
-        raise ValueError("Input dimension and pad_before dismatch : %d vs %d" % (
-             n, len(pad_before)))
-    if len(pad_after) != n:
-        raise ValueError("Input dimension and pad_after dismatch : %d vs %d" % (
-             n, len(pad_after)))
-    out_shape = tuple(
-         tvm.ir_pass.Simplify(
-            (cast_after.shape[i] + pad_before[i] + pad_after[i])) for i in range(n))
-    pad_value = (pad_value if isinstance(pad_value, tvm.expr.Expr)
-                else tvm.const(pad_value, cast_after.dtype))
-
-    def _pad(*indices):
-         not_zero = []
-         index_tuple = []
-         for i in range(n):
-             if equal_const_int(pad_before[i], 0) and equal_const_int(pad_after[i], 0):
-                 index_tuple.append(indices[i])
-             else:
-                 index_tuple.append(indices[i] - pad_before[i])
-                 not_zero.append(indices[i] >= pad_before[i])
-                 not_zero.append(indices[i] < cast_after.shape[i] + pad_before[i])
-         if not_zero:
-             not_zero = tvm.all(*not_zero)
-             return tvm.if_then_else(not_zero, cast_after(*index_tuple), pad_value)
-         return cast_after(*index_tuple)
-    return tvm.compute(out_shape, _pad)
+    output = topi.nn.pad(cast_after, pad_before, pad_after, pad_value)
+    return output
