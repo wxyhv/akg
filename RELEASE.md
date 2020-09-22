@@ -1,3 +1,27 @@
+# Release 1.0.0
+## Major Features and Improvements
+* GPU Support
+  * AKG now can generate gpu cuda kernel with no-schedule by using polyhedral techniques, which will create initial schedule, tile outerBands, map with blocks and threads and memory promotion automatically in the AutoPoly pass.
+  * Some primitive and fused operators(most are element-wise operators and reduce operators) were added, as well as corresponding testcases.
+* Schedule-templates enhancement
+  * Optimize the TVM original schedule-templates to get better performance in some reduce cases.
+  * Support fusing multi-outputs into one kernel for element-wise operators.
+* Davinci Enhancement
+  * Eliminate unnecessary broadcast by transforming the element-wise computation, such as `D[i, j] = A[i] + B[i, j] + C[i]` -> `D[i, j] = A[i] + C[i] + B[i, j]`, which satisfies commutative law and associative law.
+  * Enhance the pass to_three_address to match more cases for vmadd.
+
+## Bugfixes
+* fix a bug that random test case segment_max failed(!127).
+* fix the permisson denied error of rewriting meta_file with same name(!147).
+* fix warning for unsupported gpu built-in ops(!148).
+
+## Contributors
+Thanks goes to these wonderful people:
+
+baita, ConnZhai, gengzhen, guanxiaowei, hanhuifeng, hujiahui8, laekov, lvwenyuan, lishanni513, lingyunli63, polyhedral, wYann, wangrao124, xixixian, xuhui, 要术甲杰, yiyanzhi_akane, yangsijia, zhengzuohe, zhangrenwei, zengzitao
+
+Contributions of any kind are welcome!
+
 # Release 0.7.0-beta
 ## Major Features and Improvements
 * Backend refactoring
