@@ -22,7 +22,7 @@ AKG composes with four basic optimization module, normalization, auto schedule, 
   <img src="docs/akg-design.png" style="zoom:80%" div align=center/>
 
 ## Hardware Backends Support
-At present, `Ascend910` is supported only. More Backends are on the list.
+At present, `Ascend910` and `GPU V100/A100` are supported. More Backends are on the list.
 
 ## Build
 
@@ -31,23 +31,38 @@ See [MindSpore README.md](https://gitee.com/mindspore/mindspore/blob/master/READ
 
 ### Build Standalone
 We suggest you build and run akg together with MindSpore. And we also provide a way to run case in standalone mode for convenience sake.
-Ascend platform is needed to build this mode. Refer to [MindSpore Installation](https://www.mindspore.cn/install/en) for more information about compilation dependencies.
+Refer to [MindSpore Installation](https://www.mindspore.cn/install/en) for more information about compilation dependencies.
   ```
-  bash build.sh
+  bash build.sh -t $target // target can set 'gpu' or 'ascend'
   ```
+
 ## Run Standalone
 1. Set Environment
+
+- Ascend910
   ```
   cd tests
   source ./test_env.sh amd64
   export RUNTIME_MODE='air_cloud'
   export PATH=${PATH}:${YOUR_CCEC_COMPILER_PATH}
   ```
+- GPU V100/A100
+  ```
+  cd tests
+  source ./test_env.sh gpu
+  ```
 
 2. Run test
+
+- Ascend910
   ```
   cd tests/operators/vector
   pytest -s test_abs_001.py -m "level0" # run level0 testcases
+  ```
+- GPU V100/A100
+  ```
+  cd tests/operators/gpu
+  python3 test_all.py -s "op_name" #replace op_name with the operator name which you want to test
   ```
 
 ## Contributing

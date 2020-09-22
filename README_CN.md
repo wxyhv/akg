@@ -22,7 +22,7 @@ AKG由四个基本的优化模块组成：规范化、自动调度、指令发�
   <img src="docs/akg-design.png" style="zoom:80%" div align=center/>
 
 ## 硬件后端支持
-当前仅支持`Ascend910`，更多硬件后端支持待开发。
+当前支持`Ascend910`，`gpu v100/A100`等，更多硬件后端支持待开发。
 
 ## 构建
 
@@ -31,12 +31,16 @@ AKG由四个基本的优化模块组成：规范化、自动调度、指令发�
 
 ### 独立构建
 我们建议您从MindSpore侧构建运行AKG代码，但同时为了方便开发，我们提供了独立编译运行AKG的方式。
-独立构建模式下需要Ascend平台的支持，详细的编译依赖请参考[MindSpore安装指南](https://www.mindspore.cn/install)。
+详细的编译依赖请参考[MindSpore安装指南](https://www.mindspore.cn/install)。
   ```
-  bash build.sh
+  bash build.sh -t $target // target can set 'gpu' or 'ascend'
   ```
+
 ## 运行
 1. 设置环境变量
+
+- Ascend910
+
   ```
   cd tests
   source ./test_env.sh amd64
@@ -44,10 +48,24 @@ AKG由四个基本的优化模块组成：规范化、自动调度、指令发�
   export PATH=${PATH}:${YOUR_CCEC_COMPILER_PATH}
   ```
 
+- GPU V100/A100
+
+  ```
+  cd tests
+  source ./test_env.sh gpu
+  ```
+
 2. 运行测试用例
+
+- Ascend910
   ```
   cd tests/operators/vector
   pytest -s test_abs_001.py -m "level0" # 运行level0测试用例
+  ```
+- GPU V100/A100
+  ```
+  cd tests/operators/gpu
+  python3 test_all.py -a "op_name" #运行op_name算子测试用例
   ```
 
 ## 贡献
