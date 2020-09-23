@@ -109,6 +109,7 @@ void RegisterMemoryManager::HoistRegisterMemoryOnDepth(isl::schedule_node &node)
 
     auto active_domains = CollectDomain(node);
     isl::id dst_tensor_id = GpuDstId(GpuMemType::LOCAL, tensor_id);
+    GatherBufferFootprintDefInfo(node, buffer_info);
     node = PlaceOuterDataCopyBelow(scop_info_, node, *fp_cluster, tensor_id, dst_tensor_id, partial_sched,
                                    schedule_.get_domain().get_space());
 
@@ -207,7 +208,6 @@ void RegisterMemoryManager::CreateTensorCluster(const isl::schedule_node &node, 
     if (promoted_info.footprints_cluster != nullptr) {
       promoted_info.footprint_cluster_map.emplace_back(std::make_pair(node, promoted_info.footprints_cluster));
       scop_info_.analysis_result_.buffer_def_infos_.push_back(promoted_info);
-      GatherBufferFootprintDefInfo(node, promoted_info);
     }
   }
 }
