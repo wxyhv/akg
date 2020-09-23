@@ -346,6 +346,8 @@ Stmt CopyPropagation(Stmt stmt, const Map<Tensor, Buffer> &extern_buffer);
 Expr CastNormalize(const Expr &expr, const air::DataType cast_type);
 
 std::string DumpC(const Stmt &stmt, const Array<Buffer> &extern_buffer);
+// GPU PASS
+Stmt InjectDoubleBufferScopeOnGpu(Stmt stmt);
 
 /*!
  * \brief Simplify expr using custom cce simplifiers.

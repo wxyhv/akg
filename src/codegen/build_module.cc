@@ -514,6 +514,9 @@ NodeRef Lower(Schedule sch, const Array<NodeRef> &in_args, const Array<NodeRef> 
       stmt = NEXT_PASS(VectorizeLoop, stmt);
     }
     stmt = NEXT_PASS(InjectVirtualThread, stmt);
+    if (polyhedral && global_attrs.GetBoolAttr(kEnableDoubleBuffer, true)) {
+      stmt = NEXT_PASS(InjectDoubleBufferScopeOnGpu, stmt);
+    }
     stmt = NEXT_PASS(InjectDoubleBuffer, stmt, config->double_buffer_split_loop);
     stmt = NEXT_PASS(StorageRewrite, stmt);
     stmt = NEXT_PASS(UnrollLoop, stmt, config->auto_unroll_max_step, config->auto_unroll_max_depth,
