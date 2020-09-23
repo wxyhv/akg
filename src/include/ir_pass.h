@@ -372,6 +372,8 @@ Stmt Simplify_cce(const Stmt &stmt, const Map<Var, Range> &vrange = Map<Var, Ran
 Stmt ElementwiseFlatten(Stmt stmt, const Map<Tensor, Buffer> &extern_buffer,
                         const Map<Tensor, Buffer> &new_extern_buffer);
 
+Array<NodeRef> FuseAxis(Stmt stmt, const Array<NodeRef> &arg_list, const Map<Tensor, Buffer> &extern_buffer);
+
 Stmt MultiCorePartition(const Stmt &stmt);
 
 Stmt MultiCoreLoopSwitchHoist(Stmt stmt);
