@@ -43,6 +43,8 @@ class MappingOuterBand : public SchedulePass {
   size_t MapThreadHelper(isl::schedule_node &thread_root);
   size_t NumMappedDescendant(const RoadMap &thread_roadmap, const isl::schedule_node parent);
 
+  bool CanBeMappedToThread(const isl::schedule_node node, const RoadMap &thread_record);
+
   isl::schedule_node FillRemainingThreads(isl::schedule_node &node, size_t begin);
 
   size_t CountConsecutiveCoincident(const isl::schedule_node_band &band_node);
