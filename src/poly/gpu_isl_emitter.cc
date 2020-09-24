@@ -292,6 +292,21 @@ Stmt GpuIslEmitter::EmitFor(const isl::ast_node_for &node) {
   return For::make(iter_expr, init_expr, cond_expr, ForType::Serial, DeviceAPI::None, body_stmt);
 }
 
+Stmt GpuIslEmitter::EmitIf(const isl::ast_node_if &node) {
+  Expr cond_expr = Interpret(node.get_cond());
+  cur_if_list_.push_back(cond_expr.get());
+  Stmt then_case = EmitAst(node.get_then_node());
+  if (!then_case.defined()) {
+    return Stmt();
+  }
+  Stmt else_case;
+  if (node.has_else_node()) {
+    else_case = EmitAst(node.get_else_node());
+  }
+  cur_if_list_.pop_back();
+  return IfThenElse::make(cond_expr, then_case, else_case);
+}
+
 Expr GpuIslEmitter::ModifyTheInitExpr(const Expr &e) {
   return 0;
 }
