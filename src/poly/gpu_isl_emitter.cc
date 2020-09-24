@@ -171,29 +171,6 @@ bool GpuIslEmitter::NoNeedToEmitForTempTensor(const isl::id &id) {
   return no_need;
 }
 
-Stmt GpuIslEmitter::EmitUserStmt(const isl::ast_node_user &node) {
-  CHECK(node.get_expr().isa<isl::ast_expr_op>());
-  isl::ast_expr_op usr_expr = node.get_expr().as<isl::ast_expr_op>();
-  stmt_id_ = usr_expr.get_arg(0).as<isl::ast_expr_id>().get_id();
-  node_id_ = node.get_annotation();
-  const Node *stmt_node = info_.analysis_result_.GetStatementMap().at(stmt_id_);
-  CHECK(stmt_node);
-  // compute VarMap to replace old iterators
-  auto build = node_info_map_.at(node_id_).build;
-  auto tuple = info_.analysis_result_.GetOperatorDomainMap().at(stmt_id_).tuple;
-  auto iterator_map = node_info_map_.at(node_id_).iterator_map;
-
-  var_map_.clear();
-  for (unsigned int i = 0; i < tuple.size(); ++i) {
-    isl::id isl_old_iter = tuple.get_id(i);
-    auto isl_expr = build.expr_from(iterator_map.get_pw_aff(i));
-    Expr halide_new_iter = Interpret(isl_expr);
-    var_map_.emplace(isl_old_iter, halide_new_iter);
-  }
-
-  return EmitUserStmtContent(stmt_node);
-}
-
 Stmt GpuIslEmitter::EmitBlock(const isl::ast_node_block &block_node) {
   std::vector<Stmt> stmts;
 
