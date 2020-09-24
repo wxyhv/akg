@@ -120,55 +120,80 @@ size_t MappingOuterBand::NumMappedDescendant(const RoadMap &thread_roadmap, cons
   return max_thread_size;
 }
 
+bool MappingOuterBand::CanBeMappedToThread(const isl::schedule_node node, const RoadMap &thread_record) {
+  auto band = node.as<isl::schedule_node_band>();
+  if (!band || !band.permutable() || NumMappedDescendant(thread_record, node) > 0) {
+    return false;
+  }
+
+  // make sure a band node in a sequence node only be mapped when all its siblings can be mapped together
+  if (band.ancestor(2) && band.ancestor(2).isa<isl::schedule_node_sequence>()) {
+    auto seq = band.ancestor(2).as<isl::schedule_node_sequence>();
+    for (size_t i = 0; i < seq.n_children(); ++i) {
+      auto filter = seq.child(i);
+      if (!CanBeMappedToThread(filter.child(0), thread_record)) {
+        return false;
+      }
+    }
+  }
+  return true;
+}
+
 isl::schedule MappingOuterBand::DoThreadMapping(const isl::schedule &sch) {
   auto final_schedule = sch;
   auto thread_cfg = scop_info_.user_config_.GetThreadConfig();
-  CHECK(thread_cfg != nullptr) << "threadconfig is null";
+  CHECK(thread_cfg != nullptr) << "thread config is null";
   if (thread_cfg->bound < 1) {
     return final_schedule;
   }
 
   // Step 1. Find inner-most permutable band to map threads.
   RoadMap thread_record;
-  auto GetInnerMostBand = [&thread_record, thread_cfg, this](isl::schedule_node node) -> isl::schedule_node {
-    size_t n_inner_map = NumMappedDescendant(thread_record, node);
-    if (auto band = node.as<isl::schedule_node_band>()) {
-      if (band.permutable() && n_inner_map == 0) {
-        auto mapped_threads = MapThreadHelper(node);
-        node = node.parent();  // return to node that beyonds map filter
-        thread_record.emplace_back(std::make_pair(node, mapped_threads));
-        return node;
-      } else if (CountConsecutiveCoincident(band) < band.n_member()) {
-        CHECK_EQ(band.n_children(), 1) << "Band node can only have one child.";
-        CHECK_EQ(n_inner_map, thread_cfg->bound) << "Must be mapped to all threads.";
+  auto MapFromInner = [&thread_record, thread_cfg, this](isl::schedule_node node) -> isl::schedule_node {
+    size_t num_mapped_desc = NumMappedDescendant(thread_record, node);
+
+    if (CanBeMappedToThread(node, thread_record)) {
+      auto node_bak = node;
+      auto mapped_threads = MapThreadHelper(node);
+      if (!IsEqual(node_bak, node)) {
+        // if successfully mapped current node, we insert a map filter beyond and need to return to band node
+        node = node.parent();
+      }
+      thread_record.emplace_back(std::make_pair(node, mapped_threads));
+      return node;
+    }
+
+    // deal with band that has children mapped to threads
+    if (node.n_children() > 1 && num_mapped_desc > 0) {
+      for (size_t i = 0; i < node.n_children(); ++i) {
+        isl::schedule_node node_child = node.child(i);
+        for (const auto &record : thread_record) {
+          auto child_node = record.first;
+          auto thread_size = record.second;
+          bool is_child = IsEqual(node_child, child_node);
+          if (is_child) {
+            node_child = FillRemainingThreads(node_child, thread_size);
+            node = node_child.parent();
+            break;
+          }
+        }
+      }
+
+      auto need_sync = node.isa<isl::schedule_node_sequence>();
+      if (need_sync) {
+        node = DoThreadSynchronization(node);
+      }
+
+      auto band = node.as<isl::schedule_node_band>();
+      if (band && CountConsecutiveCoincident(band) < band.n_member()) {
+        CHECK_EQ(num_mapped_desc, thread_cfg->bound) << "Must be mapped to all threads.";
         auto sync_manager = scop_info_.sync_manager_;
         sync_manager.InsertExtensionNode(band.child(0), SyncLevel::BLOCK, true);
       }
     }
-    if (node.n_children() > 1) {
-      if (n_inner_map > 0) {
-        for (size_t i = 0; i < node.n_children(); ++i) {
-          isl::schedule_node node_child = node.child(i);
-          for (const auto &record : thread_record) {
-            auto child_node = record.first;
-            auto thread_size = record.second;
-            bool is_child = node_child.is_equal(child_node);
-            if (is_child) {
-              node_child = FillRemainingThreads(node_child, thread_size);
-              node = node_child.parent();
-              break;
-            }
-          }
-        }
-        auto need_sync = node.isa<isl::schedule_node_sequence>();
-        if (need_sync) {
-          node = DoThreadSynchronization(node);
-        }
-      }
-    }
     return node;
   };
-  final_schedule = sch.get_root().map_descendant_bottom_up(GetInnerMostBand).get_schedule();
+  final_schedule = sch.get_root().map_descendant_bottom_up(MapFromInner).get_schedule();
   return final_schedule;
 }
 
@@ -176,7 +201,7 @@ isl::schedule_node MappingOuterBand::DoThreadSynchronization(const isl::schedule
   auto sync_node = node;
   auto sync_manager = scop_info_.sync_manager_;
   auto thread_cfg = scop_info_.user_config_.GetThreadConfig();
-  CHECK(thread_cfg != nullptr) << "threadconfig is null";
+  CHECK(thread_cfg != nullptr) << "thread config is null";
 
   // Step 1. prepare info
   bool is_outer = IsOuterBandWithNoCoincident(node);
@@ -277,6 +302,7 @@ SyncCandidate *MappingOuterBand::InitSyncLinkedList(const isl::schedule_node &se
 
   return cur->next.get();
 }
+
 SyncCandidate *MappingOuterBand::CountSyncNumberAmongLoop(SyncCandidate *head) {
   head->ForEachCandidateTopDown([](SyncCandidate *n1) {
     auto accum_block_count = 0;
@@ -301,14 +327,15 @@ SyncCandidate *MappingOuterBand::CountSyncNumberAmongLoop(SyncCandidate *head) {
 }
 
 int MappingOuterBand::GetBestSyncStartPoint(bool is_outer) {
-  // TODO: if is_outer, find the best start point
+  // When there is only one outer-band, which is the most common case, it is best to start from the beginning;
+  // otherwise, we need a strategy to determine the best start point.
   return 0;
 }
 
 size_t MappingOuterBand::MapThreadHelper(isl::schedule_node &thread_root) {
   isl::schedule_node_band band_node = thread_root.as<isl::schedule_node_band>();
   auto thread_cfg = scop_info_.user_config_.GetThreadConfig();
-  CHECK(thread_cfg != nullptr) << "threadconfig is null";
+  CHECK(thread_cfg != nullptr) << "thread config is null";
   if (thread_cfg->bound < 1) {
     return 0;
   }
@@ -324,13 +351,12 @@ size_t MappingOuterBand::MapThreadHelper(isl::schedule_node &thread_root) {
     return 0;
   }
 
-  bool n_split = false;
-
-  // split to keep number of user config nodes in inner-band
+  // Step 2. Split band node according to mapping config and coincidence of band node.
+  bool has_split = false;
   if (n_thread_map > thread_cfg->bound) {
     thread_root = band_node.split(n_thread_map - thread_cfg->bound);
     thread_root = thread_root.child(0);
-    n_split = true;
+    has_split = true;
     n_thread_map = thread_cfg->bound;
     band_node = thread_root.as<isl::schedule_node_band>();
   }
@@ -343,15 +369,14 @@ size_t MappingOuterBand::MapThreadHelper(isl::schedule_node &thread_root) {
     n_thread_map = static_cast<size_t>(band_node.n_member());
   }
 
-  // Step 2. Map band under thread_root from inner dim to outer dim.
-  // Then create and insert mapping filter.
+  // Step 3. Map band under thread_root from inner dim to outer dim.
   auto after_map_pair = MapInnerDimToThreads(band_node, false, thread_cfg, scop_info_.upa_node_mapping_);
   thread_root = after_map_pair.first;
-  if (n_split) {
+  if (has_split) {
     thread_root = thread_root.parent();
   }
 
-  // Step 3. Unroll
+  // Step 4. Do unroll if needed.
   isl::schedule_node after_fix_node = after_map_pair.second;
   thread_root = UnrollByMarkOptions(after_fix_node, scop_info_.user_config_.GetMaxUnrollLoop());
 
@@ -380,16 +405,21 @@ isl::schedule MappingOuterBand::DoBlockMapping(const isl::schedule &sch) {
   // Step 2. Map outerband from outer dim to inner dim.
   auto partial_schedule = band_node.get_partial_schedule();
   auto upa_list = partial_schedule.get_union_pw_aff_list();
+
+  // Step 3. Checking extent range for mapping.
+  auto domain = band_node.get_schedule().get_domain();
+  isl::union_pw_aff_list range_aff_list(band_node.ctx(), static_cast<int>(upa_list.size()));
+  for (size_t i = 0; i < upa_list.size(); ++i) {
+    auto range = upa_list.get_at(i).intersect_domain(domain);
+    range_aff_list = range_aff_list.add(range);
+  }
+  node = CheckMapSizeAndApplyTile(node, range_aff_list, block_cfg);
   upa_list = upa_list.drop(n_block_map, upa_list.size() - n_block_map);
 
-  // insert block marker
+  // Step 4. Create and insert mapping filter.
   node = node.insert_mark(isl::id(node.ctx(), BLOCK_MARKER));
   node = node.child(0);
-
-  // Step 3. Create and insert mapping filter.
   node = CreateAndInsertMapFilter(node, false, upa_list, block_cfg, scop_info_.upa_node_mapping_);
-
-  // TODO: step3.5: sanity check
 
   auto final_schedule = node.get_schedule();
   return final_schedule;

@@ -100,8 +100,8 @@ std::pair<isl::schedule_node, isl::schedule_node> MapInnerDimToThreads(const isl
 isl::schedule_node CreateAndInsertMapFilter(const isl::schedule_node &node, const bool is_promotion,
                                             isl::union_pw_aff_list upa_list, MappingCfg *mapping_cfg,
                                             UpaNodeMapping &upa_node_mapping);
-isl::schedule_node FixStrideInThread(const isl::schedule_node &thread_root, const isl::union_pw_aff_list &aff_list,
-                                     MappingCfg *mapping_cfg);
+isl::schedule_node CheckMapSizeAndApplyTile(const isl::schedule_node &thread_root,
+                                            const isl::union_pw_aff_list &aff_list, MappingCfg *mapping_cfg);
 
 bool IsEqual(const isl::schedule_node node1, const isl::schedule_node node2);
 isl::multi_union_pw_aff MapDomainToThread(const isl::schedule_node &node, MappingCfg *mapping_cfg,
