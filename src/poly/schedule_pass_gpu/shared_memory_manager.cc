@@ -396,10 +396,26 @@ void SharedMemoryManager::UpdateDepth(const isl::schedule_node &root) {
   auto outer_band = GetOuterBand(root);
   auto cfg = scop_info_.user_config_.GetBlockConfig();
   if (outer_band.isa<isl::schedule_node_band>()) {
-    depth_ = std::max<size_t>(cfg->bound + 1, outer_band.as<isl::schedule_node_band>().n_member());
+    auto block_depth = cfg->bound + 1;
+    auto outer_band_depth = outer_band.as<isl::schedule_node_band>().n_member();
+    if (block_depth > outer_band_depth && !UnderThreadMarker(block_depth)) {
+      depth_ = block_depth;
+    } else {
+      depth_ = outer_band_depth;
+    }
   }
 }
 
+bool SharedMemoryManager::UnderThreadMarker(size_t depth) {
+  isl::schedule_node root = this->schedule_.get_root();
+  auto bands = BandsContainingScheduleDepth(root, depth);
+  for (auto item : bands) {
+    if (IsAncestorMapToThread(item)) {
+      return true;
+    }
+  }
+  return false;
+}
 }  // namespace poly
 }  // namespace ir
 }  // namespace akg
