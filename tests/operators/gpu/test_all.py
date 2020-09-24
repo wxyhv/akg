@@ -46,22 +46,22 @@ from test_ms_greater_equal import test_ms_greater_equal
 from test_ms_reciprocal import test_ms_reciprocal
 from test_ms_reduce_max import test_ms_reduce_max
 from test_ms_reduce_min import test_ms_reduce_min
-from test_fused_relu_grad import test_fused_relu_grad
-from test_fused_mul_div_rsqrt_mul_isfinite_red import test_fused_mul_div_rsqrt_mul_isfinite_red
-from test_fused_bn_update import test_fused_bn_update
-from test_fused_bn_reduce import test_fused_bn_reduce
-from test_fused_bn_follow_relu import test_fused_bn_follow_relu
-from test_fused_bn_double_follow_relu import test_fused_bn_double_follow_relu
-from test_fused_bn_follow_relu_avgpool import test_fused_bn_follow_relu_avgpool
-from test_fused_bn_reduce_grad import test_fused_bn_reduce_grad
-from test_fused_is_finite import test_fused_is_finite
 from test_fused_pad import test_fused_pad
+from test_fused_bn_reduce import test_fused_bn_reduce
+from test_fused_bn_update import test_fused_bn_update
+from test_fused_bn_follow_relu import test_fused_bn_follow_relu
+from test_fused_bn_follow_relu_avgpool import test_fused_bn_follow_relu_avgpool
+from test_fused_bn_double_follow_relu import test_fused_bn_double_follow_relu
+from test_fused_bn_reduce_grad import test_fused_bn_reduce_grad
 from test_fused_relu_grad_bn_reduce_grad import test_fused_relu_grad_bn_reduce_grad
-from test_fused_l2loss_grad import test_fused_l2loss_grad
-from test_fused_relu_grad_bn_double_update_grad import test_fused_relu_grad_bn_double_update_grad
-from test_fused_bn_update_grad import test_fused_bn_update_grad
-from test_fused_relu_grad_bn_update_grad import test_fused_relu_grad_bn_update_grad
 from test_fused_relu_grad_bn_double_reduce_grad import test_fused_relu_grad_bn_double_reduce_grad
+from test_fused_l2loss_grad import test_fused_l2loss_grad
+from test_fused_is_finite import test_fused_is_finite
+from test_fused_relu_grad_bn_update_grad import test_fused_relu_grad_bn_update_grad
+from test_fused_relu_grad_bn_double_update_grad import test_fused_relu_grad_bn_double_update_grad
+from test_fused_relu_grad import test_fused_relu_grad
+from test_fused_bn_update_grad import test_fused_bn_update_grad
+from test_fused_mul_div_rsqrt_mul_isfinite_red import test_fused_mul_div_rsqrt_mul_isfinite_red
 
 def add(poly_sch, fuzz_shape=None):
     if fuzz_shape:
@@ -82,19 +82,15 @@ def bmm(poly_sch, fuzz_shape=None):
     test_ms_bmm((1, 1024, 512), (1, 256, 512), 'float32', poly_sch=poly_sch)
     # test_ms_bmm((1, 1024, 1024), (1, 1024, 1024), 'float32', (1, 1024, 1024), poly_sch=True)  # storage_flatten fail
 
-
 def cast(poly_sch, fuzz_shape=None):
     test_ms_cast((32, 32, 14, 14, 16), "float16", "float32", poly_sch=poly_sch)
     test_ms_cast((32, 32, 14, 14, 16), "float32", "float16", poly_sch=poly_sch)
-
 
 def exp(poly_sch, fuzz_shape=None):
     test_ms_exp((1024, 4096), 'float32', poly_sch=poly_sch)
     test_ms_exp((1024, 4096), 'float16', poly_sch=poly_sch)
     test_ms_exp((1024, 4095), 'float16', poly_sch=poly_sch)
     test_ms_exp((1024, 799), 'float16', poly_sch=poly_sch)
-
-
 
 def maximum(poly_sch, fuzz_shape=None):
     test_ms_maximum((32, 1024, 1024), (32, 1024, 1024), 'float32', poly_sch=poly_sch)
@@ -106,37 +102,30 @@ def minimum(poly_sch, fuzz_shape=None):
     test_ms_minimum((32, 1024, 1024), (1, 1024, 1024), 'float16', poly_sch=poly_sch)
     test_ms_minimum((32, 32, 32, 256), (32, 32, 1, 256), 'float16', poly_sch=poly_sch)
 
-
 def mul(poly_sch, fuzz_shape=None):
     test_ms_mul((1024, 4096), 'float32', poly_sch=poly_sch)
-
 
 def divide(poly_sch, fuzz_shape=None):
     test_ms_divide((1024, 1024), 'float32', poly_sch=poly_sch)
     test_ms_divide((1024, 1024), 'float16', poly_sch=poly_sch)
 
-
 def reshape(poly_sch, fuzz_shape=None):
     test_ms_reshape("float32", (64, 128, 1024), (8192, 1024), poly_sch=poly_sch)
     test_ms_reshape("float16", (64, 128, 1024), (8192, 1024), poly_sch=poly_sch)
-
 
 def rsqrt(poly_sch, fuzz_shape=None):
     test_ms_rsqrt((32, 1024, 1024), 'float32', poly_sch=poly_sch)
     test_ms_rsqrt((32, 1024, 1024), 'float16', poly_sch=poly_sch)
 
-
 def sqrt(poly_sch, fuzz_shape=None):
     test_ms_sqrt((1024, 1024), "float32", poly_sch=poly_sch)
     test_ms_sqrt((1024, 1024), "float16", poly_sch=poly_sch)
-
 
 def sub(poly_sch, fuzz_shape=None):
     test_ms_sub((32, 1024, 1024), (32, 1024, 1024), 'float32', poly_sch=poly_sch)
     test_ms_sub((32, 1024, 1024), (32, 1024, 1024), 'float16', poly_sch=poly_sch)
     test_ms_sub((32, 1024, 1024), (1, 1024, 1024), 'float32', poly_sch=poly_sch)
     test_ms_sub((4, 4, 4), (1, 4, 4), 'float32', poly_sch=poly_sch)
-
 
 def tile(poly_sch, fuzz_shape=None):
     test_ms_tile((1024, 4096), (3,), 'float32', poly_sch=poly_sch)
@@ -200,67 +189,8 @@ def reduce_sum(poly_sch, fuzz_shape=None):
     test_ms_reduce_sum((9, 1024, 1024), 'float16', axis=None, keepdims=False, poly_sch=poly_sch)
     test_ms_reduce_sum((9, 1024, 1024), 'float16', axis=2, keepdims=True, poly_sch=poly_sch)
 
-
 def select(poly_sch, fuzz_shape=None):
     test_ms_select((2, ), (2, 2, 2),  "int8", "float16", poly_sch=poly_sch)
-
-def fused_bn_update(poly_sch, fuzz_shape=None):
-    test_fused_bn_update((2048,), 'float32', poly_sch=poly_sch)
-
-def fused_relu_grad(poly_sch, fuzz_shape=None):
-    test_fused_relu_grad((256, 56, 56, 256), 'float16', poly_sch=poly_sch)
-
-def fused_mul_div_rsqrt_mul_isfinite_red(poly_sch, fuzz_shape=None):
-    test_fused_mul_div_rsqrt_mul_isfinite_red((64,), poly_sch=poly_sch)
-
-def fused_bn_reduce(poly_sch, fuzz_shape=None):
-    test_fused_bn_reduce((256, 7, 7, 2048), layout='NHWC', poly_sch=False)
-    # TODO: node should be a band node
-    # test_fused_bn_reduce((256, 7, 7, 2048), layout='NHWC', poly_sch=True)
-
-def fused_bn_follow_relu(poly_sch, fuzz_shape=None):
-    test_fused_bn_follow_relu((256, 7, 7, 2048), layout='NHWC', poly_sch=poly_sch)
-
-def fused_bn_double_follow_relu(poly_sch, fuzz_shape=None):
-    test_fused_bn_double_follow_relu((256, 7, 7, 2048), layout='NHWC', poly_sch=poly_sch)
-                            
-def fused_bn_follow_relu_avgpool(poly_sch, fuzz_shape=None):
-    test_fused_bn_follow_relu_avgpool((256, 7, 7, 2048), layout='NHWC', poly_sch=poly_sch)
-
-def fused_bn_reduce_grad(poly_sch, fuzz_shape=None):
-    test_fused_bn_reduce_grad((256, 56, 56, 256), layout='NHWC', poly_sch=poly_sch)
-
-def fused_is_finite(poly_sch, fuzz_shape=None):
-    test_fused_is_finite((1, 1, 256, 1024), layout='NHWC', poly_sch=poly_sch)
-
-def fused_pad(poly_sch, fuzz_shape=None):
-    test_fused_pad((7, 7, 3, 64), (0, 0, 0, 0), (0, 0, 1, 0), layout='NHWC', pad_value=0.0, poly_sch=poly_sch)
-
-def fused_relu_grad_bn_reduce_grad(poly_sch, fuzz_shape=None):
-    test_fused_relu_grad_bn_reduce_grad((64, ), (256, 112, 112, 64),  layout='NHWC', poly_sch=poly_sch)
-
-def fused_l2loss_grad(poly_sch, fuzz_shape=None):
-    test_fused_l2loss_grad((1,1,256,1024), layout='NHWC', poly_sch=poly_sch)
-
-def fused_relu_grad_bn_double_update_grad(poly_sch, fuzz_shape=None):
-    test_fused_relu_grad_bn_double_update_grad((256,56,56,256), (256, ), layout='NHWC', poly_sch=False)
-    # TODO: check_failed: is_const_int(op->min, 0)
-    # test_fused_conv2dback_bngrad((256,56,56,256), (256,56,56,256), (256,56,56,256), (256,56,56,256), [256], 
-    # (256,56,56,256), [256], 0.0, 0.0, 1.2461541e-06, poly_sch=True)
-
-def fused_bn_update_grad(poly_sch, fuzz_shape=None):
-    test_fused_bn_update_grad((256, 56, 56, 256), (256,), layout="NHWC", poly_sch=False)
-    # TODO: node should be a band node
-    # test_fused_bn_update_grad((256, 56, 56, 256), (256,), layout="NHWC", poly_sch=True)
-
-def fused_relu_grad_bn_double_reduce_grad(poly_sch, fuzz_shape=None):
-    test_fused_relu_grad_bn_double_reduce_grad((256,), (256, 56, 56, 256), layout="NHWC", poly_sch=poly_sch)
-
-def fused_relu_grad_bn_update_grad(poly_sch, fuzz_shape=None):
-    test_fused_relu_grad_bn_update_grad((256, 112, 112, 64), (64,), layout="NHWC", poly_sch=False)
-    # TODO: check_failed: is_const_int(op->min, 0)
-    # test_fused_relu_grad_bn_update_grad((256, 112, 112, 64), (64,), layout="NHWC", poly_sch=True)
-
 
 def equal(poly_sch, fuzz_shape=None):
     test_ms_equal(((1, 1024), (1, 1024)), 'float16', poly_sch=poly_sch)
@@ -289,6 +219,54 @@ def reduce_max(poly_sch, fuzz_shape=None):
     test_ms_reduce_max((9, 1024, 1024), 'float16', axis=None, keepdims=False, poly_sch=poly_sch)
     test_ms_reduce_max((9, 1024, 1024), 'float32', axis=2, keepdims=False, poly_sch=poly_sch)
     test_ms_reduce_max((9, 1024, 1024), 'float16', axis=2, keepdims=False, poly_sch=poly_sch)
+
+def fused_pad(poly_sch, fuzz_shape=None):
+    test_fused_pad((7, 7, 3, 64), (0, 0, 0, 0), (0, 0, 1, 0), layout='NHWC', pad_value=0.0, poly_sch=poly_sch)
+
+def fused_bn_reduce(poly_sch, fuzz_shape=None):
+    test_fused_bn_reduce((256, 7, 7, 2048), layout='NHWC', poly_sch=poly_sch)
+
+def fused_bn_update(poly_sch, fuzz_shape=None):
+    test_fused_bn_update((2048,), 'float32', poly_sch=poly_sch)
+
+def fused_bn_follow_relu(poly_sch, fuzz_shape=None):
+    test_fused_bn_follow_relu((256, 7, 7, 2048), layout='NHWC', poly_sch=poly_sch)
+
+def fused_bn_follow_relu_avgpool(poly_sch, fuzz_shape=None):
+    test_fused_bn_follow_relu_avgpool((256, 7, 7, 2048), layout='NHWC', poly_sch=False)
+
+def fused_bn_double_follow_relu(poly_sch, fuzz_shape=None):
+    test_fused_bn_double_follow_relu((256, 7, 7, 2048), layout='NHWC', poly_sch=poly_sch)
+
+def fused_bn_reduce_grad(poly_sch, fuzz_shape=None):
+    test_fused_bn_reduce_grad((256, 56, 56, 256), layout='NHWC', poly_sch=poly_sch)
+
+def fused_relu_grad_bn_reduce_grad(poly_sch, fuzz_shape=None):
+    test_fused_relu_grad_bn_reduce_grad((64, ), (256, 112, 112, 64),  layout='NHWC', poly_sch=poly_sch)
+
+def fused_relu_grad_bn_double_reduce_grad(poly_sch, fuzz_shape=None):
+    test_fused_relu_grad_bn_double_reduce_grad((256,), (256, 56, 56, 256), layout="NHWC", poly_sch=poly_sch)
+
+def fused_l2loss_grad(poly_sch, fuzz_shape=None):
+    test_fused_l2loss_grad((1,1,256,1024), layout='NHWC', poly_sch=poly_sch)
+
+def fused_is_finite(poly_sch, fuzz_shape=None):
+    test_fused_is_finite((1, 1, 256, 1024), layout='NHWC', poly_sch=poly_sch)
+
+def fused_relu_grad_bn_update_grad(poly_sch, fuzz_shape=None):
+    test_fused_relu_grad_bn_update_grad((256, 112, 112, 64), (64,), layout="NHWC", poly_sch=False)
+
+def fused_relu_grad_bn_double_update_grad(poly_sch, fuzz_shape=None):
+    test_fused_relu_grad_bn_double_update_grad((256,56,56,256), (256, ), layout='NHWC', poly_sch=False)
+
+def fused_relu_grad(poly_sch, fuzz_shape=None):
+    test_fused_relu_grad((256, 56, 56, 256), 'float16', poly_sch=poly_sch)
+
+def fused_bn_update_grad(poly_sch, fuzz_shape=None):
+    test_fused_bn_update_grad((256, 56, 56, 256), (256,), layout="NHWC", poly_sch=poly_sch)
+
+def fused_mul_div_rsqrt_mul_isfinite_red(poly_sch, fuzz_shape=None):
+    test_fused_mul_div_rsqrt_mul_isfinite_red((64,), poly_sch=poly_sch)
 
 class Logger(object):
     def __init__(self, filename, stream):
@@ -328,26 +306,25 @@ if __name__ == '__main__':
               "equal": equal, "exp": exp, "greater_equal": greater_equal, "less_equal": less_equal,
               "log": log, "max": maximum, "min": minimum, "mul": mul, "neg": neg, "pow": pow,
               "reciprocal": reciprocal, "round": round, "rsqrt": rsqrt, "select": select, "sqrt": sqrt,
-              "sub": sub,
-              "reduce_max": reduce_max, "reduce_min": reduce_min, "reduce_sum": reduce_sum,
-              "expand_dims": expand_dims, "one_hot": one_hot, "reshape": reshape, "tile": tile, 
-              "trans_data": trans_data,            
-              "fused_bn_update": fused_bn_update,
-              "fused_relu_grad": fused_relu_grad, 
-              "fused_mul_div_rsqrt_mul_isfinite_red": fused_mul_div_rsqrt_mul_isfinite_red,
+              "sub": sub, "reduce_max": reduce_max, "reduce_min": reduce_min, 
+              "reduce_sum": reduce_sum, "expand_dims": expand_dims, "one_hot": one_hot, 
+              "reshape": reshape, "tile": tile, "trans_data": trans_data,            
+              "fused_pad": fused_pad,  
               "fused_bn_reduce": fused_bn_reduce, 
+              "fused_bn_update": fused_bn_update,
               "fused_bn_follow_relu": fused_bn_follow_relu,
-              "fused_bn_double_follow_relu": fused_bn_double_follow_relu, 
               "fused_bn_follow_relu_avgpool": fused_bn_follow_relu_avgpool,
+              "fused_bn_double_follow_relu": fused_bn_double_follow_relu, 
               "fused_bn_reduce_grad": fused_bn_reduce_grad, 
-              "fused_is_finite": fused_is_finite, 
-              "fused_pad": fused_pad, 
               "fused_relu_grad_bn_reduce_grad": fused_relu_grad_bn_reduce_grad, 
-              "fused_l2loss_grad": fused_l2loss_grad,
-              "fused_relu_grad_bn_double_update_grad": fused_relu_grad_bn_double_update_grad, 
               "fused_relu_grad_bn_double_reduce_grad": fused_relu_grad_bn_double_reduce_grad,
+              "fused_l2loss_grad": fused_l2loss_grad,
+              "fused_is_finite": fused_is_finite, 
               "fused_relu_grad_bn_update_grad": fused_relu_grad_bn_update_grad, 
-              "fused_bn_update_grad": fused_bn_update_grad
+              "fused_relu_grad_bn_double_update_grad": fused_relu_grad_bn_double_update_grad, 
+              "fused_relu_grad": fused_relu_grad, 
+              "fused_bn_update_grad": fused_bn_update_grad,
+              "fused_mul_div_rsqrt_mul_isfinite_red": fused_mul_div_rsqrt_mul_isfinite_red
               }
     all_f = list(op_map.values())
     op_map["all"] = all_f

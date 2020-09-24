@@ -30,6 +30,7 @@ def gen_data(shape, dtype, layout='NHWC'):
     data_isfinite = np.isfinite(data)
     n, h, w, c = np.shape(data_isfinite)
     expect = np.all(data_isfinite, axis = (0, 1, 2, 3))
+    expect = np.broadcast_to(expect, (1,))
     output = expect
     return data, expect, output    
 
