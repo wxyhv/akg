@@ -38,7 +38,6 @@ class GpuIslEmitter : public IslEmitter {
   Stmt EmitStmt(const isl::ast_node_user &node) final;
   Stmt EmitFor(const isl::ast_node_for &node) final;
   Stmt EmitIf(const isl::ast_node_if &node) final;
-  Stmt EmitUserStmt(const isl::ast_node_user &node) override;
 
   // DMA emitters for GPU
   Expr EmitLoad(const isl::ast_expr &lhs, Type type);
