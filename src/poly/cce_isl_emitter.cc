@@ -545,7 +545,7 @@ Stmt CCEIslEmitter::EmitFor(const isl::ast_node_for &node) {
 }
 
 Expr CCEIslEmitter::EmitLoad(const isl::ast_expr &expr, const Type type) {
-  if (PRINT_CCE_ISL_EMMITER) {
+  if (PRINT_CCE_ISL_EMITTER) {
     LOG(INFO) << ">>>>>>>>>>>>INPUT AST_NODE[LOAD]<<<<<<<<<<<<<<\n" << expr;
   }
   if (auto op = expr.as<isl::ast_expr_op>()) {
@@ -571,7 +571,7 @@ Expr CCEIslEmitter::EmitLoad(const isl::ast_expr &expr, const Type type) {
           if (updateTensor->op->name == name) {
             auto call = Call::make(type, updateTensor->op->name, local_args, Call::CallType::Halide, updateTensor->op,
                                    updateTensor->value_index);
-            if (PRINT_CCE_ISL_EMMITER) {
+            if (PRINT_CCE_ISL_EMITTER) {
               LOG(INFO) << ">>>>>>>>>>>>OUTPUT STMT<<<<<<<<<<<<\n" << call;
             }
             return call;
@@ -579,7 +579,7 @@ Expr CCEIslEmitter::EmitLoad(const isl::ast_expr &expr, const Type type) {
         }
       }
       auto call = Call::make(type, t->op->name, local_args, Call::CallType::Halide, t->op, t->value_index);
-      if (PRINT_CCE_ISL_EMMITER) {
+      if (PRINT_CCE_ISL_EMITTER) {
         LOG(INFO) << ">>>>>>>>>>>>OUTPUT STMT<<<<<<<<<<<<\n" << call;
       }
       return call;
@@ -900,7 +900,7 @@ Stmt CCEIslEmitter::EmitStmt(const isl::ast_node_user &node) {
 
   if (info_.IsRead(stmt_id)) {
     auto s = EmitRead(node);
-    if (PRINT_CCE_ISL_EMMITER) {
+    if (PRINT_CCE_ISL_EMITTER) {
       LOG(INFO) << ">>>>>>>>>>>>INPUT AST_NODE[READ]<<<<<<<<<<<<<<\n" << node;
       LOG(INFO) << ">>>>>>>>>>>>OUTPUT STMT<<<<<<<<<<<<\n" << s;
     }
@@ -915,7 +915,7 @@ Stmt CCEIslEmitter::EmitStmt(const isl::ast_node_user &node) {
     } else {
       s = EmitWrite(node, AtomicType::Equ);
     }
-    if (PRINT_CCE_ISL_EMMITER) {
+    if (PRINT_CCE_ISL_EMITTER) {
       LOG(INFO) << ">>>>>>>>>>>>INPUT AST_NODE[WRITE]<<<<<<<<<<<<<<\n" << node;
       LOG(INFO) << ">>>>>>>>>>>>OUTPUT STMT<<<<<<<<<<<<\n" << s;
     }

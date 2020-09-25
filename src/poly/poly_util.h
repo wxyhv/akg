@@ -31,9 +31,9 @@ namespace poly {
 #define DUMP_IN_CURRENT_DIR false
 
 #define PRINT_SCHEDULE_INFO false
-#define PRINT_ISL_EMMITER false
-#define PRINT_CCE_ISL_EMMITER false
-#define PRINT_EMMITER (PRINT_ISL_EMMITER || PRINT_CCE_ISL_EMMITER)
+#define PRINT_ISL_EMITTER false
+#define PRINT_CCE_ISL_EMITTER false
+#define PRINT_EMITTER (PRINT_ISL_EMITTER || PRINT_CCE_ISL_EMITTER)
 #define SPEC_GEMM true
 #define DELETE_FRACTAL true
 #define USE_SIMPLE_EXTENSION true
