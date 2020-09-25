@@ -220,7 +220,7 @@ Stmt GenHalide(ScopInfo &info, const isl::schedule &sch, bool used_for_tile_out_
 
   ast_node = CanonicalizeBlockInAst(ast_node);
 
-  if (PRINT_EMMITER) {
+  if (PRINT_EMITTER) {
     PrintHeader("FINAL SCHEDULE");
     std::cout << PrettyPrintSchTree(sch) << std::endl;
     PrintHeader("FINAL ASTNODE");
@@ -230,7 +230,7 @@ Stmt GenHalide(ScopInfo &info, const isl::schedule &sch, bool used_for_tile_out_
   }
   TIMER_START;
   Stmt stmt;
-  if (PRINT_ISL_EMMITER) {
+  if (PRINT_ISL_EMITTER) {
     if (used_for_tile_out_band) {
       if (info.user_config_.GetTarget() == TARGET_CCE) {
         PrintHeader("CCEIslEmitter");
@@ -255,7 +255,7 @@ Stmt GenHalide(ScopInfo &info, const isl::schedule &sch, bool used_for_tile_out_
 
   TIMER_SHOW("IslEmitter", std::string(info.cube_info_.IsSpecGemm() ? "_specgemm" : ""));
 
-  if (PRINT_EMMITER) {
+  if (PRINT_EMITTER) {
     PrintHeader("FINAL STMT");
     std::cout << stmt;
   }

@@ -21,7 +21,7 @@ namespace akg {
 namespace ir {
 namespace poly {
 Expr GpuIslEmitter::EmitLoad(const isl::ast_expr &expr, const Type type) {
-  if (PRINT_EMMITER) {
+  if (PRINT_EMITTER) {
     LOG(INFO) << ">>>>>>>>>>>>INPUT AST_NODE[LOAD]<<<<<<<<<<<<<<\n" << expr;
   }
   if (auto op = expr.as<isl::ast_expr_op>()) {
@@ -36,7 +36,7 @@ Expr GpuIslEmitter::EmitLoad(const isl::ast_expr &expr, const Type type) {
 
       Tensor t = info_.FindTensor(var);
       auto call = Call::make(type, t->op->name, local_args, Call::CallType::Halide, t->op, t->value_index);
-      if (PRINT_EMMITER) {
+      if (PRINT_EMITTER) {
         LOG(INFO) << ">>>>>>>>>>>>OUTPUT STMT<<<<<<<<<<<<\n" << call;
       }
       return call;
@@ -126,7 +126,7 @@ Stmt GpuIslEmitter::EmitStmt(const isl::ast_node_user &node) {
 
   if (info_.IsRead(stmt_id)) {
     auto s = EmitRead(node);
-    if (PRINT_EMMITER) {
+    if (PRINT_EMITTER) {
       LOG(INFO) << ">>>>>>>>>>>>INPUT AST_NODE[READ]<<<<<<<<<<<<<<\n" << node;
       LOG(INFO) << ">>>>>>>>>>>>OUTPUT STMT<<<<<<<<<<<<\n" << s;
     }
@@ -145,7 +145,7 @@ Stmt GpuIslEmitter::EmitStmt(const isl::ast_node_user &node) {
     } else {
       s = EmitWrite(node);
     }
-    if (PRINT_EMMITER) {
+    if (PRINT_EMITTER) {
       LOG(INFO) << ">>>>>>>>>>>>INPUT AST_NODE[WRITE]<<<<<<<<<<<<<<\n" << node;
       LOG(INFO) << ">>>>>>>>>>>>OUTPUT STMT<<<<<<<<<<<<\n" << s;
     }

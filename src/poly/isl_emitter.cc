@@ -692,7 +692,7 @@ Stmt IslEmitter::EmitAst(const isl::ast_node &node) {
   } else {
     s = Evaluate::make(Expr("todo EmitAst"));
   }
-  if (PRINT_EMMITER) {
+  if (PRINT_EMITTER) {
     LOG(INFO) << ">>>>>>>>>>>>INPUT AST_NODE" << info << "<<<<<<<<<<<<<<\n" << node;
     LOG(INFO) << ">>>>>>>>>>>>OUTPUT STMT<<<<<<<<<<<<\n" << s;
   }
