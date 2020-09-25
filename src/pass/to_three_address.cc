@@ -695,8 +695,7 @@ class InstructionMutator : IRMutator {
       args.push_back(mul->b);
     }
 
-    if (is_constant(args[0]) || !args[0]->IsInstance<Call>() || !args[1]->IsInstance<Call>() ||
-        !args[2]->IsInstance<Call>()) {
+    if (is_constant(args[0])) {
       return Add::make(l, r);
     }
 
@@ -705,7 +704,8 @@ class InstructionMutator : IRMutator {
     }
 
     if (CountVars(args[1]) != CountVars(args[2]) ||
-        (!is_constant(args[0]) && CountVars(args[0]) != CountVars(args[1]))) {
+        (!is_constant(args[0]) && CountVars(args[0]) != CountVars(args[1])) ||
+        CountVars(args[2]) != CountVars(args_)) {
       return Add::make(l, r);
     }
 
