@@ -55,16 +55,20 @@ class SharedMemoryManager : public SchedulePass {
 
   void GatherBufferFootprintDefInfo(const isl::schedule_node &node, BufferDefInfo &tensor_info);
 
-  isl::schedule_node HoistClusters(const isl::schedule_node &root, const isl::schedule_node &node, size_t &remaining_memory);
+  isl::schedule_node HoistClusters(const isl::schedule_node &root, const isl::schedule_node &node,
+                                   size_t &remaining_memory);
 
   isl::schedule_node HoistToBlockThreadMemory(isl::schedule_node &tree, GpuMemType type, const isl::id &tensor_id,
                                               TensorFootprintCluster &cluster, bool force_last_extension_odd);
 
   bool ReuseTensorCluster(const TensorFootprintCluster &cluster, const isl::multi_union_pw_aff &outer_pw_aff);
 
-  bool CoalescingAccessWay(const isl::schedule_node &root, const isl::schedule_node &node, const TensorFootprintCluster &cluster);
+  bool CoalescingAccessWay(const isl::schedule_node &root, const isl::schedule_node &node,
+                           const TensorFootprintCluster &cluster);
 
   void UpdateDepth(const isl::schedule_node &root);
+
+  bool UnderThreadMarker(size_t depth);
 
  private:
   ScopInfo &scop_info_;

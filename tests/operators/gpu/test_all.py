@@ -233,7 +233,7 @@ def fused_bn_follow_relu(poly_sch, fuzz_shape=None):
     test_fused_bn_follow_relu((256, 7, 7, 2048), layout='NHWC', poly_sch=poly_sch)
 
 def fused_bn_follow_relu_avgpool(poly_sch, fuzz_shape=None):
-    test_fused_bn_follow_relu_avgpool((256, 7, 7, 2048), layout='NHWC', poly_sch=False)
+    test_fused_bn_follow_relu_avgpool((256, 7, 7, 2048), layout='NHWC', poly_sch=poly_sch)
 
 def fused_bn_double_follow_relu(poly_sch, fuzz_shape=None):
     test_fused_bn_double_follow_relu((256, 7, 7, 2048), layout='NHWC', poly_sch=poly_sch)
