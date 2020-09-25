@@ -38,7 +38,8 @@ def compute_expect(input, c1):
 
     return np.where(cmp_zero, data_add, data_zero)
 
-def test_fused_relu_grad(shape, dtype='float16', c1=0, poly_sch=False):
+def test_fused_relu_grad(shape, c1=0, poly_sch=False):
+    dtype='float16'
     input = gen_data(shape, dtype)
     expect = compute_expect(input, c1)
     shapes = [shape] * 3

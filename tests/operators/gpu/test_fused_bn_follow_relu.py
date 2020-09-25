@@ -57,7 +57,7 @@ def gen_data(in_shape, in_dtype, inter_dtype, layout, out_dtype):
 
     return data, output, expect
 
-def test_fused_bn_follow_relu(in_shape, in_dtype='float16', layout='NHWC', out_dtype='float32', poly_sch=False):
+def test_fused_bn_follow_relu(in_shape, in_dtype='float16', layout='NHWC', out_dtype='float16', poly_sch=False):
 
     if layout != "NHWC" and layout != "NCHW":
         raise NotImplementedError(

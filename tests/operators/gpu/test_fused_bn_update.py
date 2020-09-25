@@ -43,7 +43,7 @@ def compute_expect(input, c1, c2, c3, c4):
 
     return [out1, out2, out3]
 
-def test_fused_bn_update(shape, dtype, c1=(1 / (256 * 7 * 7)), c2=1.001e-05, c3=1.00007975, c4=0.100000024, poly_sch=False):
+def test_fused_bn_update(shape, dtype="float32", c1=(1 / (256 * 7 * 7)), c2=1.001e-05, c3=1.00007975, c4=0.100000024, poly_sch=False):
     input = gen_data(shape, dtype)
     expect = compute_expect(input, c1, c2, c3, c4)
     attrs = [dtype, c1, c2, c3, c4]

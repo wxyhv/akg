@@ -19,14 +19,14 @@ from akg.topi.cuda.injective_single_kernel import schedule_injective
 from akg.ops.fused_gpu import fused_bn_update
 
 @akg.schedule(schedule_injective)
-def fused_bn_update_manual(input1, input2, input3, input4, dtype,
+def fused_bn_update_manual(input1, input2, input3, input4, dtype="float32",
     c1=(1 / (256 * 7 * 7)), c2=1.001e-05, c3=1.00007975, c4=0.100000024):
     """
     Fuse_bn_update_manual
     """
     return fused_bn_update.fused_bn_update(input1, input2, input3, input4, dtype, c1, c2, c3, c4)
 
-def fused_bn_update_auto(input1, input2, input3, input4, dtype,
+def fused_bn_update_auto(input1, input2, input3, input4, dtype="float32",
     c1=(1 / (256 * 7 * 7)), c2=1.001e-05, c3=1.00007975, c4=0.100000024):
     """
     Fused_bn_update_auto

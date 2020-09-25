@@ -35,12 +35,12 @@ def gen_data(shape, dtype, layout='NHWC'):
     return data, expect, output    
 
 def test_fused_is_finite(shape, layout='NHWC', poly_sch=False):
-
+    dtype="float32"
     if poly_sch:
-        mod = utils.op_build(fused_is_finite_auto, [shape], ['float32'], op_attrs=[layout], attrs={"target": "cuda"})    
+        mod = utils.op_build(fused_is_finite_auto, [shape], [dtype], op_attrs=[layout], attrs={"target": "cuda"})    
     else:
-        mod = utils.op_build(fused_is_finite_manual, [shape], ['float32'], op_attrs=[layout])    
-    data, expect, output = gen_data(shape, 'float32', layout)
+        mod = utils.op_build(fused_is_finite_manual, [shape], [dtype], op_attrs=[layout])    
+    data, expect, output = gen_data(shape, dtype, layout)
     args = (data, output)
     output = utils.mod_launch(mod, args, expect = expect)
     res = np.allclose(output, expect, rtol=5e-03, atol=1e-8)
