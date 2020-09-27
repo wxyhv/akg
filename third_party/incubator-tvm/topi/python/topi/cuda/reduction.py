@@ -18,6 +18,7 @@
 # 2020.08.29  -  Iterate each output in func "schedule_reduce" to allow multiple outputs
 # 2020.9.1    -  Modify all_reduce check condition.
 # 2020.9.2    -  Modify threads bind.
+# 2020.9.25   -  Add a judgement in traverse_before_reduce to allow multiple reduction calculations.
 
 """Schedule for reduce operators"""
 from __future__ import absolute_import as _abs
@@ -144,6 +145,8 @@ def schedule_reduce(outs):
             for tensor in operator.input_tensors:
                 if tensor.op not in scheduled_ops:
                     traverse_before_reduce(tensor.op)
+        elif operator.tag in ("comm_reduce", "comm_reduce_idx"):
+            traverse_after_reduce(operator)
         else:
             raise RuntimeError("Unsupported operator: %s" % operator.tag)
 

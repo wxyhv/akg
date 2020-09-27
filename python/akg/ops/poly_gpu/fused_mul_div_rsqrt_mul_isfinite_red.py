@@ -21,8 +21,8 @@ from akg.ops.fused_gpu.fused_mul_div_rsqrt_mul_isfinite_red import fused_mul_div
 @akg.schedule(schedule_injective)
 def fused_mul_div_rsqrt_mul_isfinite_red_manual(input1, input2, out_dtype="float32"):
     """fused_mul_div_rsqrt_mul_isfinite_red, with manual schedule"""
-    return fused_mul_div_rsqrt_mul_isfinite_red(input1, input2)
+    return fused_mul_div_rsqrt_mul_isfinite_red(input1, input2, out_dtype)
 
 def fused_mul_div_rsqrt_mul_isfinite_red_auto(input1, input2, out_dtype="float32"):
     """fused_mul_div_rsqrt_mul_isfinite_red, with auto schedule"""
-    return fused_mul_div_rsqrt_mul_isfinite_red(input1, input2)
+    return fused_mul_div_rsqrt_mul_isfinite_red(input1, input2, out_dtype)

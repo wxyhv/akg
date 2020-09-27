@@ -227,7 +227,7 @@ def fused_bn_reduce(poly_sch, fuzz_shape=None):
     test_fused_bn_reduce((256, 7, 7, 2048), layout='NHWC', poly_sch=poly_sch)
 
 def fused_bn_update(poly_sch, fuzz_shape=None):
-    test_fused_bn_update((2048,), 'float32', poly_sch=poly_sch)
+    test_fused_bn_update((2048,), poly_sch=poly_sch)
 
 def fused_bn_follow_relu(poly_sch, fuzz_shape=None):
     test_fused_bn_follow_relu((256, 7, 7, 2048), layout='NHWC', poly_sch=poly_sch)
@@ -260,7 +260,7 @@ def fused_relu_grad_bn_double_update_grad(poly_sch, fuzz_shape=None):
     test_fused_relu_grad_bn_double_update_grad((256,56,56,256), (256, ), layout='NHWC', poly_sch=False)
 
 def fused_relu_grad(poly_sch, fuzz_shape=None):
-    test_fused_relu_grad((256, 56, 56, 256), 'float16', poly_sch=poly_sch)
+    test_fused_relu_grad((256, 56, 56, 256), poly_sch=poly_sch)
 
 def fused_bn_update_grad(poly_sch, fuzz_shape=None):
     test_fused_bn_update_grad((256, 56, 56, 256), (256,), layout="NHWC", poly_sch=poly_sch)
