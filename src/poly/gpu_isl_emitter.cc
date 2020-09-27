@@ -213,6 +213,10 @@ Stmt GpuIslEmitter::EmitBlock(const isl::ast_node_block &block_node) {
 
   int len = stmts.size();
 
+  if (len == 0) {
+    return Stmt();
+  }
+
   if (last_num == len - 1) {
     return stmts[0];
   } else {
@@ -284,13 +288,9 @@ Stmt GpuIslEmitter::EmitIf(const isl::ast_node_if &node) {
   return IfThenElse::make(cond_expr, then_case, else_case);
 }
 
-Expr GpuIslEmitter::ModifyTheInitExpr(const Expr &e) {
-  return 0;
-}
+Expr GpuIslEmitter::ModifyTheInitExpr(const Expr &e) { return 0; }
 
-Expr GpuIslEmitter::ModifyTheCondExpr(const Expr &e, int inc) {
-  return e / Expr(inc);
-}
+Expr GpuIslEmitter::ModifyTheCondExpr(const Expr &e, int inc) { return e / Expr(inc); }
 
 Expr GpuIslEmitter::ModifyTheIterExpr(const VarExpr &iter, int inc, const Expr &init) {
   return Simplify(iter * inc + init);
@@ -307,7 +307,7 @@ int GpuIslEmitter::GetThreadExtent(std::string name) {
     return info_.user_config_.GetThreadConfig()->x.second;
   } else if (name == THREAD_IDX_Y) {
     return info_.user_config_.GetThreadConfig()->y.second;
-  }else if (name == THREAD_IDX_Z) {
+  } else if (name == THREAD_IDX_Z) {
     return info_.user_config_.GetThreadConfig()->z.second;
   } else {
     return 1;
@@ -326,7 +326,7 @@ Stmt GpuIslEmitter::Emit(const isl::ast_node &node) {
     IterVar axis = IterVarNode::make(Range(), it->second, air::kThreadIndex, it->second->name_hint);
     stmt = AttrStmt::make(axis, "thread_extent", Expr(GetThreadExtent(it->second->name_hint)), stmt);
   }
-  
+
   bool emit_attr = AddAttrCheck().Run(stmt);
   if (emit_attr) {
     IterVar axis = IterVarNode::make(Range(), VarExpr(THREAD_IDX_X), air::kThreadIndex, THREAD_IDX_X);
@@ -364,8 +364,8 @@ Stmt GpuIslEmitter::EmitRealizeForGlobalTensor(Stmt stmt) {
     }
 
     // if the tensor is temporary, but has already promoted, there is no need to emit realize
-    if (tensor_name.find(name+"_local") != tensor_name.end() ||
-        tensor_name.find(name+"_shared") != tensor_name.end()) {
+    if (tensor_name.find(name + "_local") != tensor_name.end() ||
+        tensor_name.find(name + "_shared") != tensor_name.end()) {
       continue;
     }
 
@@ -381,10 +381,10 @@ std::string GpuIslEmitter::FindRealizeScopeToString(const isl::id &var) {
     MemType mem_type = tensor_info.DstMemType();
 
     switch (mem_type) {
-        case MemType::SHARED_:
-          return "shared";
-        case MemType::LOCAL_:
-          return "local";
+      case MemType::SHARED_:
+        return "shared";
+      case MemType::LOCAL_:
+        return "local";
       default:
         LOG(FATAL) << "unexpected mem_type of var " << var;
         return "ERROR";
@@ -417,7 +417,7 @@ Stmt GpuIslEmitter::InsertRealize(Stmt stmt, const isl::id &var) {
 
   // If isolate, make a new buffer
   auto buf = info_.user_config_.GetBind().at(t);
-  
+
   auto tt = placeholder(t->shape, t->dtype, t->op->name);
 
   stmt = TensorSubstitute(stmt, t->op, tt->op, tt->value_index);
@@ -465,7 +465,6 @@ Expr GpuIslEmitter::Interpret(const isl::ast_expr &e) {
     return 0;
   }
 }
-
 
 Stmt GpuIslEmitter::EmitAccessNodeFromPromoteAcsCall(isl::id var, const Node *node, Array<Expr> &args) {
   const Call *call = static_cast<const Call *>(node);

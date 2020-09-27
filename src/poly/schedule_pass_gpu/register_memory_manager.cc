@@ -84,7 +84,7 @@ void RegisterMemoryManager::HoistRegisterMemoryOnDepth(isl::schedule_node &node)
       continue;
     }
 
-    auto fp_cluster = buffer_info.GetFootPrintClusterGPU(node);
+    auto fp_cluster = buffer_info.GetFootPrintClusterGPU(res_node);
 
     if (fp_cluster == nullptr || !fp_cluster->foot_print_.box.is_valid()) {
       continue;
@@ -107,9 +107,9 @@ void RegisterMemoryManager::HoistRegisterMemoryOnDepth(isl::schedule_node &node)
       continue;
     }
 
-    auto active_domains = CollectDomain(node);
+    auto active_domains = CollectDomain(res_node);
     isl::id dst_tensor_id = GpuDstId(GpuMemType::LOCAL, tensor_id);
-    GatherBufferFootprintDefInfo(node, buffer_info);
+    GatherBufferFootprintDefInfo(res_node, buffer_info);
     node = PlaceOuterDataCopyBelow(scop_info_, node, *fp_cluster, tensor_id, dst_tensor_id, partial_sched,
                                    schedule_.get_domain().get_space());
 
