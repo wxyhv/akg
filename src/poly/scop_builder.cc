@@ -526,9 +526,6 @@ void ParseStmtOps(const isl::id &id, const Evaluate *stmt, AnalysisResult &resul
     for (auto i : oldReadTensors) {
       stmt_op_Info.readtensors.push_back(i);
     }
-    // data.stmt_op_Info[id] = stmt_op_Info;
-    // } else {
-    // data.stmt_op_Info.emplace(id, stmt_op_Info);
   }
   result.RecordStmtOpInfo(id, stmt_op_Info);
 }
@@ -550,9 +547,6 @@ void ParseStmtOps(const isl::id &id, const Provide *stmt, AnalysisResult &result
     for (auto i : oldReadTensors) {
       stmt_op_Info.readtensors.push_back(i);
     }
-    //   data.stmt_op_Info[id] = stmt_op_Info;
-    // } else {
-    //   data.stmt_op_Info.emplace(id, stmt_op_Info);
   }
   result.RecordStmtOpInfo(id, stmt_op_Info);
 
