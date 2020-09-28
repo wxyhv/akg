@@ -16,7 +16,6 @@
 #ifndef POLY_TILING_ANALYZER_H_
 #define POLY_TILING_ANALYZER_H_
 
-#include <tvm/ir.h>
 #include <tvm/packed_func_ext.h>
 #include <vector>
 #include <deque>
@@ -224,9 +223,7 @@ class TilingAnalyzer {
     std::unordered_set<BufferEntry *> ref;    // buffers referred in this stmt (read from)
     std::unordered_set<BufferEntry *> alloc;  // buffers that will be used in this stmt (take up memory space)
   };
-  // represent a tilable outer band
-  using Band = std::vector<const For *>;
-  using VarNames = std::vector<std::string>;
+
   air::arith::Analyzer arith_ana_;
   ExprSimplifier expr_ac_;
   bool Prepare();
@@ -252,7 +249,6 @@ class TilingAnalyzer {
   void DumpBufferInfo();
   void DumpBufferUsageTimeable();
   static int64_t FindDivisibleTilingFactor(int64_t limit, int64_t range);
-  VarNames VisitVarNames(const Expr &arg, VarNames var_names, bool add_num = true);
 
   Stmt body_;
   Binds &binds_;
@@ -264,16 +260,7 @@ class TilingAnalyzer {
   std::vector<StmtEntry> linear_seq_{};
   // Axis space get from schedule tree.
   std::unordered_map<const For *, TileAxis *> tile_axis_;
-  VarNames NHWCC0 = {"N", "H", "W", "C", "C0"};
-  VarNames NCHW = {"N", "C", "H", "W", "C0"};
-  VarNames NC1HWC0 = {"N", "C1", "H", "W", "C0"};
 
-  VarNames FTMatrix = {"C1_in", "C1_out", "C0_out", "C0_in"};          //  nZ, Cin = [kc1,kh,kw]
-  VarNames FTBACK_Matrix = {"C1_out", "C1_in", "C0_in", "C0_out"};     //  backprop_input, Cout = [kc1,kh,kw]
-  VarNames FMMatrix = {"N", "C1_in", "H_in", "W_in", "C0_in"};         // zZ, H_in = [H, Kh], W_in = [W, kw]
-  VarNames FMBACK_Matrix = {"N", "C1_out", "H_in", "W_in", "C0_out"};  // zZ, H_in = [H, Kh], W_in = [W, kw]
-  VarNames FilterOutput_Matrix = {"C1_out", "kh", "kw", "C1_in", "C0_in", "C0_out"};
-  VarNames FilterInput_Matrix = {"N", "C1_out", "H", "W", "C0_out"};
   bool is_dynamic_{false};
   std::unordered_map<TilingAnalyzer::BufferEntry *, std::pair<int, int>> buffer_usage_timetable_;
   std::unordered_map<std::string, std::shared_ptr<BufferEntry>> buf_info_;

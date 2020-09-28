@@ -17,12 +17,16 @@
 #define POLY_TILING_UTILS_H_
 
 #include <tvm/target_info.h>
+#include <tvm/ir.h>
+
 #include <iostream>
 #include <fstream>
 
 namespace akg {
 namespace ir {
 namespace poly {
+
+/* Device Info  */
 enum DavinciMemScope {
   MEM_SCOPE_GM = 0,
   MEM_SCOPE_UB,
@@ -32,7 +36,6 @@ enum DavinciMemScope {
   MEM_SCOPE_L0C,
   MEM_SCOPE_BULK,
 };
-enum LogStage { ANA_SCHETREE, ANA_BUF_LIVE_EXTENT, ANA_TILING_SPACE, DO_TILING, DO_TUNING, MICRO_TUNING, GPU_MAPPING };
 
 class DavinciInfo {
  public:
@@ -66,6 +69,9 @@ class DavinciInfo {
   }
 };
 
+/* Log utils */
+enum LogStage { ANA_SCHETREE, ANA_BUF_LIVE_EXTENT, ANA_TILING_SPACE, DO_TILING, DO_TUNING, MICRO_TUNING, GPU_MAPPING };
+
 class TileLogger {
  public:
   ~TileLogger() {}
@@ -92,6 +98,32 @@ class TileLogger {
   LogFile micro_tuning_stage_;
   LogFile gpu_mapping_stage_;
 };
+
+/* Halide & Schedule tree analysis utils */
+using Band = std::vector<const air::ir::For *>;
+using VarNames = std::vector<std::string>;
+
+std::unordered_map<std::string, std::string> ExtractLoopIndicesFromMatrices(std::vector<VarNames> var_names_list);
+
+VarNames VisitVarNames(const air::Expr &arg, VarNames var_names, bool add_num = true);
+
+/* Data format definition */
+const VarNames DavinciNCHW = {"N", "C", "H", "W", "C0"};
+const VarNames DavinciNHWCC0 = {"N", "H", "W", "C", "C0"};
+const VarNames DavinciNC1HWC0 = {"N", "C1", "H", "W", "C0"};
+
+const VarNames ForwardFilter = {"C1_in", "C1_out", "C0_out", "C0_in"};          //  nZ, Cin = [kc1,kh,kw]
+const VarNames BackpropFilter = {"C1_out", "C1_in", "C0_in", "C0_out"};         //  backprop_input, Cout = [kc1,kh,kw]
+const VarNames ForwardFeaturemap = {"N", "C1_in", "H_in", "W_in", "C0_in"};     // zZ, H_in = [H, Kh], W_in = [W, kw]
+const VarNames BackpropFeaturemap = {"N", "C1_out", "H_in", "W_in", "C0_out"};  // zZ, H_in = [H, Kh], W_in = [W, kw]
+const VarNames FilterOutput = {"C1_out", "kh", "kw", "C1_in", "C0_in", "C0_out"};
+const VarNames FilterInput = {"N", "C1_out", "H", "W", "C0_out"};
+
+const VarNames FormatM = {"mi", "mo"};
+const VarNames FormatN = {"ni", "no"};
+const VarNames FormatK = {"ki", "ko"};
+const VarNames FormatB = {"bi", "bo"};
+
 }  // namespace poly
 }  // namespace ir
 }  // namespace akg
