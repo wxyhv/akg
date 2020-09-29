@@ -746,12 +746,16 @@ def op_build(op_func, input_shapes, input_types, op_attrs=None, kernel_name="",
         if TensorUtils.is_output_value(output):
             op_var = op_var + [output]
 
+    if sch_tmpl is not None or (attrs and attrs.get("target", "cce") == "cuda"):
+        if kernel_name == "":
+            kernel_name = op_func.__name__ if sch_tmpl is None else sch_tmpl['op_name']
+        kernel_name = gen_kernel_name(input_shapes, input_types, op_attrs, kernel_name)
+
     if sch_tmpl is not None:
         if sch_tmpl['target'] != CUDA:
             raise ValueError("Only support cuda as target when using schedule template.")
         global kc_air_mode
         kc_air_mode = "CUDA"
-        kernel_name = kernel_name if kernel_name != "" else sch_tmpl['op_name']
         with akg.tvm.target.cuda() as target:
             s = sch_tmpl['schedule'](sch_tmpl['output'])
             with akg.tvm.build_config(dump_pass_ir=dump_ir):
@@ -775,7 +779,6 @@ def op_build(op_func, input_shapes, input_types, op_attrs=None, kernel_name="",
     if compute_func is not None:
         compute_func(s)
         polyhedral = False
-    kernel_name = kernel_name if kernel_name != "" else op_func.__name__
     mode = get_runtime_mode()
     level = attrs.get("help_tiling")
     if tuning or (level is not None and level > help_tiling_level['None']):
