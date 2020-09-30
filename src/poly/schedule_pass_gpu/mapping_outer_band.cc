@@ -121,17 +121,23 @@ size_t MappingOuterBand::NumMappedDescendant(const RoadMap &thread_roadmap, cons
 }
 
 bool MappingOuterBand::CanBeMappedToThread(const isl::schedule_node node, const RoadMap &thread_record) {
-  auto band = node.as<isl::schedule_node_band>();
-  if (!band || !band.permutable() || NumMappedDescendant(thread_record, node) > 0) {
+  auto IsInnerMostBand = [this, &thread_record](const isl::schedule_node node) {
+    auto band = node.as<isl::schedule_node_band>();
+    return band && band.permutable() && NumMappedDescendant(thread_record, node) == 0;
+  };
+  
+  if (!IsInnerMostBand(node)) {
     return false;
   }
+
+  auto band = node.as<isl::schedule_node_band>();
 
   // make sure a band node in a sequence node only be mapped when all its siblings can be mapped together
   if (band.ancestor(2) && band.ancestor(2).isa<isl::schedule_node_sequence>()) {
     auto seq = band.ancestor(2).as<isl::schedule_node_sequence>();
     for (size_t i = 0; i < seq.n_children(); ++i) {
       auto filter = seq.child(i);
-      if (!CanBeMappedToThread(filter.child(0), thread_record)) {
+      if (!IsInnerMostBand(filter.child(0))) {
         return false;
       }
     }
