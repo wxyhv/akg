@@ -28,7 +28,12 @@ namespace poly {
  */
 class RegisterMemoryManager : public SchedulePass {
  public:
-  explicit RegisterMemoryManager(ScopInfo &scop_info) : scop_info_(scop_info) { pass_name_ = __FUNCTION__; };
+  explicit RegisterMemoryManager(ScopInfo &scop_info) : scop_info_(scop_info) {
+    pass_name_ = __FUNCTION__;
+    if (!scop_info.user_config_.GetLocalTensors().empty()) {
+      configed_tensors_ = Split(scop_info.user_config_.GetLocalTensors(), " ");
+    }
+  };
   ~RegisterMemoryManager() {}
 
   virtual isl::schedule Run(isl::schedule sch);
@@ -53,6 +58,7 @@ class RegisterMemoryManager : public SchedulePass {
  private:
   ScopInfo &scop_info_;
   isl::schedule schedule_;
+  std::vector<std::string> configed_tensors_;
 };
 
 }  // namespace poly

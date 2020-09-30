@@ -177,6 +177,18 @@ void RegisterMemoryManager::CreateTensorCluster(const isl::schedule_node &node, 
   for (auto buffer : scop_info_.analysis_result_.buffer_def_infos_) {
     shared_tensor_ids.insert(buffer.tensor_id.get_name());
   }
+  if (!configed_tensors_.empty()) {
+    std::set<std::string> tensor_sets;
+    for (const auto &item : configed_tensors_) {
+      if (tensor_sets.count(item) == 0) {
+        tensor_sets.emplace(item);
+      }
+    }
+    id_sets.clear();
+    for (auto item : tensor_sets) {
+      id_sets.insert(isl::id(scop_info_.ctx_, item));
+    }
+  }
 
   for (auto item : id_sets) {
     if (!shared_tensor_ids.count(item.get_name())) {
