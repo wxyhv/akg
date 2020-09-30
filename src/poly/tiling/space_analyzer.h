@@ -36,7 +36,6 @@ class SpaceAnalyzer {
  public:
   explicit SpaceAnalyzer(TilingAnalyzer *analyzer) : analyzer_(analyzer) {}
   ~SpaceAnalyzer() {}
-  using VarNames = TilingAnalyzer::VarNames;
 
   // represent a tensor
   // e.g. for(cc0,0,8){input_red(cc0)=0;}
@@ -67,23 +66,25 @@ class SpaceAnalyzer {
   // Provides stmt after analysis.
   std::unordered_map<const For *, std::vector<ProvideEntry>> provides_ana_;
 
-  const For *GetBufferInnerAxis(Tensor t, int offset = 1);
   // generalized cases
   void IdentifyInsnType();
   void IdentifyDmaUnderCondition();
-  void IdentifySpecialAxes();
   void IdentifySharedAxes() const;
   void IdentifyVectorizedAxes();
   void IdentifyAlignAxes();
   void IdentifyReduceAxes();
   void IdentifyCastAxes();
   void IdentifyModAxes();
-  std::vector<Expr> FindModConstraint(const Expr &arg, std::vector<Expr> constraints);
-  void MarkBroadcastAxes(const ProvideEntry &pe);
 
   // customized cases
   void IdentifyDynamicShape();
   void IdentifyCustomTiling();
+
+  // utils
+  void MarkGemmAxes(const ProvideEntry &pe);
+  void MarkBroadcastAxes(const ProvideEntry &pe);
+  std::vector<Expr> FindModConstraint(const Expr &arg, std::vector<Expr> constraints);
+  const For *GetBufferInnerAxis(Tensor t, int offset = 1);
   void SetAttrForAxis(int tile_band, int tile_axis, const std::string &attr_key, const std::string &attr_value);
   void SetAttrForTensor(const std::string &tensor_name, int pos, const std::string &attr_key,
                         const std::string &attr_value);

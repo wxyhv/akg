@@ -37,8 +37,6 @@ class ScheduleTreeAnalyzer {
  public:
   ScheduleTreeAnalyzer(TilingAnalyzer *a, const isl::schedule &s);
   ~ScheduleTreeAnalyzer() = default;
-  using Band = TilingAnalyzer::Band;
-  using VarNames = TilingAnalyzer::VarNames;
   enum BandScope { OUTER, INNER };
 
   std::unique_ptr<TileAxis> root_{nullptr};
@@ -100,10 +98,7 @@ class ScheduleTreeAnalyzer {
   std::unordered_map<std::string, std::string> cube_var_map_;
   std::vector<const For *> defined_static_loop_;
   std::vector<const For *> defined_dynamic_loop_;
-  VarNames format_m_ = {"mi", "mo"};
-  VarNames format_n_ = {"ni", "no"};
-  VarNames format_k_ = {"ki", "ko"};
-  VarNames format_b_ = {"bi", "bo"};
+
   bool AnalyzeScheduleTree();
   void GetDimRangeFromTree(const isl::schedule &sch);
   void ConstructBandNode();

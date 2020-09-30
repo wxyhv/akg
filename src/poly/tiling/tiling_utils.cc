@@ -87,6 +87,126 @@ void TileLogger::LogFatalAndSaveLog(const std::string &fatal_log) {
   LOG(FATAL) << fatal_log;
 }
 std::string TileLogger::GetDumpDir() { return this->log_file_name_; }
+
+/*
+ * For a matmul operator C[b, m, n] += A[b, m, k] * B[b, n, k] where `b` indicates batch dim, `m` indicates row dim, `n`
+ * indicates col dim and `k` indicates reduction dim, this function can extract `b, m, n, k` from all the loop vars
+ * using in the matrices C, A and B. The input should be sorted in `CAB` order, i.e. var_names_list = [C_vars, A_vars,
+ * B_vars], which equals [[b, m, n], [b, m, k], [b, n, k]] in the example above.
+ */
+std::unordered_map<std::string, std::string> ExtractLoopIndicesFromMatrices(std::vector<VarNames> var_names_list) {
+  CHECK_EQ(var_names_list.size(), 3)
+    << "Matmul should have exactly three matrices in C(output), A(lhs) and B(rhs) order.";
+  VarNames mx_c = var_names_list[0];
+  VarNames mx_a = var_names_list[1];
+  VarNames mx_b = var_names_list[2];
+
+  VarNames gemm_m, gemm_n, gemm_bk, gemm_b, gemm_k;
+  std::unordered_set<std::string> stack;
+
+  for (const auto &var : mx_a) {
+    stack.insert(var);
+  }
+
+  // 1. N = B_vars - A_vars;
+  //    [B, K] = A_vars & B_vars
+  for (const auto &var : mx_b) {
+    auto it = stack.find(var);
+    if (it != stack.end()) {
+      gemm_bk.emplace_back(var);
+      stack.erase(it);
+    } else {
+      gemm_n.emplace_back(var);
+    }
+  }
+
+  // 2. M = A_vars - B - K
+  for (const auto &var : mx_a) {
+    if (stack.find(var) != stack.end()) {
+      gemm_m.emplace_back(var);
+    }
+  }
+
+  // 3. B = C_vars - M - N
+  for (const auto &var : gemm_n) {
+    stack.insert(var);
+  }
+  for (const auto &var : mx_c) {
+    auto it = stack.find(var);
+    if (it != stack.end()) {
+      stack.erase(it);
+    } else {
+      gemm_b.emplace_back(var);
+    }
+  }
+
+  // 4. K = [B, K] - B
+  for (const auto &var : gemm_bk) {
+    bool found = false;
+    for (const auto &b : gemm_b) {
+      if (b == var) {
+        found = true;
+        break;
+      }
+    }
+    if (!found) {
+      gemm_k.emplace_back(var);
+    }
+  }
+
+  CHECK_LE(gemm_m.size(), FormatM.size());
+  CHECK_LE(gemm_n.size(), FormatN.size());
+  CHECK_LE(gemm_k.size(), FormatK.size());
+  CHECK_LE(gemm_b.size(), FormatB.size());
+
+  std::unordered_map<std::string, std::string> cube_var_map;
+  for (auto i = static_cast<int>(gemm_m.size()) - 1; i >= 0; --i) {
+    cube_var_map[gemm_m[i]] = FormatM[static_cast<int>(gemm_m.size()) - 1 - i];
+  }
+  for (auto i = static_cast<int>(gemm_n.size()) - 1; i >= 0; --i) {
+    cube_var_map[gemm_n[i]] = FormatN[static_cast<int>(gemm_n.size()) - 1 - i];
+  }
+  for (auto i = static_cast<int>(gemm_k.size()) - 1; i >= 0; --i) {
+    cube_var_map[gemm_k[i]] = FormatK[static_cast<int>(gemm_k.size()) - 1 - i];
+  }
+  for (auto i = static_cast<int>(gemm_b.size()) - 1; i >= 0; --i) {
+    cube_var_map[gemm_b[i]] = FormatB[static_cast<int>(gemm_b.size()) - 1 - i];
+  }
+  return cube_var_map;
+}
+
+VarNames VisitVarNames(const air::Expr &arg, VarNames var_names, bool add_num) {
+  if (const auto var = arg.as<air::ir::Variable>()) {
+    var_names.emplace_back(var->name_hint);
+  } else if (const auto sub = arg.as<air::ir::Sub>()) {
+    var_names = VisitVarNames(sub->a, var_names, add_num);
+    var_names = VisitVarNames(sub->b, var_names, add_num);
+  } else if (const auto add = arg.as<air::ir::Add>()) {
+    var_names = VisitVarNames(add->a, var_names, add_num);
+    var_names = VisitVarNames(add->b, var_names, add_num);
+  } else if (const auto mul = arg.as<air::ir::Mul>()) {
+    var_names = VisitVarNames(mul->a, var_names, add_num);
+    var_names = VisitVarNames(mul->b, var_names, add_num);
+  } else if (const auto div = arg.as<air::ir::Div>()) {
+    var_names = VisitVarNames(div->a, var_names, add_num);
+    var_names = VisitVarNames(div->b, var_names, add_num);
+  } else if (const auto mod = arg.as<air::ir::Mod>()) {
+    var_names = VisitVarNames(mod->a, var_names, add_num);
+    var_names = VisitVarNames(mod->b, var_names, add_num);
+  } else if (const auto int_imm = arg.as<air::ir::IntImm>()) {
+    if (add_num) {
+      var_names.emplace_back(std::to_string(int_imm->value));
+    }
+  } else if (const auto f_mod = arg.as<air::ir::FloorMod>()) {
+    var_names = VisitVarNames(f_mod->a, var_names, add_num);
+    var_names = VisitVarNames(f_mod->b, var_names, add_num);
+  } else if (const auto f_div = arg.as<air::ir::FloorDiv>()) {
+    var_names = VisitVarNames(f_div->a, var_names, add_num);
+    var_names = VisitVarNames(f_div->b, var_names, add_num);
+  }
+  return var_names;
+}
+
 }  // namespace poly
 }  // namespace ir
 }  // namespace akg

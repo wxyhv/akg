@@ -155,8 +155,10 @@ void TileAxis::DumpAxis(bool on_screen) {
   }
   ss << "} | Align to = " << this->l1_constraints.tile_mod_ << "| L0 Tile [" << this->l0_constraints.tile_min_ << ","
      << this->l0_constraints.tile_extent_ << "] "
-     << "| Thread mapping constraints: [" << this->thread_constraints.map_min_ << ", " << this->thread_constraints.map_extent_ << "]"
-     << "| Block mapping constraints: [" << this->block_constraints.map_min_ << ", " << this->block_constraints.map_extent_ << "]"
+     << "| Thread mapping constraints: [" << this->thread_constraints.map_min_ << ", "
+     << this->thread_constraints.map_extent_ << "]"
+     << "| Block mapping constraints: [" << this->block_constraints.map_min_ << ", "
+     << this->block_constraints.map_extent_ << "]"
      << "| Align to = " << this->l0_constraints.tile_mod_ << "| Forbid isolate = " << this->forbid_iso
      << "| Multi-core support = " << this->mc_sup << "| Priority = " << this->priority << "| Loops : {";
   for (auto loop : this->loops) {
@@ -1327,13 +1329,13 @@ void TilingAnalyzer::AddTilingConstraints() {
   if (scop_info_.user_config_.GetTarget() == TARGET_CUDA) {
     ModStrategy mod_strategy(this);
     actived_strategies.push_back(&mod_strategy);
-    
+
     ReduceStrategy reduce_strategy(this);
     actived_strategies.push_back(&reduce_strategy);
 
     GpuStrategy gpu_strategy(this);
     actived_strategies.push_back(&gpu_strategy);
-    
+
     strategy_manager.SetStrategies(actived_strategies);
     strategy_manager.ExecuteGpu();
     return;
@@ -1552,36 +1554,6 @@ void TilingAnalyzer::DumpBufferUsageTimeable() {
       logger_.AppendLog(ANA_BUF_LIVE_EXTENT, ss);
     }
   }
-}
-
-TilingAnalyzer::VarNames TilingAnalyzer::VisitVarNames(const Expr &arg, VarNames var_names, bool add_num) {
-  if (const auto var = arg.as<Variable>()) {
-    var_names.emplace_back(var->name_hint);
-  } else if (const auto sub = arg.as<Sub>()) {
-    var_names = VisitVarNames(sub->a, var_names, add_num);
-    var_names = VisitVarNames(sub->b, var_names, add_num);
-  } else if (const auto add = arg.as<Add>()) {
-    var_names = VisitVarNames(add->a, var_names, add_num);
-    var_names = VisitVarNames(add->b, var_names, add_num);
-  } else if (const auto mul = arg.as<Mul>()) {
-    var_names = VisitVarNames(mul->a, var_names, add_num);
-    var_names = VisitVarNames(mul->b, var_names, add_num);
-  } else if (const auto div = arg.as<Div>()) {
-    var_names = VisitVarNames(div->a, var_names, add_num);
-    var_names = VisitVarNames(div->b, var_names, add_num);
-  } else if (const auto mod = arg.as<Mod>()) {
-    var_names = VisitVarNames(mod->a, var_names, add_num);
-    var_names = VisitVarNames(mod->b, var_names, add_num);
-  } else if (const auto intImm = arg.as<IntImm>()) {
-    if (add_num) var_names.emplace_back(std::to_string(intImm->value));
-  } else if (const auto f_mod = arg.as<FloorMod>()) {
-    var_names = VisitVarNames(f_mod->a, var_names, add_num);
-    var_names = VisitVarNames(f_mod->b, var_names, add_num);
-  } else if (const auto f_div = arg.as<FloorDiv>()) {
-    var_names = VisitVarNames(f_div->a, var_names, add_num);
-    var_names = VisitVarNames(f_div->b, var_names, add_num);
-  }
-  return var_names;
 }
 
 int TileCandidate::GetCoreNumConf() {

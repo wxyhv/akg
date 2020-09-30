@@ -31,8 +31,6 @@ class SpaceVisitor : public IRVisitor {
  public:
   explicit SpaceVisitor(TilingAnalyzer *analyzer) : analyzer_(analyzer) {}
   ~SpaceVisitor() override = default;
-  using Band = TilingAnalyzer::Band;
-  using VarNames = TilingAnalyzer::VarNames;
   using ProvideEntry = SpaceAnalyzer::ProvideEntry;
   using Tensor = SpaceAnalyzer::Tensor;
 
@@ -109,7 +107,7 @@ class SpaceVisitor : public IRVisitor {
       // get variable names
       for (auto arg : call->args) {
         VarNames vname;
-        vname = analyzer_->VisitVarNames(arg, vname);
+        vname = VisitVarNames(arg, vname);
         tensor.var_names.emplace_back(vname);
       }
       tensor = MatchLoopByName(tensor);
@@ -132,7 +130,7 @@ class SpaceVisitor : public IRVisitor {
     dst_tensor.name = op->func->func_name();
     for (auto arg : op->args) {
       VarNames vname;
-      vname = analyzer_->VisitVarNames(arg, vname);
+      vname = VisitVarNames(arg, vname);
       dst_tensor.var_names.emplace_back(vname);
     }
     dst_tensor = MatchLoopByName(dst_tensor);
@@ -299,6 +297,11 @@ void SpaceAnalyzer::IdentifyInsnType() {
   for (auto it : provides_ana_) {
     std::vector<ProvideEntry> pes = it.second;
     for (auto pe : pes) {
+      if (analyzer_->scop_info_.user_config_.GetTarget() == TARGET_CUDA &&
+          pe.basic_op_type.find("TRANSPOSE") != std::string::npos &&
+          pe.basic_op_type.find("ELEMWISE") != std::string::npos) {
+        MarkGemmAxes(pe);
+      }
       for (auto ct : care_types) {
         if (pe.basic_op_type.find(ct) == std::string::npos) continue;
         if (ct == "BROADCAST") {
@@ -313,8 +316,85 @@ void SpaceAnalyzer::IdentifyInsnType() {
   }
 }
 
+void SpaceAnalyzer::MarkGemmAxes(const ProvideEntry &pe) {
+  VarNames mx_c, mx_a, mx_b;
+  int index_a = -1;
+  int index_b = -1;
+  auto EmplaceVarsInTensor = [](Tensor tensor, VarNames &var_list) -> void {
+    for (const auto &vars_i : tensor.var_names) {
+      for (const auto &name : vars_i) {
+        var_list.emplace_back(name);
+      }
+    }
+  };
+
+  // Visit source tensors to fill mx_a and mx_b. Also, we need to check whether this provide stmt
+  // is in `C = C + A * B` form and directly return if the form is broken.
+  if (pe.src.size() != 3U) {
+    return;
+  }
+  EmplaceVarsInTensor(pe.dst, mx_c);
+  bool found_c = false;
+  for (size_t i = 0; i < pe.src.size(); ++i) {
+    auto src = pe.src[i];
+    if (src.name == pe.dst.name) {
+      VarNames src_c;
+      EmplaceVarsInTensor(src, src_c);
+      if (src_c.size() != mx_c.size()) {
+        return;
+      }
+      for (size_t i = 0; i < src_c.size(); ++i) {
+        if (src_c[i] != mx_c[i]) {
+          return;
+        }
+      }
+      found_c = true;
+    } else if (index_a == -1) {
+      EmplaceVarsInTensor(src, mx_a);
+      index_a = i;
+    } else if (index_b == -1) {
+      EmplaceVarsInTensor(src, mx_b);
+      index_b = i;
+    } else {
+      return;
+    }
+  }
+  if (!found_c || mx_a.empty()) {
+    return;
+  }
+
+  // construct relationship between loop indices and loop type(b/m/n/k) and mark axis with corresponding attribute
+  std::string attr_key = analyzer_->op_type_ == CONV_OP ? "CONV" : "GEMM";
+  auto loop_indices_map = ExtractLoopIndicesFromMatrices({mx_c, mx_a, mx_b});
+  auto FindAxisAndMark = [this, &loop_indices_map, &attr_key](Band loops) {
+    for (const auto &loop : loops) {
+      auto index = loop->loop_var.get()->name_hint;
+      if (loop_indices_map.find(index) != loop_indices_map.end()) {
+        TileAxis *axis = analyzer_->Axis(loop);
+        CHECK(axis) << "cannot find axis for " << loop->loop_var.get()->name_hint;
+        std::string loop_type = loop_indices_map[index];
+        axis->MarkWithAttr(AttrInfo{attr_key, loop_type});
+      }
+    }
+  };
+  // mark b/m/n through tensor C
+  for (size_t i = 0; i < pe.dst.var_names.size(); ++i) {
+    auto it = pe.dst.loops.find(i);
+    if (it != pe.dst.loops.end()) {
+      FindAxisAndMark(it->second);
+    }
+  }
+  // mark k through tensor A
+  for (size_t i = 0; i < pe.src[index_a].var_names.size(); ++i) {
+    auto it = pe.src[index_a].loops.find(i);
+    if (it != pe.src[index_a].loops.end()) {
+      FindAxisAndMark(it->second);
+    }
+  }
+}
+
 void SpaceAnalyzer::MarkBroadcastAxes(const ProvideEntry &pe) {
-  std::unordered_set<TileAxis*> broadcasted;
+  std::unordered_set<TileAxis *> broadcasted;
   for (auto dst_it : pe.dst.loops) {
     for (auto l : dst_it.second) {
       auto axis = analyzer_->Axis(l);

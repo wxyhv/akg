@@ -77,6 +77,8 @@ def addn(poly_sch, fuzz_shape=None):
     test_ms_addn((1, 1024, 1024), "float16", 2, poly_sch=poly_sch)
 
 def bmm(poly_sch, fuzz_shape=None):
+    test_ms_bmm((8, 16, 32), (8, 64, 32), 'float32', poly_sch=poly_sch)  # matmul with batch
+    test_ms_bmm((1, 2, 32), (1, 1, 32), 'float32', poly_sch=poly_sch)  # matmul with some axis equals to 1
     test_ms_bmm((1, 1024, 1024), (1, 1024, 1024), 'float32', poly_sch=poly_sch)
     # test_ms_bmm((1, 1024, 1024), (1, 1024, 1024), 'float32', (1, 1024, 1024))  # cannot store type float32
     test_ms_bmm((1, 1024, 512), (1, 256, 512), 'float32', poly_sch=poly_sch)

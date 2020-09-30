@@ -578,12 +578,12 @@ void ScheduleTreeAnalyzer::AddLoopDataSize() {
       auto ExtractName = [this, &related_name](const NodeRef &op) {
         if (const Call *call = op.as<Call>()) {
           for (auto arg : call->args) {
-            related_name = analyzer_->VisitVarNames(arg, related_name);
+            related_name = VisitVarNames(arg, related_name);
           }
         }
       };
       for (auto arg : p->args) {
-        related_name = analyzer_->VisitVarNames(arg, related_name);
+        related_name = VisitVarNames(arg, related_name);
       }
       air::ir::PostOrderVisit(p->value, ExtractName);
       Band pre_loops = GetPreviousLoops(it.first);
@@ -875,7 +875,8 @@ void ScheduleTreeAnalyzer::AnalyzeCubeInfo() {
           // call has inner call
           if (arg.as<Call>()) return;
         }
-        if (call->name != analyzer_->scop_info_.cube_info_.GetAName() && call->name != analyzer_->scop_info_.cube_info_.GetBName() &&
+        if (call->name != analyzer_->scop_info_.cube_info_.GetAName() &&
+            call->name != analyzer_->scop_info_.cube_info_.GetBName() &&
             call->name != analyzer_->scop_info_.cube_info_.GetCName()) {
           return;
         }
@@ -889,7 +890,8 @@ void ScheduleTreeAnalyzer::AnalyzeCubeInfo() {
       }
     }
     auto SortMatrixInCBAOrder = [this](const Call *c1, const Call *c2) {
-      if (c1->name == this->analyzer_->scop_info_.cube_info_.GetCName() || c2->name == this->analyzer_->scop_info_.cube_info_.GetCName()) {
+      if (c1->name == this->analyzer_->scop_info_.cube_info_.GetCName() ||
+          c2->name == this->analyzer_->scop_info_.cube_info_.GetCName()) {
         return (c1->name == this->analyzer_->scop_info_.cube_info_.GetCName());
       } else if (c1->name == this->analyzer_->scop_info_.cube_info_.GetBName() ||
                  c2->name == this->analyzer_->scop_info_.cube_info_.GetBName()) {
@@ -933,7 +935,7 @@ void ScheduleTreeAnalyzer::MatchConvVarNames(const Call *call) {
   for (auto arg : call->args) {
     count += 1;
     VarNames var_names;
-    var_names = analyzer_->VisitVarNames(arg, var_names, call->name == analyzer_->scop_info_.cube_info_.GetCName());
+    var_names = VisitVarNames(arg, var_names, call->name == analyzer_->scop_info_.cube_info_.GetCName());
     if (var_names.empty()) continue;
     if (var_names.size() == 1U) {
       std::string name = var_names[0];
@@ -941,30 +943,30 @@ void ScheduleTreeAnalyzer::MatchConvVarNames(const Call *call) {
         continue;
       } else {
         if (call->name == analyzer_->scop_info_.cube_info_.GetCName()) {
-          cube_var_map_[name] = analyzer_->NC1HWC0[count];
+          cube_var_map_[name] = DavinciNC1HWC0[count];
         } else if (call->name == analyzer_->scop_info_.cube_info_.GetAName()) {
-          if (analyzer_->FMMatrix[count] == "N") {
+          if (ForwardFeaturemap[count] == "N") {
             CHECK(cube_var_map_.find(name) != cube_var_map_.end());
             CHECK_EQ(cube_var_map_[name], "N");
-          } else if (analyzer_->FMMatrix[count] == "H_in") {
+          } else if (ForwardFeaturemap[count] == "H_in") {
             if (cube_var_map_.find(name) == cube_var_map_.end()) {  // H is 1
               cube_var_map_[name] = "kh";
             }  // else kh is 1
-          } else if (analyzer_->FMMatrix[count] == "W_in") {
+          } else if (ForwardFeaturemap[count] == "W_in") {
             if (cube_var_map_.find(name) == cube_var_map_.end()) {  // W is 1
               cube_var_map_[name] = "kw";
             }  // else kw is 1
-          } else if (analyzer_->FMMatrix[count] == "C1_in") {
+          } else if (ForwardFeaturemap[count] == "C1_in") {
             if (cube_var_map_.find(name) == cube_var_map_.end()) {  // normal conv
-              cube_var_map_[name] = analyzer_->FMMatrix[count];
+              cube_var_map_[name] = ForwardFeaturemap[count];
             } else {  // depthwise
               cube_var_map_[name] = "C1_in_out";
             }
           } else {
             if (cube_var_map_.find(name) == cube_var_map_.end()) {
-              cube_var_map_[name] = analyzer_->FMMatrix[count];
+              cube_var_map_[name] = ForwardFeaturemap[count];
             } else {
-              CHECK(analyzer_->FMMatrix[count].find(cube_var_map_[name]) != std::string::npos);
+              CHECK(ForwardFeaturemap[count].find(cube_var_map_[name]) != std::string::npos);
             }
           }
         }
@@ -972,18 +974,18 @@ void ScheduleTreeAnalyzer::MatchConvVarNames(const Call *call) {
     } else {  // only H_in, W_in in FM and C1_in in FT
       CHECK(call->name != analyzer_->scop_info_.cube_info_.GetCName());
       if (call->name == analyzer_->scop_info_.cube_info_.GetAName()) {
-        CHECK(analyzer_->FMMatrix[count] == "H_in" || analyzer_->FMMatrix[count] == "W_in");
+        CHECK(ForwardFeaturemap[count] == "H_in" || ForwardFeaturemap[count] == "W_in");
         for (const auto &name : var_names) {
           if (cube_var_map_.find(name) == cube_var_map_.end()) {  // kh or kw
-            if (analyzer_->FMMatrix[count] == "H_in") {
+            if (ForwardFeaturemap[count] == "H_in") {
               cube_var_map_[name] = "kh";
-            } else if (analyzer_->FMMatrix[count] == "W_in") {
+            } else if (ForwardFeaturemap[count] == "W_in") {
               cube_var_map_[name] = "kw";
             }
           }
         }
       } else if (call->name == analyzer_->scop_info_.cube_info_.GetBName()) {
-        CHECK(analyzer_->FTMatrix[count] == "C1_in" || analyzer_->FTBACK_Matrix[count] == "C1_out");
+        CHECK(ForwardFilter[count] == "C1_in" || BackpropFilter[count] == "C1_out");
         for (const auto &name : var_names) {
           CHECK(cube_var_map_.find(name) != cube_var_map_.end());
         }
@@ -993,12 +995,14 @@ void ScheduleTreeAnalyzer::MatchConvVarNames(const Call *call) {
 }
 
 void ScheduleTreeAnalyzer::MatchConvFilterVarNames(const Call *call) {
-  if (call->name != analyzer_->scop_info_.cube_info_.GetAName() && call->name != analyzer_->scop_info_.cube_info_.GetCName()) return;
+  if (call->name != analyzer_->scop_info_.cube_info_.GetAName() &&
+      call->name != analyzer_->scop_info_.cube_info_.GetCName())
+    return;
   int count = -1;
   for (auto arg : call->args) {
     count += 1;
     VarNames var_names;
-    var_names = analyzer_->VisitVarNames(arg, var_names, call->name == analyzer_->scop_info_.cube_info_.GetCName());
+    var_names = VisitVarNames(arg, var_names, call->name == analyzer_->scop_info_.cube_info_.GetCName());
     if (var_names.empty()) continue;
     if (var_names.size() == 1U) {
       std::string name = var_names[0];
@@ -1006,16 +1010,16 @@ void ScheduleTreeAnalyzer::MatchConvFilterVarNames(const Call *call) {
         continue;
       } else {
         if (call->name == analyzer_->scop_info_.cube_info_.GetCName()) {
-          cube_var_map_[name] = analyzer_->FilterOutput_Matrix[count];
+          cube_var_map_[name] = FilterOutput[count];
         } else {
-          cube_var_map_[name] = analyzer_->FilterInput_Matrix[count];
+          cube_var_map_[name] = FilterInput[count];
         }
       }
     } else {
       CHECK(call->name == analyzer_->scop_info_.cube_info_.GetAName());
       for (const auto &name : var_names) {
         if (cube_var_map_.find(name) == cube_var_map_.end()) {
-          cube_var_map_[name] = analyzer_->FilterInput_Matrix[count];
+          cube_var_map_[name] = FilterInput[count];
           break;
         }
       }
@@ -1024,74 +1028,25 @@ void ScheduleTreeAnalyzer::MatchConvFilterVarNames(const Call *call) {
 }
 
 void ScheduleTreeAnalyzer::MatchGemmVarNames(std::vector<const Call *> op_list) {
+  std::vector<VarNames> var_name_list;
   VarNames mx_a, mx_b, mx_c;
-  VarNames gemm_m, gemm_n, gemm_bk, gemm_b, gemm_k;
-  std::unordered_set<std::string> stack;
   CHECK_GE(op_list.size(), 3);
   for (auto arg : op_list[0]->args) {
-    mx_c = analyzer_->VisitVarNames(arg, mx_c, false);
+    mx_c = VisitVarNames(arg, mx_c, false);
   }
   for (auto arg : op_list[1]->args) {
-    mx_a = analyzer_->VisitVarNames(arg, mx_a, false);
+    mx_a = VisitVarNames(arg, mx_a, false);
   }
   for (auto arg : op_list[2]->args) {
-    mx_b = analyzer_->VisitVarNames(arg, mx_b, false);
+    mx_b = VisitVarNames(arg, mx_b, false);
   }
-
-  for (const auto &n : mx_a) {
-    stack.insert(n);
-  }
-  for (const auto &n : mx_b) {
-    auto it = stack.find(n);
-    if (it != stack.end()) {
-      gemm_bk.emplace_back(n);
-      stack.erase(it);
-    } else {
-      gemm_n.emplace_back(n);
-    }
-  }
-  for (const auto &n : mx_a) {
-    if (stack.find(n) != stack.end()) {
-      gemm_m.emplace_back(n);
-    }
-  }
-  for (const auto &n : gemm_n) {
-    stack.insert(n);
-  }
-  for (const auto &n : mx_c) {
-    auto it = stack.find(n);
-    if (it != stack.end()) {
-      stack.erase(it);
-    } else {
-      gemm_b.emplace_back(n);
-    }
-  }
-  for (const auto &n : gemm_bk) {
-    bool found = false;
-    for (const auto &b : gemm_b) {
-      if (b == n) found = true;
-    }
-    if (!found) gemm_k.emplace_back(n);
-  }
-  CHECK_LE(gemm_m.size(), format_m_.size());
-  CHECK_LE(gemm_n.size(), format_n_.size());
-  CHECK_LE(gemm_k.size(), format_k_.size());
-  CHECK_LE(gemm_b.size(), format_b_.size());
-  for (auto i = static_cast<int>(gemm_m.size()) - 1; i >= 0; --i) {
-    cube_var_map_[gemm_m[i]] = format_m_[static_cast<int>(gemm_m.size()) - 1 - i];
-  }
-  for (auto i = static_cast<int>(gemm_n.size()) - 1; i >= 0; --i) {
-    cube_var_map_[gemm_n[i]] = format_n_[static_cast<int>(gemm_n.size()) - 1 - i];
-  }
-  for (auto i = static_cast<int>(gemm_k.size()) - 1; i >= 0; --i) {
-    cube_var_map_[gemm_k[i]] = format_k_[static_cast<int>(gemm_k.size()) - 1 - i];
-  }
-  for (auto i = static_cast<int>(gemm_b.size()) - 1; i >= 0; --i) {
-    cube_var_map_[gemm_b[i]] = format_b_[static_cast<int>(gemm_b.size()) - 1 - i];
-  }
+  var_name_list.emplace_back(mx_c);
+  var_name_list.emplace_back(mx_a);
+  var_name_list.emplace_back(mx_b);
+  cube_var_map_ = ExtractLoopIndicesFromMatrices(var_name_list);
 }
 
-ScheduleTreeAnalyzer::Band ScheduleTreeAnalyzer::GetPreviousLoops(const For *loop) {
+Band ScheduleTreeAnalyzer::GetPreviousLoops(const For *loop) {
   Band pre_band;
   if (nullptr == loop) return pre_band;
   for (const auto &band : this->band_list_) {
