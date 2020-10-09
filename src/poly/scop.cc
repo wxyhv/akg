@@ -187,21 +187,15 @@ Stmt GenHalide(ScopInfo &info, const isl::schedule &sch, bool used_for_tile_out_
 
   NodeInfoRepo node_info_repo;
   auto gather = [&node_info_repo](const isl::ast_node &node, const isl::ast_build &build) -> isl::ast_node {
-    auto fillUpRepo = [](const isl::ast_node &node, const isl::ast_build &build,
-                         NodeInfoRepo *node_info_repo) -> isl::ast_node {
-      CHECK(node_info_repo != nullptr);
-      auto schedule_map = isl::map::from(build.get_schedule());
+    auto schedule_map = isl::map::from(build.get_schedule());
 
-      auto node_id = isl::id(node.ctx(), std::string(AST_NODE_ID_PREFIX) + std::to_string(AstNodeNum()++));
-      CHECK_EQ(0u, node_info_repo->count(node_id)) << "node already exists: " << node_id;
+    auto node_id = isl::id(node.ctx(), std::string(AST_NODE_ID_PREFIX) + std::to_string(AstNodeNum()++));
+    CHECK_EQ(0u, node_info_repo.count(node_id)) << "node already exists: " << node_id;
 
-      auto &node_info = (*node_info_repo)[node_id];
-      node_info.iterator_map = isl::pw_multi_aff(schedule_map.reverse());
-      node_info.build = build;
-      return node.set_annotation(node_id);
-    };
-
-    return fillUpRepo(node, build, &node_info_repo);
+    auto &node_info = node_info_repo[node_id];
+    node_info.iterator_map = isl::pw_multi_aff(schedule_map.reverse());
+    node_info.build = build;
+    return node.set_annotation(node_id);
   };
 
   // set up ast builder
