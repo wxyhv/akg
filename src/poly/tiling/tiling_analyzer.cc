@@ -1220,6 +1220,7 @@ std::vector<TileAxis *> TilingAnalyzer::GetAxesContainsAttr(const std::string at
     for (const auto &attr : a->attrs) {
       if (attr.attr_key.find(attr_key) != std::string::npos) {
         axes.emplace_back(a);
+        break;
       }
     }
   };
@@ -1233,6 +1234,7 @@ std::vector<TileAxis *> TilingAnalyzer::GetAxesOfAttr(const std::string attr_key
     for (const auto &attr : a->attrs) {
       if (attr.attr_key == attr_key) {
         axes.emplace_back(a);
+        break;
       }
     }
   };
@@ -1246,6 +1248,7 @@ std::vector<TileAxis *> TilingAnalyzer::GetAxesOfAttr(const AttrInfo attr_info) 
     for (const auto &attr : a->attrs) {
       if (attr.attr_key == attr_info.attr_key && attr.attr_value == attr_info.attr_value) {
         axes.emplace_back(a);
+        break;
       }
     }
   };
