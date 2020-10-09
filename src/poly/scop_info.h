@@ -191,6 +191,7 @@ class UserConfig {
       ParseBoolAttr(attrs, "use_shared_memory", &use_shared_memory_);
       ParseIntAttr(attrs, "shared_memory_depth", &shared_depth_);
       ParseStringAttr(attrs, "shared_memory_tensors", &shared_tensors_);
+      ParseStringAttr(attrs, "local_memory_tensors", &local_tensors_);
     }
 
     if (force_remove_self_dependence_) {
@@ -310,6 +311,7 @@ class UserConfig {
   bool UseSharedMemory() { return use_shared_memory_; }
   int GetSharedDepth() { return shared_depth_; }
   std::string GetSharedTensors() { return shared_tensors_; }
+  std::string GetLocalTensors() { return local_tensors_; }
 
  private:
   // tools for parsing user config
@@ -414,6 +416,8 @@ class UserConfig {
   int shared_depth_{-1};
   // shared memory tensor list
   std::string shared_tensors_;
+  // local memory tensor list
+  std::string local_tensors_;
 
   // tiling config
   std::string b_dim_;
