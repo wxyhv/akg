@@ -187,5 +187,8 @@ REGISTER_PASS(CastFilter);
 REGISTER_PASS(ScalarComputeRewrite);
 REGISTER_PASS(SplitTail);
 REGISTER_PASS(RemoveFakeOp);
+// GPU PASS
+REGISTER_PASS(InjectDoubleBufferScopeOnGpu);
+
 }  // namespace ir
 }  // namespace akg
