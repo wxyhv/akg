@@ -43,14 +43,16 @@ namespace akg {
     *rv = fn(Downcast<Tensor>(inputs[0]));          \
   } while (0);
 
-#define TOPI_ONE_INPUT_ONE_ATTR_CALL(ins, rv, fn, get_attr)    \
-  do {                                                         \
-    auto inputs = ins[0].operator Array<NodeRef>();            \
-    CHECK_EQ(inputs.size(), 1);                                \
-    CHECK(inputs[0]->IsInstance<TensorNode>());                \
-    auto attrs = ins[1].operator Array<NodeRef>();             \
-    CHECK_GE(attrs.size(), 1);                                 \
-    *rv = fn(Downcast<Tensor>(inputs[0]), get_attr(attrs[0])); \
+using OpAttr = Map<std::string, NodeRef>;
+
+#define TOPI_ONE_INPUT_ONE_ATTR_CALL(ins, rv, fn, get_attr) \
+  do {                                                      \
+    auto inputs = ins[0].operator Array<NodeRef>();         \
+    CHECK_EQ(inputs.size(), 1);                             \
+    CHECK(inputs[0]->IsInstance<TensorNode>());             \
+    auto attrs = ins[1].operator OpAttr();                  \
+    CHECK(!attrs.empty());                                  \
+    *rv = fn(Downcast<Tensor>(inputs[0]), get_attr(attrs)); \
   } while (0);
 
 Array<Integer> ArrayOrInt(const NodeRef &arg) {
@@ -287,15 +289,16 @@ TVM_REGISTER_GLOBAL("Log").set_body([](TVMArgs args, TVMRetValue *rv) { TOPI_ONE
 
 TVM_REGISTER_GLOBAL("ReduceSum").set_body([](TVMArgs args, TVMRetValue *rv) {
   CHECK_GE(args.size(), 2);
-  auto attrs = args[1].operator air::Array<air::NodeRef>();
-  CHECK_GE(attrs.size(), 2);
-  air::Array<air::Integer> axis = ArrayOrInt(attrs[0]);
-  auto keepdims = static_cast<bool>(ir::GetInt32Const(Downcast<Expr>(attrs[1])));
+  auto attrs = args[1].operator OpAttr();
+  CHECK(attrs.count("axis"));
+  CHECK(attrs.count("keep_dims"));
+  air::Array<air::Integer> axis = ArrayOrInt(attrs["axis"]);
+  auto keepdims = static_cast<bool>(ir::GetInt32Const(Downcast<Expr>(attrs["keep_dims"])));
 
-  if (attrs.size() == 3) {
+  if (attrs.count("atomic_add")) {
     Map<std::string, NodeRef> com_attrs;
-    com_attrs.Set("atomic_add", attrs[2]);
-    auto name = GetString(attrs[2]);
+    com_attrs.Set("atomic_add", attrs["atomic_add"]);
+    auto name = GetString(attrs["atomic_add"]);
     auto call = [&axis, &keepdims, &name, &com_attrs](const air::Tensor &tensor) {
       auto ndim = tensor->shape.size();
       CHECK_NE(ndim, 0) << "Cannot reduce a 0 dim Tensor";
@@ -348,8 +351,9 @@ TVM_REGISTER_GLOBAL("Rsqrt").set_body([](TVMArgs args, TVMRetValue *rv) {
 TVM_REGISTER_GLOBAL("Sqrt").set_body([](TVMArgs args, TVMRetValue *rv) { TOPI_ONE_INPUT_CALL(args, rv, topi::sqrt); });
 
 TVM_REGISTER_GLOBAL("ExpandDims").set_body([](TVMArgs args, TVMRetValue *rv) {
-  auto ref = [](NodeRef attr) -> int {
-    auto axis = ir::GetInt32Const(Downcast<Expr>(attr));
+  auto ref = [](OpAttr attrs) -> int {
+    CHECK(attrs.count("axis"));
+    auto axis = ir::GetInt32Const(Downcast<Expr>(attrs["axis"]));
     return axis;
   };
 
@@ -357,8 +361,9 @@ TVM_REGISTER_GLOBAL("ExpandDims").set_body([](TVMArgs args, TVMRetValue *rv) {
 });
 
 TVM_REGISTER_GLOBAL("Reshape").set_body([](TVMArgs args, TVMRetValue *rv) {
-  auto ref = [](NodeRef attr) -> Array<Expr> {
-    auto shape = Downcast<Array<Integer>>(attr);
+  auto ref = [](OpAttr attrs) -> Array<Expr> {
+    CHECK(attrs.count("shape"));
+    auto shape = Downcast<Array<Integer>>(attrs["shape"]);
     CHECK(!shape.empty());
     Array<Expr> newshape;
     for (auto s : shape) {
@@ -372,7 +377,9 @@ TVM_REGISTER_GLOBAL("Reshape").set_body([](TVMArgs args, TVMRetValue *rv) {
 
 TVM_REGISTER_GLOBAL("Cast").set_body([](TVMArgs args, TVMRetValue *rv) {
   auto type_mapping_copy = type_mapping;
-  auto ref = [&type_mapping_copy](NodeRef attr) -> Type {
+  auto ref = [&type_mapping_copy](OpAttr attrs) -> Type {
+    CHECK(attrs.count("dst_type"));
+    auto attr = attrs["dst_type"];
     CHECK(attr->IsInstance<StringImm>());
     std::string dtype_str = attr.as<StringImm>()->value;
     if (type_mapping_copy.find(dtype_str) == type_mapping_copy.end()) {
@@ -404,8 +411,9 @@ TVM_REGISTER_GLOBAL("Cast").set_body([](TVMArgs args, TVMRetValue *rv) {
 });
 
 TVM_REGISTER_GLOBAL("Tile").set_body([](TVMArgs args, TVMRetValue *rv) {
-  auto ref = [](NodeRef attr) -> Array<Integer> {
-    auto multiples = Downcast<Array<Integer>>(attr);
+  auto ref = [](OpAttr attrs) -> Array<Integer> {
+    CHECK(attrs.count("multiples"));
+    auto multiples = Downcast<Array<Integer>>(attrs["multiples"]);
     CHECK(!multiples.empty());
     return multiples;
   };
@@ -426,11 +434,12 @@ TVM_REGISTER_GLOBAL("AddN").set_body([](TVMArgs args, TVMRetValue *rv) {
 
 TVM_REGISTER_GLOBAL("ReduceMax").set_body([](TVMArgs args, TVMRetValue *rv) {
   CHECK_GE(args.size(), 2);
-  auto attrs = args[1].operator Array<NodeRef>();
-  CHECK_GE(attrs.size(), 2);
-  auto axis = ArrayOrInt(attrs[0]);
-  CHECK(attrs[1]->IsInstance<ExprNode>());
-  auto keepdims = static_cast<bool>(ir::GetInt32Const(Downcast<Expr>(attrs[1])));
+  auto attrs = args[1].operator OpAttr();
+  CHECK(attrs.count("axis"));
+  CHECK(attrs.count("keep_dims"));
+  auto axis = ArrayOrInt(attrs["axis"]);
+  CHECK(attrs["keep_dims"]->IsInstance<ExprNode>());
+  auto keepdims = static_cast<bool>(ir::GetInt32Const(Downcast<Expr>(attrs["keep_dims"])));
 
   auto call = [&axis, &keepdims](const Tensor &tensor) { return topi::max(tensor, axis, keepdims); };
   TOPI_ONE_INPUT_CALL(args, rv, call);
@@ -438,11 +447,12 @@ TVM_REGISTER_GLOBAL("ReduceMax").set_body([](TVMArgs args, TVMRetValue *rv) {
 
 TVM_REGISTER_GLOBAL("ReduceMin").set_body([](TVMArgs args, TVMRetValue *rv) {
   CHECK_GE(args.size(), 2);
-  auto attrs = args[1].operator Array<NodeRef>();
-  CHECK_GE(attrs.size(), 2);
-  auto axis = ArrayOrInt(attrs[0]);
-  CHECK(attrs[1]->IsInstance<ExprNode>());
-  auto keepdims = static_cast<bool>(ir::GetInt32Const(Downcast<Expr>(attrs[1])));
+  auto attrs = args[1].operator OpAttr();
+  CHECK(attrs.count("axis"));
+  CHECK(attrs.count("keep_dims"));
+  auto axis = ArrayOrInt(attrs["axis"]);
+  CHECK(attrs["keep_dims"]->IsInstance<ExprNode>());
+  auto keepdims = static_cast<bool>(ir::GetInt32Const(Downcast<Expr>(attrs["keep_dims"])));
 
   auto call = [&axis, &keepdims](const Tensor &tensor) { return topi::min(tensor, axis, keepdims); };
   TOPI_ONE_INPUT_CALL(args, rv, call);
@@ -459,12 +469,13 @@ TVM_REGISTER_GLOBAL("OneHot").set_body([](TVMArgs args, TVMRetValue *rv) {
   auto on_value = Downcast<Expr>(inputs[1]);
   auto off_value = Downcast<Expr>(inputs[2]);
 
-  auto attrs = args[1].operator Array<NodeRef>();
-  CHECK_GE(attrs.size(), 2);
-  CHECK(attrs[0]->IsInstance<ExprNode>());
-  CHECK(attrs[1]->IsInstance<ExprNode>());
-  auto depth = ir::GetInt32Const(Downcast<Expr>(attrs[0]));
-  auto axis = ir::GetInt32Const(Downcast<Expr>(attrs[1]));
+  auto attrs = args[1].operator OpAttr();
+  CHECK(attrs.count("depth"));
+  CHECK(attrs.count("axis"));
+  CHECK(attrs["depth"]->IsInstance<ExprNode>());
+  CHECK(attrs["axis"]->IsInstance<ExprNode>());
+  auto depth = ir::GetInt32Const(Downcast<Expr>(attrs["depth"]));
+  auto axis = ir::GetInt32Const(Downcast<Expr>(attrs["axis"]));
 
   *rv = topi::one_hot(indices, on_value, off_value, depth, axis, indices->dtype);
 });
@@ -667,8 +678,9 @@ TVM_REGISTER_GLOBAL("EquivFormat").set_body([](TVMArgs args, TVMRetValue *rv) {
   CHECK_GE(args.size(), 1);
   auto inputs = args[0].operator Array<NodeRef>();
   if (inputs[0]->IsInstance<TensorNode>()) {
-    auto ref = [](NodeRef attr) -> Array<Expr> {
-      auto shape = Downcast<Array<Integer>>(attr);
+    auto ref = [](OpAttr attrs) -> Array<Expr> {
+      CHECK(attrs.count("shape"));
+      auto shape = Downcast<Array<Integer>>(attrs["shape"]);
       CHECK(!shape.empty());
       Array<Expr> newshape;
       for (auto s : shape) {
@@ -704,13 +716,14 @@ TVM_REGISTER_GLOBAL("AddMinValue").set_body([](TVMArgs args, TVMRetValue *rv) {
 TVM_REGISTER_GLOBAL("TransData").set_body([](TVMArgs args, TVMRetValue *rv) {
   CHECK_GE(args.size(), 2);
   auto inputs = args[0].operator Array<NodeRef>();
-  auto attrs = args[1].operator Array<NodeRef>();
+  auto attrs = args[1].operator OpAttr();
   CHECK_GE(inputs.size(), 1);
   CHECK(inputs[0]->IsInstance<TensorNode>());
   auto input_data = Downcast<Tensor>(inputs[0]);
-  CHECK_GE(attrs.size(), 2);
-  auto src_format = GetString(attrs[0]);
-  auto dst_format = GetString(attrs[1]);
+  CHECK(attrs.count("src_format"));
+  CHECK(attrs.count("dst_format"));
+  auto src_format = GetString(attrs["src_format"]);
+  auto dst_format = GetString(attrs["dst_format"]);
   auto input_shape = input_data->shape;
   auto cube_size = 16;
   // FRACTAL_NZ: zN fractal format
@@ -759,8 +772,8 @@ TVM_REGISTER_GLOBAL("TransData").set_body([](TVMArgs args, TVMRetValue *rv) {
     }
     CHECK_GE(input_shape.size(), 4);
     auto batch_dim = input_shape.size() - 4;
-    CHECK_GE(attrs.size(), 3);
-    auto original_shape = Downcast<Array<Expr>>(attrs[2]);
+    CHECK(attrs.count("original_shape"));
+    auto original_shape = Downcast<Array<Expr>>(attrs["original_shape"]);
     CHECK_EQ(original_shape.size(), batch_dim + 2);
     auto output_shape = original_shape;
     auto name = "T_transdata_" + input_data->op->name;
