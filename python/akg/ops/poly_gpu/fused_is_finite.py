@@ -17,7 +17,7 @@ import akg
 import akg.topi as topi
 from akg.ops.fused_gpu import fused_is_finite
 
-@akg.schedule(topi.cuda.schedule_reduce)
+@akg.schedule(topi.cuda.reduce_opt.schedule_reduce)
 def fused_is_finite_manual(data, layout='NHWC'):
     """fused_is_finite"""
     return fused_is_finite.fused_is_finite(data, layout)

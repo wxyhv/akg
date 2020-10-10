@@ -18,7 +18,7 @@ import akg
 import akg.topi as topi
 from akg.ops.fused_gpu.fused_bn_reduce import fused_bn_reduce
 
-@akg.schedule(topi.cuda.schedule_reduce)
+@akg.schedule(topi.cuda.reduce_opt.schedule_reduce)
 def fused_bn_reduce_manual(data, layout="NHWC", out_dtype="float32"):
     """Fused operater: fused_bn_reduce, with manual schedule"""
     return fused_bn_reduce(data, layout, out_dtype)

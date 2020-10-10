@@ -18,7 +18,7 @@ from akg.ops.math_gpu import reduce_max
 import akg.topi as topi
 
 
-@akg.schedule(topi.cuda.schedule_reduce)
+@akg.schedule(topi.cuda.reduce_opt.schedule_reduce)
 def reduce_max_manual(data, axis, keepdims):
     """Reduce max with manual schedule."""
     return reduce_max.reduce_max(data, axis=axis, keepdims=keepdims)

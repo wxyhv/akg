@@ -16,7 +16,7 @@
 # under the License.
 
 # pylint: disable=redefined-builtin, wildcard-import
-# 2020.9.10 - Add schedule_reduce_autotune
+# 2020.10.10 - Add injective_single_kernel, reduce_opt
 """CUDA specific declaration and schedules."""
 
 # 2020.09.15 - Export injective_single_kernel to support GPU operators whose DSLs
@@ -25,12 +25,12 @@
 from __future__ import absolute_import as _abs
 
 from . import conv2d, depthwise_conv2d, conv2d_transpose_nchw, deformable_conv2d, \
-              group_conv2d_nchw, dense, injective_single_kernel
+              group_conv2d_nchw, dense, injective_single_kernel, reduce_opt
 from .conv2d_hwcn import schedule_conv2d_hwcn
 from .depthwise_conv2d import schedule_depthwise_conv2d_backward_input_nhwc
 from .depthwise_conv2d import schedule_depthwise_conv2d_backward_weight_nhwc
 from .group_conv2d_nchw import schedule_conv2d_nchw_cuda
-from .reduction import schedule_reduce, schedule_reduce_autotune
+from .reduction import schedule_reduce
 from .softmax import schedule_softmax
 from .injective import schedule_injective, schedule_elemwise, schedule_broadcast
 from .dense import schedule_dense

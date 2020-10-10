@@ -18,7 +18,7 @@ import akg
 import akg.topi as topi
 from akg.ops.fused_gpu.fused_bn_follow_relu_avgpool import fused_bn_follow_relu_avgpool
 
-@akg.schedule(topi.cuda.schedule_reduce)
+@akg.schedule(topi.cuda.reduce_opt.schedule_reduce)
 def fused_bn_follow_relu_avgpool_manual(data0, data1, data2, data3, data4, data5, layout="NHWC", out_dtype="float16"):
     """Fused operater: fused_bn_follow_relu_avgpool, with manual schedule"""
     return fused_bn_follow_relu_avgpool(data0, data1, data2, data3, data4, data5, layout, out_dtype)

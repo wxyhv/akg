@@ -18,7 +18,7 @@ import akg
 import akg.topi as topi
 from akg.ops.fused_gpu.fused_relu_grad_bn_update_grad import fused_relu_grad_bn_update_grad
 
-@akg.schedule(topi.cuda.schedule_reduce)
+@akg.schedule(topi.cuda.reduce_opt.schedule_reduce)
 def fused_relu_grad_bn_update_grad_manual(data_sum, in_bn, head_active, in_active, layout="NHWC",  out_dtype="float32"):
     """fused_relu_grad_bn_update_grad with manual schedule."""
     return fused_relu_grad_bn_update_grad(data_sum, in_bn, head_active, in_active, layout, out_dtype)
