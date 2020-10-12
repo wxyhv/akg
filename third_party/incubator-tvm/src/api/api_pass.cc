@@ -147,6 +147,7 @@ REGISTER_PASS(SkipVectorize);
 REGISTER_PASS(UnrollLoop);
 REGISTER_PASS(InjectCopyIntrin);
 REGISTER_PASS(ThreadSync);
+REGISTER_PASS(ThreadSyncStmt);
 REGISTER_PASS(MakeAPI);
 REGISTER_PASS(BindDeviceType);
 REGISTER_PASS(SplitHostDevice);
@@ -175,6 +176,8 @@ REGISTER_PASS(DecorateDeviceScope);
 REGISTER_PASS(InstrumentBoundCheckers);
 REGISTER_PASS(VerifyCompactBuffer);
 REGISTER_PASS(HoistIfThenElse);
-REGISTER_PASS(InferFragment)
+REGISTER_PASS(InferFragment);
+REGISTER_PASS(InferFragmentStmt);
+REGISTER_PASS(LowerThreadAllreduceStmt)
 }  // namespace ir
 }  // namespace air

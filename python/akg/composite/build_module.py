@@ -172,21 +172,25 @@ def get_tiling_space(kernel_desc, level=1, attr=None):
 
 @tvm.register_func("akg_build_gpu_module")
 def build_cuda(outputs, args, sch_name, kernel_name, attrs = False, poly = False, binds = None):
-    scheduler = {
-        "injective" : topi.cuda.injective_single_kernel.schedule_injective,
-        "reduce"    : topi.cuda.schedule_reduce,
-    }
-    poly_t = bool(poly)
+    s = select_cuda_scheduler(outputs, sch_name, poly)
     if attrs:
         attrs_t = dict(attrs.items())
     else:
         attrs_t = None
-    with tvm.target.cuda() as cuda:
-        if poly_t:
+    dump_ir = os.getenv('MS_AKG_DUMP_IR') == "on"
+    with tvm.build_config(dump_pass_ir = dump_ir):
+        mod = akg.build(s, list(args), "cuda", name = kernel_name, binds = binds, attrs = attrs_t, polyhedral=bool(poly))
+        return mod
+
+@tvm.register_func("select_cuda_scheduler")
+def select_cuda_scheduler(outputs, sch_name, poly = False):
+    scheduler = {
+        "injective" : topi.cuda.injective_single_kernel.schedule_injective,
+        "reduce"    : topi.cuda.schedule_reduce,
+    }
+    with tvm.target.cuda():
+        if bool(poly):
             s = akg.tvm.create_schedule([x.op for x in list(outputs)])
         else:
             s = scheduler[sch_name](outputs)
-        dump_ir = os.getenv('MS_AKG_DUMP_IR') == "on"
-        with tvm.build_config(dump_pass_ir = dump_ir):
-            mod = akg.build(s, list(args), "cuda", name = kernel_name, binds = binds, attrs = attrs_t, polyhedral=poly_t)
-            return mod
+        return s

@@ -479,6 +479,8 @@ Array<LoweredFunc> SplitHostDevice(LoweredFunc func);
  */
 LoweredFunc ThreadSync(LoweredFunc stmt, std::string storage_scope);
 
+Stmt ThreadSyncStmt(Stmt stmt, std::string storage_scope);
+
 /*!
  * \brief Lower cross thread alleduce in the stmt.
  * \param f The device function to be lowered.
@@ -495,6 +497,8 @@ LoweredFunc LowerThreadAllreduce(LoweredFunc f, int warp_size);
  * \return Transformed function.
  */
 LoweredFunc LowerWarpMemory(LoweredFunc f, int warp_size);
+
+Stmt LowerThreadAllreduceStmt(Stmt stmt, int warp_size);
 
 /*!
  * \brief Remap the thread axis
@@ -571,6 +575,8 @@ LoweredFunc LowerCustomDatatypes(LoweredFunc f, const std::string& target);
  * \return Transformed function.
  */
 LoweredFunc InferFragment(LoweredFunc f);
+
+Stmt InferFragmentStmt(Stmt stmt);
 
 /*!
  * \brief skip assert stmt generation

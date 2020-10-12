@@ -17,7 +17,6 @@
 #include <fstream>
 #include <unordered_map>
 #include <unordered_set>
-#include <utility>
 
 #include "build_module.h"
 #include "composite/util.h"
@@ -667,7 +666,90 @@ NodeRef CompositeLower(const std::string &json_str, const Map<std::string, NodeR
                     config);
 }
 
+Module CompositeWithJsonListGpu(const Array<NodeRef> &json_str_node, const Array<NodeRef> &args_list_node,
+                                const Map<std::string, NodeRef> &attrs, bool poly) {
+  std::vector<Stmt> all_irs;
+  Array<NodeRef> all_args, ordered_args, input_args, output_args;
+  std::vector<std::string> args_list_name;
+  std::string merge_name;
+  size_t idx = 0;
+  const char *akg_dump_pass_ir = getenv("MS_AKG_DUMP_IR");
+
+  // get origin json all input name
+  for (auto arg : args_list_node) {
+    auto arg_name = arg.as<StringImm>()->value;
+    args_list_name.emplace_back(arg_name);
+  }
+
+  // traversal json_str_node and parse every subgraph json
+  for (auto k : json_str_node) {
+    ++idx;
+    auto json_str = k.as<StringImm>()->value;
+    picojson::value v;
+    std::string err = picojson::parse(v, json_str);
+    CHECK(err.empty()) << "json parse error, error message: " << err;
+    Array<NodeRef> args, arg_list_0, shape_vars;
+    Map<Tensor, Buffer> binds, binds_0;
+    BuildInfo info;
+    ExtractBuildInfo(v, info);
+
+    // ensure merge_name is the same as original json name
+    if (merge_name.empty()) {
+      merge_name = info.kernel_name;
+    }
+
+    // use idx to distinct different subgraph
+    std::string distinct_name = info.kernel_name + "_" + std::to_string(idx);
+    std::string sch_name = GetSchedule(info.tensors);
+    const auto *sch_create = air::runtime::Registry::Get("select_cuda_scheduler");
+    CHECK(sch_create != nullptr);
+    Schedule sch = (*sch_create)(info.tensors, sch_name, poly);
+
+    akg::BuildConfig config = akg::BuildConfig::Current();
+    CHECK(config.defined());
+    config->dump_pass_ir = akg_dump_pass_ir != nullptr;
+    Stmt s_ir = LowerStmt(sch, info.args, shape_vars, distinct_name, info.in_binds, attrs, false, poly, false, "cuda",
+                          config, &args, &arg_list_0, &binds, &binds_0, true);
+    for (const auto &x : arg_list_0) {
+      all_args.push_back(x);
+    }
+    all_irs.emplace_back(s_ir);
+  }
+  // reorder args_list, now args_list satisfies: op1_input op2_input ... op1_output op2_output ...
+  // suppose all args info from original json satisfies this order
+  for (auto arg : all_args) {
+    bool find = false;
+    for (const auto &name : args_list_name) {
+      auto buffer = arg.as<BufferNode>();
+      CHECK(buffer) << "arg must be a BufferNode";
+      if (buffer->name == name) {
+        find = true;
+        input_args.push_back(arg);
+        break;
+      }
+    }
+    if (!find) {
+      output_args.push_back(arg);
+    }
+  }
+  for (auto input : input_args) {
+    ordered_args.push_back(input);
+  }
+  for (auto output : output_args) {
+    ordered_args.push_back(output);
+  }
+
+  akg::BuildConfig final_config = akg::BuildConfig::Current();
+  CHECK(final_config.defined());
+  final_config->dump_pass_ir = akg_dump_pass_ir != nullptr;
+
+  // use ordered_args to second stage build
+  auto rst = LowerFunc(all_irs[0], merge_name, final_config, ordered_args);
+  auto build_rst = BuildRstNode::make(rst, merge_name);
+  return BuildToModule(build_rst, "cuda");
+}
 TVM_REGISTER_GLOBAL("composite_with_json_to_func").set_body_typed(CompositeWithJsonToFunc);
 TVM_REGISTER_GLOBAL("composite_with_json").set_body_typed(CompositeWithJson);
+TVM_REGISTER_GLOBAL("composite_with_json_list_gpu").set_body_typed(CompositeWithJsonListGpu);
 TVM_REGISTER_GLOBAL("composite_lower").set_body_typed(CompositeLower);
 }  // namespace akg
