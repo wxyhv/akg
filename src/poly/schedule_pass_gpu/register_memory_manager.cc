@@ -271,6 +271,9 @@ isl::schedule RegisterMemoryManager::Run(isl::schedule sch) {
   auto res_node = GetOuterBand(root);
   if (res_node.isa<isl::schedule_node_band>()) {
     auto depth = UpdateDepth(res_node);
+    if (scop_info_.user_config_.GetRegisterDepth() >= 0) {
+      depth = scop_info_.user_config_.GetRegisterDepth();
+    }
     auto bands = BandsContainingScheduleDepth(root, depth);
     bands = FilterWithFunc(
       [root, depth](isl::schedule_node node) {

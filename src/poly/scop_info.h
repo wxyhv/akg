@@ -189,6 +189,7 @@ class UserConfig {
     if (GetTarget() == TARGET_CUDA) {
       ParseBoolAttr(attrs, "use_register_memory", &use_register_memory_);
       ParseBoolAttr(attrs, "use_shared_memory", &use_shared_memory_);
+      ParseIntAttr(attrs, "register_memory_depth", &register_depth_);
       ParseIntAttr(attrs, "shared_memory_depth", &shared_depth_);
       ParseStringAttr(attrs, "shared_memory_tensors", &shared_tensors_);
       ParseStringAttr(attrs, "local_memory_tensors", &local_tensors_);
@@ -309,6 +310,7 @@ class UserConfig {
 
   bool UseRegisterMemory() { return use_register_memory_; }
   bool UseSharedMemory() { return use_shared_memory_; }
+  int GetRegisterDepth() { return register_depth_; }
   int GetSharedDepth() { return shared_depth_; }
   std::string GetSharedTensors() { return shared_tensors_; }
   std::string GetLocalTensors() { return local_tensors_; }
@@ -413,6 +415,7 @@ class UserConfig {
   bool use_register_memory_{true};
   bool use_shared_memory_{true};
   // shared memory position in schedule tree
+  int register_depth_{-1};
   int shared_depth_{-1};
   // shared memory tensor list
   std::string shared_tensors_;
