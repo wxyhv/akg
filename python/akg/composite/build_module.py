@@ -183,7 +183,7 @@ def build_cuda(outputs, args, sch_name, kernel_name, attrs = False, poly = False
         attrs_t = None
     with tvm.target.cuda() as cuda:
         if poly_t:
-            s = akg.tvm.create_schedule(outputs[0].op)
+            s = akg.tvm.create_schedule([x.op for x in list(outputs)])
         else:
             s = scheduler[sch_name](outputs)
         dump_ir = os.getenv('MS_AKG_DUMP_IR') == "on"
