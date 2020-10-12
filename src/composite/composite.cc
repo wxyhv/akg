@@ -72,7 +72,7 @@ std::tuple<std::string, picojson::array, picojson::array, picojson::array> Parse
 struct OpDesc {
   std::string op_name;
   std::string fusion_op_name;
-  Array<NodeRef> attrs;
+  Map<std::string, NodeRef> attrs;
   Array<NodeRef> input_descs;
   Array<NodeRef> output_descs;
 };
@@ -81,7 +81,6 @@ class OpDescsParser {
  public:
   explicit OpDescsParser(picojson::array op_descs_json) : op_descs_json_(std::move(op_descs_json)) {}
   ~OpDescsParser() = default;
-  ;
 
   void Parse() {
     for (const auto &item : op_descs_json_) {
@@ -97,7 +96,7 @@ class OpDescsParser {
       LOG(INFO) << "op_name: " << item.op_name;
       LOG(INFO) << "fusion_op_name: " << item.fusion_op_name;
       for (const auto &attr : item.attrs) {
-        LOG(INFO) << "attrs: " << attr;
+        LOG(INFO) << "attrs: " << attr.first << ":" << attr.second;
       }
       for (const auto &input : item.input_descs) {
         LOG(INFO) << "input: " << input;
@@ -214,15 +213,27 @@ class OpDescsParser {
     op_descs_.emplace_back(op_desc_info);
   }
 
-  static void ParseAttrs(const picojson::array &arr, Array<NodeRef> *attrs_arr) {
-    CHECK(attrs_arr) << "input attrs_arr is invalid.";
+  static void ParseAttrs(const picojson::array &arr, Map<std::string, NodeRef> *op_attrs) {
+    CHECK(op_attrs) << "input op_attrs is invalid.";
     for (const auto &item : arr) {
       CHECK(item.is<picojson::object>());
       const picojson::object &obj = item.get<picojson::object>();
+      std::string name;
+      NodeRef value;
+      bool name_found = false;
+      bool value_found = false;
       for (const auto &kv : obj) {
+        // parse attr name
+        if (kv.first == "name") {
+          name = kv.second.get<std::string>();
+          name_found = true;
+          continue;
+        }
         if (kv.first != "value") {
           continue;
         }
+        // parse attr value
+        value_found = true;
         if (kv.second.is<picojson::array>()) {
           Array<NodeRef> arr_v;
           const picojson::array &arr_s = kv.second.get<picojson::array>();
@@ -235,17 +246,20 @@ class OpDescsParser {
               LOG(FATAL) << "Not parsed type in array attr.";
             }
           }
-          attrs_arr->push_back(arr_v);
+          value = arr_v;
         } else if (kv.second.is<bool>()) {
-          attrs_arr->push_back(make_const(Int(1), kv.second.get<bool>()));
+          value = make_const(Int(1), kv.second.get<bool>());
         } else if (kv.second.is<int64_t>()) {
-          attrs_arr->push_back(Integer(static_cast<int>(kv.second.get<int64_t>())));
+          value = Integer(static_cast<int>(kv.second.get<int64_t>()));
         } else if (kv.second.is<std::string>()) {
-          attrs_arr->push_back(StringImm::make(kv.second.get<std::string>()));
+          value = StringImm::make(kv.second.get<std::string>());
         } else {
-          LOG(FATAL) << "Not parsed type in attrs.";
+          LOG(FATAL) << "Not parsed type in op_attrs.";
         }
       }
+      CHECK(name_found);
+      CHECK(value_found);
+      op_attrs->Set(name, value);
     }
   }
 };
@@ -284,9 +298,9 @@ class InplaceAssignMutator : public IRMutator {
  private:
   Stmt Mutate_(const AttrStmt *op, const Stmt &s) override {
     if (op->attr_key == "attrs") {
-      attrs_arr_ = Downcast<Array<NodeRef>>(op->node);
+      op_attrs_ = Downcast<Map<std::string, NodeRef>>(op->node);
       auto stmt = IRMutator::Mutate_(op, s);
-      attrs_arr_ = {};
+      op_attrs_ = {};
       return stmt;
     }
     return IRMutator::Mutate_(op, s);
@@ -296,8 +310,8 @@ class InplaceAssignMutator : public IRMutator {
     auto call = op->value.as<Call>();
     auto op_name = call->name;
     if (op_name == "InplaceAssign") {
-      if (attrs_arr_.size() == 1) {
-        auto fake_val = attrs_arr_[0].as<IntImm>();
+      if (op_attrs_.count("fake_output")) {
+        auto fake_val = op_attrs_["fake_output"].as<IntImm>();
         if (fake_val && fake_val->value > 0) {
           opt_.fakeout.insert(op->func);
         }
@@ -316,7 +330,7 @@ class InplaceAssignMutator : public IRMutator {
     return IRMutator::Mutate_(op, s);
   }
   BuildInfoOpt &opt_;
-  Array<NodeRef> attrs_arr_;
+  Map<std::string, NodeRef> op_attrs_;
 };
 
 class FusionMutator : public IRMutator {
@@ -382,9 +396,9 @@ class Emitter : public IRVisitor {
   Emitter(FuncTensorMap &tensor_map, BuildInfoOpt &opt) : tensor_map_(tensor_map), opt_(opt) {}
   void Visit_(const AttrStmt *op) override {
     if (op->attr_key == "attrs") {
-      attrs_arr_ = Downcast<Array<NodeRef>>(op->node);
+      op_attrs_ = Downcast<Map<std::string, NodeRef>>(op->node);
       Visit(op->body);
-      attrs_arr_ = {};
+      op_attrs_ = {};
     }
   }
   void Visit_(const Provide *op) override {
@@ -406,7 +420,7 @@ class Emitter : public IRVisitor {
     }
     const auto *topi_f = air::runtime::Registry::Get(op_name);
     CHECK(topi_f) << "Akg topi has no op: " << op_name;
-    Tensor t = (*topi_f)(real_input, attrs_arr_);
+    Tensor t = (*topi_f)(real_input, op_attrs_);
     if (op_name == "Assign") {
       EmitAssign(t, inputs[0]);
     }
@@ -429,7 +443,7 @@ class Emitter : public IRVisitor {
  private:
   FuncTensorMap &tensor_map_;
   BuildInfoOpt &opt_;
-  Array<NodeRef> attrs_arr_;
+  Map<std::string, NodeRef> op_attrs_;
 };
 
 void ParseInputTensors(const picojson::array &input_descs, std::vector<std::string> &input_tensors) {
