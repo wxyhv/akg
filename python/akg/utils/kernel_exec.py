@@ -26,6 +26,7 @@ import time
 import random
 import subprocess
 import re
+import logging
 from timeit import default_timer as timer
 from threading import Thread
 from functools import reduce
@@ -36,6 +37,7 @@ from akg.backend import aic_model
 from akg.build_module import help_tiling_level
 from akg import backend as cce
 import akg.tvm
+from akg.tvm import autotvm
 from akg.tvm import rpc
 from akg.utils import result_analysis as ra_util
 from akg.utils import format_transform as ft_util
@@ -757,14 +759,53 @@ def op_build(op_func, input_shapes, input_types, op_attrs=None, kernel_name="",
         global kc_air_mode
         kc_air_mode = "CUDA"
         with akg.tvm.target.cuda() as target:
-            s = sch_tmpl['schedule'](sch_tmpl['output'])
-            with akg.tvm.build_config(dump_pass_ir=dump_ir):
-                mod = akg.build(s, op_var, "cuda", shape_var, name=kernel_name, attrs=attrs,
-                                polyhedral=False, binds=gpu_binds)
-                if dump_code:
-                    source_code = mod.imported_modules[0].get_source()
-                    create_code(kernel_name, "./", source_code, CUDA)
-                return mod
+            if not tuning:
+                s = sch_tmpl['schedule'](sch_tmpl['output'])
+                with akg.tvm.build_config(dump_pass_ir=dump_ir):
+                    mod = akg.build(s, op_var, "cuda", shape_var, name=kernel_name, attrs=attrs,
+                                    polyhedral=False, binds=gpu_binds)
+            else:
+                @autotvm.template
+                def _autotune_template():
+                    s = sch_tmpl['schedule'](sch_tmpl['output'])
+                    return (s, op_var)
+
+                # create autotune task
+                task = autotvm.task.create(_autotune_template,
+                                           args=list(),
+                                           target='cuda')
+                
+                print("task config: ", task.config_space)
+
+                # set measure_option
+                measure_option = autotvm.measure_option(
+                    builder=autotvm.LocalBuilder(),
+                    runner=autotvm.LocalRunner(repeat=5, min_repeat_ms=150, timeout=4)
+                )
+
+                # Begin tuning, log records to file `kernel_name.log`
+                tuner = autotvm.tuner.RandomTuner(task)
+                if not os.path.exists(kernel_name + '.log'):
+                    tuner.tune(n_trial=len(task.config_space),
+                    measure_option=measure_option,
+                    callbacks=[autotvm.callback.log_to_file(kernel_name + '.log')])
+                
+                # query best config
+                dispatch_context = autotvm.apply_history_best(kernel_name + '.log')
+                best_config = dispatch_context.query(task.target, task.workload)
+                print("\nBest config is:")
+                print(best_config)
+
+                # apply best config
+                with autotvm.apply_history_best(kernel_name + '.log'):
+                        s, op_var = _autotune_template()
+                        mod = akg.build(s, op_var, "cuda", shape_var, name=kernel_name, attrs=attrs,
+                                    polyhedral=False, binds=gpu_binds)
+            
+            if dump_code:
+                source_code = mod.imported_modules[0].get_source()
+                create_code(kernel_name, "./", source_code, CUDA)
+            return mod
 
     if isinstance(output, (list, tuple)):
         tmp = []
