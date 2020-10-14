@@ -102,8 +102,7 @@ class RemoveMultiVarInsnInit : public IRMutator {
 
   Stmt Mutate_(const Provide *op, const Stmt &s) final {
     // Remove initialization stmt of replaced vmadd.
-    if (multi_var_insn_init_ && op->func == multi_var_insn_init_->func &&
-        Equal(op->value, multi_var_insn_init_->value)) {
+    if (op == multi_var_insn_init_) {
       return Evaluate::make(0);
     }
     return IRMutator::Mutate_(op, s);
@@ -144,9 +143,11 @@ class MultiStageCSE : public IRMutator {
   Stmt Mutate_(const Realize *op, const Stmt &s) final {
     shape_[op->func.get()] = op->bounds;
     Stmt stmt = IRMutator::Mutate_(op, s);
+
     if (replace_.count(op->func.get())) {
-      if (replace_multi_var_insn_.count(op->func.get()) > 0 && multi_var_insn_init_.count(op->func.get()) > 0) {
-        stmt = RemoveMultiVarInsnInit(multi_var_insn_init_[op->func.get()]).Mutate(stmt);
+      if (replace_multi_var_insn_.count(op->func.get()) > 0 && multi_var_insn_init_.count(op->func.get()) > 0 &&
+          multi_var_insn_init_[op->func.get()].size() > 0) {
+        stmt = RemoveMultiVarInsnInit(multi_var_insn_init_[op->func.get()].back()).Mutate(stmt);
       }
       stmt = Replace(op->func.get(), replace_[op->func.get()]).Mutate(stmt);
     }
@@ -163,18 +164,28 @@ class MultiStageCSE : public IRMutator {
     bool vmadd_call = (call && call->name == "vmadd");
     if (vmadd_call) {
       // Record the initialization of vmadd
-      if (provide_.count(op->func.get()) > 0 && multi_var_insn_init_.count(op->func.get()) == 0) {
-        multi_var_insn_init_[op->func.get()] = provide_[op->func.get()];
+      std::vector<const Provide *> init;
+      init.reserve(call->args.size());
+      for (size_t i = 0; i < call->args.size(); ++i) {
+        auto arg_call = call->args[i].as<Call>();
+        if (arg_call && arg_call->func && provide_.count(arg_call->func.get()) > 0) {
+          init.push_back(provide_[arg_call->func.get()]);
+        } else {
+          init.push_back(nullptr);
+        }
       }
+      multi_var_insn_init_[op->func.get()] = init;
       value = RewriteVmadd(op);
     }
+    // Insert Provide after recording the initialization of vmadd, otherwise the third arg of vmadd
+    //   will be overwritten by the vmadd itself.
     provide_[op->func.get()] = op;
 
     bool found{false};
     for (auto i : defs_) {
       auto defs_value = i.second.first->value;
       auto defs_call = defs_value.as<Call>();
-      if (defs_call && defs_call->name == "vmadd") {
+      if (vmadd_call && defs_call && defs_call->name == "vmadd") {
         defs_value = RewriteVmadd(i.second.first);
       }
 
@@ -328,23 +339,30 @@ loop-nest-b: j(0,32), i(0,64), m(0,16)
   Expr RewriteVmadd(const Provide *op) {
     /*
      * vmadd has initialization stmt, e.g.
-     * T_sign_1(cc0) = input_6(cc0)
-     * T_sign_1(cc0) = vmadd(input_6(cc0), input_2(cc0), T_sign_1(cc0))
-     * To compare if two vmadd are same, we should replace the third
-     *   arg of vmadd with the initialization value.
-     * vmadd(input_6(cc0), input_2(cc0), T_sign_1(cc0)) -->
-     * vmadd(input_6(cc0), input_2(cc0), input_6(cc0))
+     * T_sign_4(cc0) = float32(input_6(cc0))
+     * T_sign_5(cc0) = float32(input_2(cc0))
+     * T_sign_6(cc0) = float32(input_6(cc0))
+     * T_sign_6(cc0) = vmadd(T_sign_4(cc0), T_sign_5(cc0), T_sign_6(cc0))
+     * To compare if two vmadd are same, we should replace the args of vmadd with the initialization value.
+     * vmadd(T_sign_4(cc0), T_sign_5(cc0), T_sign_6(cc0)) -->
+     * vmadd(float32(input_6(cc0)), float32(input_2(cc0)), float32(input_6(cc0)))
      */
     CHECK(op);
     auto call = op->value.as<Call>();
     if (call && call->name == "vmadd" && multi_var_insn_init_.count(op->func.get()) > 0) {
       auto args = call->args;
-      CHECK(args.size() >= 3);
-      Array<Expr> new_args;
-      new_args.push_back(args[0]);
-      new_args.push_back(args[1]);
-      new_args.push_back(multi_var_insn_init_[op->func.get()]->value);
-      return Call::make(call->type, call->name, new_args, call->call_type);
+      std::vector<const Provide *> init = multi_var_insn_init_[op->func.get()];
+      if (init.size() == args.size()) {
+        Array<Expr> new_args;
+        for (size_t i = 0; i < args.size(); ++i) {
+          if (init[i] != nullptr) {
+            new_args.push_back(init[i]->value);
+          } else {
+            new_args.push_back(args[i]);
+          }
+        }
+        return Call::make(call->type, call->name, new_args, call->call_type);
+      }
     }
     return op->value;
   }
@@ -355,11 +373,80 @@ loop-nest-b: j(0,32), i(0,64), m(0,16)
   std::unordered_map<const Variable *, Expr> loop_vars_;
   std::unordered_map<const Node *, Region> shape_;
   std::unordered_map<const Node *, const Provide *> provide_;
-  std::unordered_map<const Node *, const Provide *> multi_var_insn_init_;  // Record init stmt of multi-var insn
+  std::unordered_map<const Node *, std::vector<const Provide *>> multi_var_insn_init_;  // multi-var insn init
   std::unordered_set<const Node *> replace_multi_var_insn_;  // Record multi-var insn(e.g. vmadd) that can be replaced
   int curr_for_id{0};
   std::map<int, const Variable *> loop_vars_idmap;          // loop_id, for-loop-var
   std::map<const Variable *, int> loop_vars_idmap_reverse;  // for-loop-var, loop_id
+  const Map<Tensor, Buffer> &extern_buffer_;
+};
+
+class RemoveUnUsedOp : public IRMutator {
+ public:
+  explicit RemoveUnUsedOp(const Map<Tensor, Buffer> &extern_buffer) : extern_buffer_(extern_buffer) {}
+  ~RemoveUnUsedOp() override = default;
+
+  Stmt Run(const Stmt &s) {
+    GatherOpInUse info(extern_buffer_);
+    info.Visit(s);
+    in_use_ = info.in_use_;
+    return Mutate(s);
+  }
+
+  Stmt Mutate_(const AttrStmt *op, const Stmt &s) final {
+    if (in_use_.count(op->node.get()) == 0 && op->attr_key == air::ir::attr::realize_scope) {
+      return op->body;
+    }
+    return IRMutator::Mutate_(op, s);
+  }
+
+  Stmt Mutate_(const Realize *op, const Stmt &s) final {
+    if (in_use_.count(op->func.get()) == 0) {
+      return op->body;
+    }
+    return IRMutator::Mutate_(op, s);
+  }
+
+  Stmt Mutate_(const ProducerConsumer *op, const Stmt &s) final {
+    if (in_use_.count(op->func.get()) == 0) {
+      return op->body;
+    }
+    return IRMutator::Mutate_(op, s);
+  }
+
+  Stmt Mutate_(const Provide *op, const Stmt &s) final {
+    if (in_use_.count(op->func.get()) == 0) {
+      // Delete those that only have initialization but never used (excluding extern buffers).
+      return Evaluate::make(0);
+    }
+    return IRMutator::Mutate_(op, s);
+  }
+
+ private:
+  class GatherOpInUse : public IRVisitor {
+   public:
+    explicit GatherOpInUse(const Map<Tensor, Buffer> &extern_buffer) {
+      for (const auto &it : extern_buffer) {
+        if (it.first.defined()) {
+          in_use_.insert(it.first->op.get());
+        }
+      }
+    }
+    ~GatherOpInUse() override = default;
+
+    void Visit_(const Provide *op) final {
+      PostOrderVisit(op->value, [this](const NodeRef &node) {
+        auto call = node.as<Call>();
+        if (call && call->func) {
+          in_use_.insert(call->func.get());
+        }
+      });
+    }
+
+    std::unordered_set<const Node *> in_use_;
+  };
+
+  std::unordered_set<const Node *> in_use_;  // Record the call that are being used.
   const Map<Tensor, Buffer> &extern_buffer_;
 };
 
@@ -370,6 +457,7 @@ Stmt StmtCSE(Stmt stmt, const Map<Tensor, Buffer> &extern_buffer) {
     stmt = MultiStageCSE(extern_buffer).Mutate(prev);
     stmt = RemoveNoOp(stmt);
   } while (!stmt.same_as(prev));
+  stmt = RemoveNoOp(RemoveUnUsedOp(extern_buffer).Run(stmt));
   return stmt;
 }
 }  // namespace ir
