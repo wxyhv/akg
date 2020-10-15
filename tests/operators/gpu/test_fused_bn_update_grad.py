@@ -45,9 +45,9 @@ def test_fused_bn_update_grad(shape, out_shape, dtype="float16", out_dtype="floa
     dtype_list = [dtype, out_dtype, dtype]
     op_attrs = [layout]
     if poly_sch:
-        mod = utils.op_build(fused_bn_update_grad_auto, shape_list, dtype_list, op_attrs=op_attrs, attrs={"target": "cuda"})
+        mod = utils.op_build_test(fused_bn_update_grad_auto, shape_list, dtype_list, op_attrs=op_attrs, kernel_name="fused_bn_update_grad_auto", attrs={"target": "cuda"})
     else:
-        mod = utils.op_build(fused_bn_update_grad_manual, shape_list, dtype_list, op_attrs=op_attrs)
+        mod = utils.op_build_test(fused_bn_update_grad_manual, shape_list, dtype_list, kernel_name="fused_bn_update_grad_manual", op_attrs=op_attrs)
     head, data_sum, in_bn, output, expect = gen_data(shape, out_shape, dtype, out_dtype, layout)
     outputs = [output, output]
     inputs = [head, data_sum, in_bn]

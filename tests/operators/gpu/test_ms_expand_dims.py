@@ -21,9 +21,9 @@ from akg.utils.format_transform import to_tvm_nd_array
 
 def test_expand_dims(shape1, axis, dtype, poly_sch=False):
     if poly_sch:
-        mod = utils.op_build(expand_dims_auto, [shape1], [dtype], op_attrs=[axis], attrs={"target": "cuda"})    
+        mod = utils.op_build_test(expand_dims_auto, [shape1], [dtype], op_attrs=[axis], attrs={"target": "cuda"}, kernel_name="expand_dims_auto")    
     else:
-        mod = utils.op_build(expand_dims_manual, [shape1], [dtype], op_attrs=[axis])    
+        mod = utils.op_build_test(expand_dims_manual, [shape1], [dtype], op_attrs=[axis], kernel_name="expand_dims_manual")    
     expect, input1, output = gen_data(axis, dtype, shape1)
     args = (input1, output)
     output = utils.mod_launch(mod, args, expect=expect)

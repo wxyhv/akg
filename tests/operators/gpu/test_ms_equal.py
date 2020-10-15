@@ -36,9 +36,9 @@ def gen_data(shapes, dtype):
 
 def test_ms_equal(shapes, dtype, poly_sch=False):
     if poly_sch:
-        mod = utils.op_build(equal_auto, shapes, [dtype, dtype], attrs={"target": "cuda"})
+        mod = utils.op_build_test(equal_auto, shapes, [dtype, dtype], kernel_name="equal_auto", attrs={"target": "cuda"})
     else:
-        mod = utils.op_build(equal_manual, shapes, [dtype, dtype])
+        mod = utils.op_build_test(equal_manual, shapes, [dtype, dtype], kernel_name="equal_manual")
     inputs1, output1, expect1 = gen_data(shapes, dtype)
     output1 = utils.mod_launch(mod, (*inputs1, output1), expect=expect1)
 

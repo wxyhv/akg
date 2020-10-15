@@ -27,9 +27,9 @@ def gen_data(shape1, in_dtype):
 
 def test_ms_reciprocal(shape1, in_dtype, poly_sch=False):
     if poly_sch:
-        mod = utils.op_build(reciprocal_auto, [shape1], [in_dtype],  attrs={"target":"cuda"})
+        mod = utils.op_build_test(reciprocal_auto, [shape1], [in_dtype], kernel_name="reciprocal_auto", attrs={"target":"cuda"})
     else:
-        mod = utils.op_build(reciprocal_manual, [shape1], [in_dtype])
+        mod = utils.op_build_test(reciprocal_manual, [shape1], [in_dtype], kernel_name="reciprocal_manual")
     input1, output, expect = gen_data(shape1, in_dtype)
     args = (input1, output)
     output = utils.mod_launch(mod, args, expect=expect)

@@ -31,9 +31,9 @@ def gen_data(shape_cond, shape_x, dtype_cond, dtype_x):
 
 def test_ms_select(shape_cond, shape_x, dtype_cond, dtype_x, poly_sch=False):
     if poly_sch:
-        mod = utils.op_build(select_auto, [shape_cond, shape_x, shape_x], [dtype_cond, dtype_x, dtype_x], attrs={"target": "cuda"})
+        mod = utils.op_build_test(select_auto, [shape_cond, shape_x, shape_x], [dtype_cond, dtype_x, dtype_x], kernel_name="select_auto", attrs={"target": "cuda"})
     else:
-        mod = utils.op_build(select_manual, [shape_cond, shape_x, shape_x], [dtype_cond, dtype_x, dtype_x])
+        mod = utils.op_build_test(select_manual, [shape_cond, shape_x, shape_x], [dtype_cond, dtype_x, dtype_x], kernel_name="select_manual")
     expect, cond, x1, x2, output = gen_data(shape_cond, shape_x, dtype_cond, dtype_x)
     output = utils.mod_launch(mod, (cond, x1, x2, output), expect=expect)
     res = compare_tensor(output, expect, rtol=5e-03, atol=1.e-8)

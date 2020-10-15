@@ -56,9 +56,9 @@ def test_fused_bn_reduce(in_shape, in_dtype='float16', layout='NHWC', out_dtype=
 
     op_attrs = [layout, out_dtype]
     if poly_sch:
-        mod = utils.op_build(fused_bn_reduce_auto, [in_shape], [in_dtype], op_attrs=op_attrs, attrs={"target": "cuda"})
+        mod = utils.op_build_test(fused_bn_reduce_auto, [in_shape], [in_dtype], kernel_name="fused_bn_reduce_auto", op_attrs=op_attrs, attrs={"target": "cuda"})
     else:
-        mod = utils.op_build(fused_bn_reduce_manual, [in_shape], [in_dtype], op_attrs=op_attrs)
+        mod = utils.op_build_test(fused_bn_reduce_manual, [in_shape], [in_dtype], kernel_name="fused_bn_reduce_manual", op_attrs=op_attrs)
 
     data, outputs, expect = gen_data(in_shape, in_dtype, layout, out_dtype)
     inputs = [data]

@@ -751,7 +751,6 @@ def op_build(op_func, input_shapes, input_types, op_attrs=None, kernel_name="",
     if sch_tmpl is not None or (attrs and attrs.get("target", "cce") == "cuda"):
         if kernel_name == "":
             kernel_name = op_func.__name__ if sch_tmpl is None else sch_tmpl['op_name']
-        kernel_name = gen_kernel_name(input_shapes, input_types, op_attrs, kernel_name)
 
     if sch_tmpl is not None:
         if sch_tmpl['target'] != CUDA:

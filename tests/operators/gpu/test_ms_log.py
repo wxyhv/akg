@@ -27,9 +27,9 @@ def gen_data(in_shape, in_dtype):
 
 def test_ms_log(in_shape, in_dtype, poly_sch=False):
     if poly_sch:
-        mod = utils.op_build(log_auto, (in_shape, ), (in_dtype, ), attrs={"target":"cuda"})
+        mod = utils.op_build_test(log_auto, (in_shape, ), (in_dtype, ), kernel_name="log_auto", attrs={"target":"cuda"})
     else:
-        mod = utils.op_build(log_manual, (in_shape, ), (in_dtype, ))
+        mod = utils.op_build_test(log_manual, (in_shape, ), (in_dtype, ), kernel_name="log_manual")
     data, output, expect = gen_data(in_shape, in_dtype)
     args = (data, output)
     output = utils.mod_launch(mod, args, expect=expect)

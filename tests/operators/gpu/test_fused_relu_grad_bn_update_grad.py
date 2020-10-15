@@ -45,16 +45,17 @@ def test_fused_relu_grad_bn_update_grad(shape, out_shape, dtype="float16", layou
     dtype_list = [out_dtype, dtype, dtype, dtype]
     op_attrs = [layout]
     if poly_sch:
-        mod = utils.op_build(
+        mod = utils.op_build_test(
             fused_relu_grad_bn_update_grad_auto,
             shape_list,
             dtype_list,
             op_attrs=op_attrs,
+            kernel_name="fused_relu_grad_bn_update_grad_auto",
             attrs={
                 "target": "cuda",
                 "register_memory_depth":3})
     else:
-        mod = utils.op_build(fused_relu_grad_bn_update_grad_manual, shape_list, dtype_list, op_attrs=op_attrs)
+        mod = utils.op_build_test(fused_relu_grad_bn_update_grad_manual, shape_list, dtype_list, kernel_name="fused_relu_grad_bn_update_grad_manual", op_attrs=op_attrs)
     
     head, data_sum, in_bn, in_active, output, expect = gen_data(shape, out_shape, dtype, out_dtype, layout)
     outputs = [output, output]

@@ -31,10 +31,10 @@ def gen_data(shape, dtype):
 
 def test_ms_sqrt(shape, dtype, poly_sch=False):
     if poly_sch:
-        mod = utils.op_build(sqrt_auto, [shape], [
-                             dtype], attrs={"target": "cuda"})
+        mod = utils.op_build_test(sqrt_auto, [shape], [
+                             dtype], kernel_name="sqrt_auto", attrs={"target": "cuda"})
     else:
-        mod = utils.op_build(sqrt_manual, [shape], [dtype])
+        mod = utils.op_build_test(sqrt_manual, [shape], [dtype], kernel_name="sqrt_manual")
     output, expect, inputs = gen_data(shape, dtype)
     output = utils.mod_launch(mod, (inputs, output), expect=expect)
     res = np.allclose(output, expect, rtol=5e-03, atol=1.e-8)

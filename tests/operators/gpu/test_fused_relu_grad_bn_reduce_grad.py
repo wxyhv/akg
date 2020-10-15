@@ -68,9 +68,9 @@ def test_fused_relu_grad_bn_reduce_grad(shape_1, shape_2, layout='NHWC', poly_sc
     dtype_list = ['float32', 'float32', 'float32', 'float32', 'float32', 'float32', 'float16', 'float16', 'float16']
     op_attrs = [layout]
     if poly_sch:
-        mod = utils.op_build(fused_relu_grad_bn_reduce_grad_auto, input_list, dtype_list, op_attrs=op_attrs, attrs={"target": "cuda"})
+        mod = utils.op_build_test(fused_relu_grad_bn_reduce_grad_auto, input_list, dtype_list, kernel_name="fused_relu_grad_bn_reduce_grad_auto", op_attrs=op_attrs, attrs={"target": "cuda"})
     else:
-        mod = utils.op_build(fused_relu_grad_bn_reduce_grad_manual, input_list, dtype_list, op_attrs=op_attrs)
+        mod = utils.op_build_test(fused_relu_grad_bn_reduce_grad_manual, input_list, dtype_list, kernel_name="fused_relu_grad_bn_reduce_grad_manual", op_attrs=op_attrs)
     args = [data_1, data_2, data_3, data_4, data_5, data_6, data_7, data_8, data_9, output]
     output = utils.mod_launch(mod, args, expect=expect)
     res = np.allclose(output, expect, rtol=5e-03, atol=1e-08)

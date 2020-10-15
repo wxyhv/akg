@@ -34,9 +34,9 @@ def gen_data(shape, pad_before, pad_after, layout='NHWC', pad_value=0.0):
 def test_fused_pad(shape, pad_before, pad_after, layout='NHWC', pad_value=0.0, poly_sch=False):
     op_attrs = [pad_before, pad_after, layout, pad_value]
     if poly_sch:
-        mod = utils.op_build(fused_pad_auto, [shape], ['float32'], op_attrs=op_attrs, attrs={"target": "cuda"})
+        mod = utils.op_build_test(fused_pad_auto, [shape], ['float32'], kernel_name="fused_pad_auto", op_attrs=op_attrs, attrs={"target": "cuda"})
     else:
-        mod = utils.op_build(fused_pad_manual, [shape], ['float32'], op_attrs=op_attrs)
+        mod = utils.op_build_test(fused_pad_manual, [shape], ['float32'], kernel_name="fused_pad_manual", op_attrs=op_attrs)
     data, output, expect = gen_data(shape, pad_before, pad_after, layout, pad_value)
     args = (data, output)
     output = utils.mod_launch(mod, args, expect = expect)

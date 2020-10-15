@@ -42,10 +42,10 @@ def gen_data(shape, srcType, dstType):
 
 def test_ms_cast(shape, srcType, dstType, poly_sch=False):
     if poly_sch:
-        mod = utils.op_build(cast_auto, [shape], [
-            srcType], [dstType], attrs={"target": "cuda"})
+        mod = utils.op_build_test(cast_auto, [shape], [
+            srcType], [dstType], attrs={"target": "cuda"}, kernel_name="cast_auto")
     else:
-        mod = utils.op_build(cast_manual, [shape], [srcType], [dstType])
+        mod = utils.op_build_test(cast_manual, [shape], [srcType], [dstType], kernel_name="cast_manual")
     output, expect, inputs = gen_data(shape, srcType, dstType)
     output = utils.mod_launch(mod, (inputs, output), expect=expect)
     res = np.allclose(output, expect, rtol=5e-03, atol=1.e-8)

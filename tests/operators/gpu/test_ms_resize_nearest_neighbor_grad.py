@@ -63,9 +63,9 @@ def gen_data(shape, size, align_corners, dtype):
 def test_ms_resize_grad(shape, size, dtype, align_corners, poly_sch=False):
     op_attr = [size, align_corners]
     if poly_sch:
-        mod = utils.op_build(resize_nearest_neighbor_grad_auto, [shape], [dtype], op_attr, attrs={"target":"cuda"})
+        mod = utils.op_build_test(resize_nearest_neighbor_grad_auto, [shape], [dtype], op_attr, kernel_name="resize_nearest_neighbor_grad_auto", attrs={"target":"cuda"})
     else:  
-        mod = utils.op_build(resize_nearest_neighbor_grad_manual, [shape], [dtype], op_attr)    
+        mod = utils.op_build_test(resize_nearest_neighbor_grad_manual, [shape], [dtype], op_attr, kernel_name="resize_nearest_neighbor_grad_manual")    
     data, output, expect = gen_data(shape, size, align_corners, dtype)
     output = utils.mod_launch(mod, (data, output), expect = expect)
     compare_res = compare_tensor(output, expect, rtol=5e-03, atol=1e-08)
