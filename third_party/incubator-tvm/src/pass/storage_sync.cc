@@ -360,7 +360,7 @@ class ThreadSyncInserter : public IRMutator {
   Expr is_lead_;
 };
 
-Stmt ThreadSync(Stmt stmt, std::string storage_scope) {
+Stmt ThreadSyncStmt(Stmt stmt, std::string storage_scope) {
   StorageScope sync_scope = StorageScope::make(storage_scope);
   ThreadSyncPlanner planner(sync_scope);
   planner.Visit(stmt);
@@ -370,7 +370,7 @@ Stmt ThreadSync(Stmt stmt, std::string storage_scope) {
 LoweredFunc ThreadSync(LoweredFunc f, std::string storage_scope) {
   CHECK_NE(f->func_type, kHostFunc);
   auto n = make_node<LoweredFuncNode>(*f.operator->());
-  n->body = ThreadSync(f->body, storage_scope);
+  n->body = ThreadSyncStmt(f->body, storage_scope);
   return LoweredFunc(n);
 }
 

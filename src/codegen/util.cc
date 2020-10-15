@@ -62,8 +62,8 @@ void RecordCore(const Stmt &stmt, bool enable_file_log) {
 void CreateDir(const std::string &file) {
   char *file_name = strdup(file.c_str());
   CHECK(file_name != nullptr);
-  char *dir = dirname(file_name);
-  if (strcmp(dir, file.c_str()) == 0) {
+  char *dir = basename(file_name);
+  if (strcmp(dir, ".") == 0) {
     LOG(WARNING) << "Cannot create root directory " << file;
     free(file_name);
     return;

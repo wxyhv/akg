@@ -342,5 +342,9 @@ LowerThreadAllreduce(LoweredFunc f, int warp_size) {
   n->body = ThreadAllreduceBuilder(warp_size).Mutate(n->body);
   return LoweredFunc(n);
 }
+Stmt 
+LowerThreadAllreduceStmt(Stmt stmt, int warp_size) {
+  return ThreadAllreduceBuilder(warp_size).Mutate(stmt);
+}
 }  // namespace ir
 }  // namespace air

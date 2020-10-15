@@ -45,15 +45,22 @@ class MemoryAllocationException : public std::exception {
   uint64_t alloc_bits_{0};
 };
 
+Stmt LowerStmt(Schedule sch, const Array<NodeRef> &in_args, const Array<NodeRef> &shape_vars, const std::string &name,
+               const Map<Tensor, Buffer> &in_binds, const Map<std::string, NodeRef> &in_attrs, bool simple_mode,
+               bool polyhedral, bool tuning, const std::string &target, const BuildConfig &config, Array<NodeRef> *args,
+               Array<NodeRef> *arg_list_0, Map<Tensor, Buffer> *binds, Map<Tensor, Buffer> *binds_0, bool lower_list = false);
+
+NodeRef LowerFunc(Stmt &stmt, const std::string &name, const BuildConfig &config, const Array<NodeRef> &all_args);
+
 NodeRef Lower(Schedule sch, const Array<NodeRef> &in_args, const Array<NodeRef> &shape_vars, const std::string &name,
               const Map<Tensor, Buffer> &in_binds, const Map<std::string, NodeRef> &in_attrs, bool simple_mode,
               bool polyhedral, bool tuning, const std::string &target, const BuildConfig &config);
 
 air::runtime::Module BuildModule(const Schedule &inputs, const Array<NodeRef> &in_args,
-                                  const Array<NodeRef> &shape_vars, const std::string &target_name,
-                                  const std::string &name, const Map<Tensor, Buffer> &in_binds,
-                                  const Map<std::string, NodeRef> &in_attrs, bool polyhedral, const std::string &target,
-                                  const BuildConfig &config);
+                                 const Array<NodeRef> &shape_vars, const std::string &target_name,
+                                 const std::string &name, const Map<Tensor, Buffer> &in_binds,
+                                 const Map<std::string, NodeRef> &in_attrs, bool polyhedral, const std::string &target,
+                                 const BuildConfig &config);
 
 class BuildRst;
 

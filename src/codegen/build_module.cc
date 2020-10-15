@@ -436,30 +436,8 @@ void FixParametricBinds(const Map<Tensor, Buffer> &binds, const Array<NodeRef> &
   }
 }
 
-NodeRef Lower(Schedule sch, const Array<NodeRef> &in_args, const Array<NodeRef> &shape_vars, const std::string &name,
-              const Map<Tensor, Buffer> &in_binds, const Map<std::string, NodeRef> &in_attrs, bool simple_mode,
-              bool polyhedral, bool tuning, const std::string &target, const BuildConfig &config) {
-  ir::TestExprCompuationSimplify();
-  CHECK(sch.defined()) << "sch is not defined.";
-  CHECK(!name.empty()) << "name is empty.";
-  CHECK(find_if(name.begin(), name.end(), [](char c) { return !std::isalnum(c) && c != '_'; }) == name.end())
-    << "kernel name contains invalid chars: " << name;
-
-  Array<NodeRef> args;
-  if (in_args.defined()) {
-    args = in_args;
-  }
-  Map<Tensor, Buffer> binds;
-  if (in_binds.defined()) {
-    binds = in_binds;
-  }
-  if (in_attrs.defined()) {
-    global_attrs = in_attrs;
-  }
-  PassMgr::ClearPassId();
-  PassTimer *pass_timer = PassTimer::GetInstance();
+void DumpIr(const std::string &name, const BuildConfig &config, bool lower_list) {
   global_attrs.Set(kKernelName, StringImm::make(name));
-
   global_attrs.Set(kDumpPassIr, air::make_const(Int(32), config->dump_pass_ir));
   if (config->dump_pass_ir) {
     std::string dump_ir_dir;
@@ -470,16 +448,38 @@ NodeRef Lower(Schedule sch, const Array<NodeRef> &in_args, const Array<NodeRef> 
     }
     CreateDir(PassMgr::GetDir());
     std::string dump_poly_dir;
-    if (!global_attrs.GetStringAttr(kDumpPolyDir, &dump_poly_dir)) {
+    if (!global_attrs.GetStringAttr(kDumpPolyDir, &dump_poly_dir) || lower_list) {
       dump_poly_dir = PassMgr::GetDir() + "/poly";
       global_attrs.Set(kDumpPolyDir, StringImm::make(dump_poly_dir));
+      CreateDir(dump_poly_dir);
     }
-    CreateDir(dump_poly_dir);
+  }
+}
+Stmt LowerStmt(Schedule sch, const Array<NodeRef> &in_args, const Array<NodeRef> &shape_vars, const std::string &name,
+               const Map<Tensor, Buffer> &in_binds, const Map<std::string, NodeRef> &in_attrs, bool simple_mode,
+               bool polyhedral, bool tuning, const std::string &target, const BuildConfig &config, Array<NodeRef> *args,
+               Array<NodeRef> *arg_list_0, Map<Tensor, Buffer> *binds, Map<Tensor, Buffer> *binds_0, bool lower_list) {
+  ir::TestExprCompuationSimplify();
+  CHECK(sch.defined()) << "sch is not defined.";
+  CHECK(!name.empty()) << "name is empty.";
+  CHECK(find_if(name.begin(), name.end(), [](char c) { return !std::isalnum(c) && c != '_'; }) == name.end())
+    << "kernel name contains invalid chars: " << name;
+
+  if (in_args.defined()) {
+    *args = in_args;
   }
 
-  Array<NodeRef> arg_list_0;
-  Map<Tensor, Buffer> binds_0;
-  GetBinds(args, binds, config, &arg_list_0, &binds_0);
+  if (in_binds.defined()) {
+    *binds = in_binds;
+  }
+  if (in_attrs.defined()) {
+    global_attrs = in_attrs;
+  }
+  PassMgr::ClearPassId();
+
+  DumpIr(name, config, lower_list);
+
+  GetBinds(*args, *binds, config, arg_list_0, binds_0);
 
   // Phase 0
   if (polyhedral && global_attrs.GetBoolAttr(kEnableAutoInline, true)) {
@@ -490,8 +490,9 @@ NodeRef Lower(Schedule sch, const Array<NodeRef> &in_args, const Array<NodeRef> 
   Stmt stmt = make_pass("schedule.ScheduleOps", new_sch, bounds, false);
 
   if (target == "cuda") {
+    Target target_platform = Target::Create(target);
     if (polyhedral) {
-      Array<NodeRef> poly_res = NEXT_PASS(AutoPoly, stmt, binds_0, target, global_attrs, false, false);
+      Array<NodeRef> poly_res = NEXT_PASS(AutoPoly, stmt, *binds_0, target, global_attrs, false, false);
       CHECK_EQ(poly_res.size(), 2);
       stmt = air::Downcast<Stmt>(poly_res[0]);
       global_attrs.Set(kEnablePolySch, air::make_const(Int(32), true));
@@ -500,8 +501,8 @@ NodeRef Lower(Schedule sch, const Array<NodeRef> &in_args, const Array<NodeRef> 
     }
     // Phase 1
     stmt = NEXT_PASS(RemoveFakeOp, stmt);
-    stmt = NEXT_PASS(RewriteForTensorCore, stmt, new_sch, binds_0);
-    stmt = NEXT_PASS(StorageFlatten, stmt, binds_0, 64, config->instrument_bound_checkers);
+    stmt = NEXT_PASS(RewriteForTensorCore, stmt, new_sch, *binds_0);
+    stmt = NEXT_PASS(StorageFlatten, stmt, *binds_0, 64, config->instrument_bound_checkers);
     stmt = NEXT_PASS(CanonicalSimplify, stmt);
 
     // Phase 2
@@ -531,10 +532,40 @@ NodeRef Lower(Schedule sch, const Array<NodeRef> &in_args, const Array<NodeRef> 
     if (!config->disable_select_rewriting) {
       stmt = NEXT_PASS(RewriteUnsafeSelect, stmt);
     }
+    if (BuildConfig::Current()->detect_global_barrier) {
+      stmt = NEXT_PASS(ThreadSyncStmt, stmt, "global");
+    }
+    if (!global_attrs.GetBoolAttr(kEnablePolySch, false)) {
+      stmt = NEXT_PASS(ThreadSyncStmt, stmt, "shared");
+    }
+    stmt = NEXT_PASS(ThreadSyncStmt, stmt, "warp");
+    stmt = NEXT_PASS(InferFragmentStmt, stmt);
+    stmt = NEXT_PASS(LowerThreadAllreduceStmt, stmt, target_platform->thread_warp_size);
+
     if (simple_mode) {
       return stmt;
     }
-    LoweredFunc lowered_func = NEXT_PASS(MakeAPI, stmt, name, arg_list_0, 0, config->restricted_func);
+  }
+  return stmt;
+}
+NodeRef LowerFunc(Stmt &stmt, const std::string &name, const BuildConfig &config, const Array<NodeRef> &all_args) {
+  PassMgr::ClearPassId();
+  DumpIr(name, config, false);
+  LoweredFunc lowered_func = NEXT_PASS(MakeAPI, stmt, name, all_args, 0, config->restricted_func);
+  return lowered_func;
+}
+NodeRef Lower(Schedule sch, const Array<NodeRef> &in_args, const Array<NodeRef> &shape_vars, const std::string &name,
+              const Map<Tensor, Buffer> &in_binds, const Map<std::string, NodeRef> &in_attrs, bool simple_mode,
+              bool polyhedral, bool tuning, const std::string &target, const BuildConfig &config) {
+  Array<NodeRef> args;
+  Array<NodeRef> arg_list_0;
+  Map<Tensor, Buffer> binds;
+  Map<Tensor, Buffer> binds_0;
+  PassTimer *pass_timer = PassTimer::GetInstance();
+  Stmt stmt = LowerStmt(sch, in_args, shape_vars, name, in_binds, in_attrs, simple_mode, polyhedral, tuning, target,
+                        config, &args, &arg_list_0, &binds, &binds_0);
+  if (target == "cuda") {
+    NodeRef lowered_func = LowerFunc(stmt, name, config, arg_list_0);
     return lowered_func;
   }
 
@@ -960,7 +991,7 @@ NodeRef Lower(Schedule sch, const Array<NodeRef> &in_args, const Array<NodeRef> 
     return stmt;
   }
   PassMgr::SetArgs(arg_list_0);
-  LoweredFunc lowered_func = NEXT_PASS(MakeAPI, stmt, name, arg_list_0, 0, config->restricted_func);
+  NodeRef lowered_func = LowerFunc(stmt, name, config, arg_list_0);
 
   LOG(INFO) << *pass_timer;
   pass_timer->Clear();
@@ -984,17 +1015,6 @@ void BuildForDevice(const Array<LoweredFunc> &flist, const std::string &target_n
   Array<LoweredFunc> fdevice;
   for (auto func : flist) {
     if (func->func_type == air::LoweredFuncType::kMixedFunc) {
-      if (target_name == "cuda") {
-        if (BuildConfig::Current()->detect_global_barrier) {
-          func = NEXT_PASS(ThreadSync, func, "global");
-        }
-        if (!global_attrs.GetBoolAttr(kEnablePolySch, false)) {
-          func = NEXT_PASS(ThreadSync, func, "shared");
-        }
-        func = NEXT_PASS(ThreadSync, func, "warp");
-        func = NEXT_PASS(InferFragment, func);
-        func = NEXT_PASS(LowerThreadAllreduce, func, target->thread_warp_size);
-      }
       Array<LoweredFunc> fsplits = NEXT_PASS(SplitHostDevice, func);
       fhost.push_back(fsplits[0]);
       for (size_t idx = 1; idx < fsplits.size(); idx++) {

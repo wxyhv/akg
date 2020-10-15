@@ -204,7 +204,7 @@ class InferFragmenter : public IRMutator {
   const FragmentGetter &fragment_getter;
 };
 
-Stmt InferFragment(Stmt stmt) {
+Stmt InferFragmentStmt(Stmt stmt) {
   FragmentGetter getter;
   getter.Visit(stmt);
   FragmentChecker(getter).Visit(stmt);
@@ -215,7 +215,7 @@ Stmt InferFragment(Stmt stmt) {
 LoweredFunc InferFragment(LoweredFunc f) {
   CHECK_NE(f->func_type, kHostFunc);
   auto n = make_node<LoweredFuncNode>(*f.operator->());
-  n->body = InferFragment(f->body);
+  n->body = InferFragmentStmt(f->body);
   return LoweredFunc(n);
 }
 
