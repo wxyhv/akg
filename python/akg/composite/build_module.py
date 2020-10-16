@@ -186,7 +186,7 @@ def build_cuda(outputs, args, sch_name, kernel_name, attrs = False, poly = False
 def select_cuda_scheduler(outputs, sch_name, poly = False):
     scheduler = {
         "injective" : topi.cuda.injective_single_kernel.schedule_injective,
-        "reduce"    : topi.cuda.schedule_reduce,
+        "reduce"    : topi.cuda.reduce_opt.schedule_reduce,
     }
     with tvm.target.cuda():
         if bool(poly):

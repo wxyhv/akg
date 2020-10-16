@@ -18,7 +18,7 @@ from akg.ops.math_gpu import reduce_min
 import akg.topi as topi
 
 
-@akg.schedule(topi.cuda.schedule_reduce)
+@akg.schedule(topi.cuda.reduce_opt.schedule_reduce)
 def reduce_min_manual(data, axis, keepdims):
     """Reduce min with manual schedule."""
     return reduce_min.reduce_min(data, axis=axis, keepdims=keepdims)

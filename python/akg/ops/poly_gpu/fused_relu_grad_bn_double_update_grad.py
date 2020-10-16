@@ -17,7 +17,7 @@ import akg
 import akg.topi as topi
 from akg.ops.fused_gpu import fused_relu_grad_bn_double_update_grad
 
-@akg.schedule(topi.cuda.schedule_reduce)
+@akg.schedule(topi.cuda.reduce_opt.schedule_reduce)
 def fused_relu_grad_bn_double_update_grad_manual(data_1, data_2, data_3, data_4, data_5, data_6, data_7, layout='NHWC'):
     """Operator fusion: fused_relu_grad_bn_double_update_grad"""
     return fused_relu_grad_bn_double_update_grad.fused_relu_grad_bn_double_update_grad(

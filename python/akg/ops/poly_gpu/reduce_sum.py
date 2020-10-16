@@ -18,7 +18,7 @@ from akg.ops.math_gpu import reduce_sum
 import akg.topi as topi
 
 
-@akg.schedule(topi.cuda.schedule_reduce)
+@akg.schedule(topi.cuda.reduce_opt.schedule_reduce)
 def reduce_sum_manual(data, axis, keepdims):
     """Reduce sum with manual schedule."""
     return reduce_sum.reduce_sum(data, axis, keepdims)
