@@ -252,6 +252,9 @@ bool LoadScheduleTreeFromFile(const std::string &filename, isl::schedule &schedu
   std::string schedule_to_replace_str((std::istreambuf_iterator<char>(new_schedule_file_stream)),
                                       std::istreambuf_iterator<char>());
   schedule_to_replace_str = UndoPrettyPrintSchTree(schedule_to_replace_str);
+  if (schedule_to_replace_str == "") {
+    return false;
+  }
   isl_schedule *ss = isl_schedule_read_from_str(schedule.ctx().get(), schedule_to_replace_str.c_str());
   if (ss != nullptr) {
     schedule = isl::manage(ss);
