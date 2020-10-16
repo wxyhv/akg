@@ -1,7 +1,7 @@
 import os
 from setuptools import setup
 
-package_data = { '': ['build/*.so*']}
+package_data = {'': ['*.so*']}
 include_dirs = ['python/akg',
                 'third_party/incubator-tvm/python/tvm',
                 'third_party/incubator-tvm/topi/python/topi',
@@ -23,6 +23,7 @@ def find_files(where=['.']):
                 if '.' in dir:
                     continue
                 dirs.append(package)
+    dirs.append('build')
     return dirs
 
 setup(name='akg',
