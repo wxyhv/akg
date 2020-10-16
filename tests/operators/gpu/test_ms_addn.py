@@ -37,9 +37,9 @@ def test_ms_addn(shape, dtype, n, poly_sch=False):
     for i in range(n):
         shapes.append(shape)
     if poly_sch:
-        mod = utils.op_build(addn_auto, [shapes], [dtype], attrs={"target": "cuda"})
+        mod = utils.op_build_test(addn_auto, [shapes], [dtype], attrs={"target": "cuda"}, kernel_name="addn_auto")
     else:
-        mod = utils.op_build(addn_manual, [shapes], [dtype])
+        mod = utils.op_build_test(addn_manual, [shapes], [dtype], kernel_name="addn_manual")
     expect, inputs, output = gen_data(shape, shapes, dtype, n)
     output = utils.mod_launch(mod, (*inputs, output), expect=expect)
     res = compare_tensor(output, expect, rtol=5e-03, atol=1.e-8)

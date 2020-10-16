@@ -45,9 +45,9 @@ def test_fused_l2loss_grad(shape, layout, fill_data=4e-05, poly_sch=False):
     dtype_list = ['float16', 'float32']
     op_attrs = [layout, fill_data]
     if poly_sch:
-        mod = utils.op_build(fused_l2loss_grad_auto, input_list, dtype_list, op_attrs=op_attrs, attrs={"target": "cuda"})
+        mod = utils.op_build_test(fused_l2loss_grad_auto, input_list, dtype_list, kernel_name="fused_l2loss_grad_auto", op_attrs=op_attrs, attrs={"target": "cuda"})
     else:
-        mod = utils.op_build(fused_l2loss_grad_manual, input_list, dtype_list, op_attrs=op_attrs)
+        mod = utils.op_build_test(fused_l2loss_grad_manual, input_list, dtype_list, kernel_name="fused_l2loss_grad_manual", op_attrs=op_attrs)
     
     args = [data_1, data_2, output]
     output = utils.mod_launch(mod, args, expect = expect)

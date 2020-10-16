@@ -68,9 +68,9 @@ def test_fused_relu_grad_bn_double_update_grad(shape_f16, shape_f32, layout='NHW
     output = [output, output, output]
 
     if poly_sch:
-        mod = utils.op_build(fused_relu_grad_bn_double_update_grad_auto, shape_list, dtype_list, op_attrs=[layout], attrs={"target": "cuda","register_memory_depth":3})
+        mod = utils.op_build(fused_relu_grad_bn_double_update_grad_auto, shape_list, dtype_list, op_attrs=[layout], kernel_name="fused_relu_grad_bn_double_update_grad_auto", attrs={"target": "cuda","register_memory_depth":3})
     else:
-        mod = utils.op_build(fused_relu_grad_bn_double_update_grad_manual, shape_list, dtype_list, op_attrs=[layout])
+        mod = utils.op_build_test(fused_relu_grad_bn_double_update_grad_manual, shape_list, dtype_list, kernel_name="fused_relu_grad_bn_double_update_grad_manual", op_attrs=[layout])
 
     output = utils.mod_launch(mod, (data_1, data_2, data_3, data_4, data_5, data_6, data_7, *output), outputs=tuple(range(-len(output),0)), expect = expect)
 

@@ -28,9 +28,9 @@ def gen_data(shape, dtype):
 
 def test_ms_mul(shape, dtype, poly_sch=False):
     if poly_sch:
-        mod = utils.op_build(mul_auto, (shape, shape), (dtype, dtype), attrs={"target":"cuda"})
+        mod = utils.op_build_test(mul_auto, (shape, shape), (dtype, dtype), kernel_name="mul_auto", attrs={"target":"cuda"})
     else:    
-        mod = utils.op_build(mul_manual, (shape, shape), (dtype, dtype))
+        mod = utils.op_build_test(mul_manual, (shape, shape), (dtype, dtype), kernel_name="mul_manual")
     lhs, rhs, output, expect = gen_data(shape, dtype)
     output = utils.mod_launch(mod, (lhs, rhs, output), expect = expect)
     res = np.allclose(output, expect, rtol=5e-03, atol=1.e-8)

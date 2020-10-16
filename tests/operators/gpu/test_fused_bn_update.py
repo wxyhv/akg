@@ -50,9 +50,9 @@ def test_fused_bn_update(shape, dtype="float32", c1=(1 / (256 * 7 * 7)), c2=1.00
     shapes = [input[0].shape] * 4
     dtypes = [dtype] * 4
     if poly_sch:
-        mod = utils.op_build(fused_bn_update_auto, shapes, dtypes, op_attrs=attrs, attrs={"target": "cuda"})
+        mod = utils.op_build_test(fused_bn_update_auto, shapes, dtypes, kernel_name="fused_bn_update_auto", op_attrs=attrs, attrs={"target": "cuda"})
     else:
-        mod = utils.op_build(fused_bn_update_manual, shapes, dtypes, op_attrs=attrs)
+        mod = utils.op_build_test(fused_bn_update_manual, shapes, dtypes, kernel_name="fused_bn_update_manual", op_attrs=attrs)
     outputs =  [np.full(shape, np.nan, dtype)] * 3
     attrs_list =  input + outputs
     output = utils.mod_launch(mod, attrs_list, outputs=(range(-len(outputs), 0)), expect=expect)

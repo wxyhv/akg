@@ -27,9 +27,9 @@ def gen_data(shape, dtype):
 
 def test_ms_neg(shape, dtype, poly_sch=False):
     if poly_sch:
-        mod = utils.op_build(neg_auto, [shape], [dtype], attrs={"target": "cuda"})
+        mod = utils.op_build_test(neg_auto, [shape], [dtype], attrs={"target": "cuda"}, kernel_name="neg_auto")
     else:
-        mod = utils.op_build(neg_manual, [shape], [dtype])
+        mod = utils.op_build_test(neg_manual, [shape], [dtype], kernel_name="neg_manual")
     data, output, expect = gen_data(shape, dtype)
     output = utils.mod_launch(mod, (data, output), expect = expect)
     res = np.allclose(output, expect, rtol=5e-03, atol=1.e-8)

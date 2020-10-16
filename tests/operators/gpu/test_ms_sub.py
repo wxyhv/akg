@@ -21,9 +21,9 @@ from akg.utils.format_transform import to_tvm_nd_array
 
 def test_ms_sub(shape1, shape2, dtype, poly_sch=False):
     if poly_sch:
-        mod = utils.op_build(sub_auto, (shape1, shape2), (dtype, dtype), attrs={"target": "cuda"})    
+        mod = utils.op_build_test(sub_auto, (shape1, shape2), (dtype, dtype), kernel_name="sub_auto", attrs={"target": "cuda"})    
     else:
-        mod = utils.op_build(sub_manual, (shape1, shape2), (dtype, dtype))    
+        mod = utils.op_build_test(sub_manual, (shape1, shape2), (dtype, dtype), kernel_name="sub_manual")    
     expect, lhs, rhs, output  = gen_data(dtype, shape1, shape2)
     args = (lhs, rhs, output) 
     output = utils.mod_launch(mod, args, expect=expect)

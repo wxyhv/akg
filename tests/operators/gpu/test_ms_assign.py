@@ -25,7 +25,7 @@ def gen_data(dtype, ref_shape, val_shape):
 
 def test_ms_assign(dtype, ref_shape, val_shape):
     ref, val, expect = gen_data(dtype, ref_shape, val_shape)
-    mod = utils.op_build(assign.Assign, (ref_shape, val_shape), (dtype, dtype))
+    mod = utils.op_build_test(assign.Assign, (ref_shape, val_shape), (dtype, dtype), kernel_name="assign")
     fake_output = np.full(val_shape, np.nan, dtype)
     result = utils.mod_launch(mod, (ref, val, fake_output), expect = expect)
     assert np.allclose(result, expect, rtol=5e-03, atol=1.e-8)

@@ -46,9 +46,9 @@ def test_fused_mul_div_rsqrt_mul_isfinite_red(shape, dtype='float32', poly_sch=F
     input_shape = [shape, shape]
     input_dtype = [dtype, dtype]
     if poly_sch:
-        mod = utils.op_build(fused_mul_div_rsqrt_mul_isfinite_red_auto, input_shape, input_dtype, attrs={"target": "cuda"})
+        mod = utils.op_build_test(fused_mul_div_rsqrt_mul_isfinite_red_auto, input_shape, input_dtype, kernel_name="fused_mul_div_rsqrt_mul_isfinite_red_auto", attrs={"target": "cuda"})
     else:
-        mod = utils.op_build(fused_mul_div_rsqrt_mul_isfinite_red_manual, input_shape, input_dtype)
+        mod = utils.op_build_test(fused_mul_div_rsqrt_mul_isfinite_red_manual, input_shape, input_dtype, kernel_name="fused_mul_div_rsqrt_mul_isfinite_red_manual")
     outputs = [np.full((1,), False, 'bool')] + [np.full(shape, np.nan, dtype)] * 3
     output = utils.mod_launch(mod, [*input, *outputs], outputs=list(range(-len(outputs), 0)), expect=expect)
     ret = compare_tensor(output[0], expect[0], rtol=5e-03, atol=1.e-08)

@@ -32,11 +32,11 @@ def gen_data(in_shape, in_dtype, axis, keepdims):
 
 def test_ms_reduce_max(in_shape, in_dtype, axis=None, keepdims=False, poly_sch=False):
     if poly_sch:
-        mod = utils.op_build(reduce_max_auto, (in_shape, ), (in_dtype, ), op_attrs=[
-                             axis, keepdims], attrs={"target": "cuda"})
+        mod = utils.op_build_test(reduce_max_auto, (in_shape, ), (in_dtype, ), op_attrs=[
+                             axis, keepdims], kernel_name="reduce_max_auto", attrs={"target": "cuda"})
     else:
-        mod = utils.op_build(reduce_max_manual, (in_shape, ),
-                             (in_dtype, ), op_attrs=[axis, keepdims])
+        mod = utils.op_build_test(reduce_max_manual, (in_shape, ),
+                             (in_dtype, ), kernel_name="reduce_max_manual", op_attrs=[axis, keepdims])
     data, output, expect = gen_data(in_shape, in_dtype, axis, keepdims)
     args = (data, output)
     output = utils.mod_launch(mod, args, expect=expect)

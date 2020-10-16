@@ -85,14 +85,14 @@ def test_fused_bn_reduce_grad(in_shape, in_dtype="float16", layout='NHWC', out_d
     input_dtype_list = [inter_dtype] * 3 + [in_dtype] + [inter_dtype] * 3 + [in_dtype]
     op_attrs = [layout, out_dtype]
     if poly_sch:
-        mod = utils.op_build(
+        mod = utils.op_build_test(
             fused_bn_reduce_grad_auto, input_shape_list, input_dtype_list,
-            op_attrs=op_attrs, attrs={"target": "cuda"}
+            kernel_name="fused_bn_reduce_grad_auto", op_attrs=op_attrs, attrs={"target": "cuda"}
         )
     else:
-        mod = utils.op_build(
+        mod = utils.op_build_test(
             fused_bn_reduce_grad_manual, input_shape_list, input_dtype_list,
-            op_attrs=op_attrs
+            kernel_name="fused_bn_reduce_grad_manual", op_attrs=op_attrs
         )
 
     outputs = [output]
