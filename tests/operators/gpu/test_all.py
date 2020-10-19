@@ -256,10 +256,10 @@ def fused_is_finite(poly_sch, fuzz_shape=None):
     test_fused_is_finite((1, 1, 256, 1024), layout='NHWC', poly_sch=poly_sch)
 
 def fused_relu_grad_bn_update_grad(poly_sch, fuzz_shape=None):
-    test_fused_relu_grad_bn_update_grad((256, 112, 112, 64), (64,), layout="NHWC", poly_sch=False)
+    test_fused_relu_grad_bn_update_grad((256, 112, 112, 64), (64,), layout="NHWC", poly_sch=poly_sch)
 
 def fused_relu_grad_bn_double_update_grad(poly_sch, fuzz_shape=None):
-    test_fused_relu_grad_bn_double_update_grad((256,56,56,256), (256, ), layout='NHWC', poly_sch=False)
+    test_fused_relu_grad_bn_double_update_grad((256,56,56,256), (256, ), layout='NHWC', poly_sch=poly_sch)
 
 def fused_relu_grad(poly_sch, fuzz_shape=None):
     test_fused_relu_grad((256, 56, 56, 256), poly_sch=poly_sch)

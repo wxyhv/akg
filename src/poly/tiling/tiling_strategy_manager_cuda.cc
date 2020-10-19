@@ -63,6 +63,10 @@ void ReduceStrategy::AddGpuConstraint() {
       axis->TileRestrainToSingleValue(CastIntToExpr(extent), TileLevel::LEVEL1);
     }
   }
+
+  for (auto axis : reduce_axes) {
+    axis->thread_constraints.map_extent_ = MIN_TILE;
+  }
 }
 
 void GpuStrategy::AddGpuConstraint() {

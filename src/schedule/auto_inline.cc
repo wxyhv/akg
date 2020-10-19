@@ -58,7 +58,10 @@ class InlineFilter : public IRVisitor {
 };
 
 // op can not be inlined
-bool CantInline(const Operation &op) {
+bool CantInline(const Operation &op, const Target &target) {
+  if (target->device_type == kDLGPU) {
+    return false;
+  }
   if (const auto compute = op.as<ComputeOpNode>()) {
     InlineFilter v;
     for (auto &e : compute->body) {
@@ -120,7 +123,7 @@ void GetConvInputName(const Operation &op, std::unordered_set<std::string> &inpu
   }
 }
 
-void AutoInline(Schedule sch) {
+void AutoInline(Schedule sch, const Target &target) {
   // Note: do not support inline of hybrid ops
   std::unordered_set<Operation, NodeHash, NodeEqual> uninlinable;
   for (const Stage &s : sch->stages) {
@@ -141,7 +144,7 @@ void AutoInline(Schedule sch) {
   }
 
   for (Stage s : sch->stages) {
-    if (!s.is_scheduled() && (IsInjective(s->op) || air::schedule::IsElemWise(s->op)) && !CantInline(s->op) &&
+    if (!s.is_scheduled() && (IsInjective(s->op) || air::schedule::IsElemWise(s->op)) && !CantInline(s->op, target) &&
         !s->is_output && uninlinable.count(s->op) == 0 && !(has_conv && !IsConvInline(s->op, conv_inputs)) &&
         (s->op->attrs.count("no_inline") == 0)) {
       static_cast<void>(s.compute_inline());

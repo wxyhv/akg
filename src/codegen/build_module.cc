@@ -482,17 +482,20 @@ Stmt LowerStmt(Schedule sch, const Array<NodeRef> &in_args, const Array<NodeRef>
   GetBinds(*args, *binds, config, arg_list_0, binds_0);
 
   // Phase 0
+  Target target_platform = Target::Create(target);
   if (polyhedral && global_attrs.GetBoolAttr(kEnableAutoInline, true)) {
-    akg::schedule::AutoInline(sch);
+    akg::schedule::AutoInline(sch, target_platform);
+  }
+  if (target_platform->device_type == kDLGPU && polyhedral) {
+    akg::schedule::AutoFuse(sch);
   }
   auto new_sch = sch.normalize();
   auto bounds = air::schedule::InferBound(new_sch);
   Stmt stmt = make_pass("schedule.ScheduleOps", new_sch, bounds, false);
 
-  if (target == "cuda") {
-    Target target_platform = Target::Create(target);
+  if (target_platform->device_type == kDLGPU) {
     if (polyhedral) {
-      if (global_attrs.GetBoolAttr(kEnableFuseAxis, true)) {
+      if (global_attrs.GetBoolAttr(kEnableFuseAxis, false)) {
         Array<NodeRef> fuse_axis_res = NEXT_PASS(FuseAxis, stmt, *arg_list_0, *binds_0);
         CHECK_EQ(fuse_axis_res.size(), 3);
         stmt = air::Downcast<Stmt>(fuse_axis_res[0]);
