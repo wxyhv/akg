@@ -159,6 +159,7 @@ REGISTER_PASS(MultiLastAxisReductions);
 REGISTER_PASS(AutoReorder);
 REGISTER_PASS(CopyPropagation);
 REGISTER_PASS(ElementwiseFlatten);
+REGISTER_PASS(FuseAxis);
 REGISTER_PASS(MultiCorePartition);
 REGISTER_PASS(MultiCoreLoopSwitchHoist);
 REGISTER_PASS(DeadCodeElim);

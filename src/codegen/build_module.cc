@@ -492,6 +492,14 @@ Stmt LowerStmt(Schedule sch, const Array<NodeRef> &in_args, const Array<NodeRef>
   if (target == "cuda") {
     Target target_platform = Target::Create(target);
     if (polyhedral) {
+      if (global_attrs.GetBoolAttr(kEnableFuseAxis, true)) {
+        Array<NodeRef> fuse_axis_res = NEXT_PASS(FuseAxis, stmt, *arg_list_0, *binds_0);
+        CHECK_EQ(fuse_axis_res.size(), 3);
+        stmt = air::Downcast<Stmt>(fuse_axis_res[0]);
+        *arg_list_0 = air::Downcast<Array<NodeRef>>(fuse_axis_res[1]);
+        *binds_0 = air::Downcast<Map<Tensor, Buffer>>(fuse_axis_res[2]);
+      }
+
       Array<NodeRef> poly_res = NEXT_PASS(AutoPoly, stmt, *binds_0, target, global_attrs, false, false);
       CHECK_EQ(poly_res.size(), 2);
       stmt = air::Downcast<Stmt>(poly_res[0]);
