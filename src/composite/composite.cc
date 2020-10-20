@@ -336,30 +336,35 @@ class FusionMutator : public IRMutator {
  private:
   Stmt Mutate_(const AttrStmt *op, const Stmt &s) override {
     if (op->attr_key == "fusion" && op->value.as<StringImm>()) {
-      auto fusion_op_name = op->value.as<StringImm>()->value;
-      CHECK(op->body.as<Provide>());
-      auto provide = op->body.as<Provide>();
-      CHECK(provide->value.as<Call>());
-      auto call = provide->value.as<Call>();
-      if (fusion_op_name.find("_end") == std::string::npos) {
+      fusion_op_name_ = op->value.as<StringImm>()->value;
+      return IRMutator::Mutate(op->body);
+    }
+    return IRMutator::Mutate_(op, s);
+  }
+
+  Stmt Mutate_(const Provide *op, const Stmt &s) override {
+    if (!fusion_op_name_.empty()) {
+      CHECK(op->value.as<Call>());
+      auto call = op->value.as<Call>();
+      if (fusion_op_name_.find("_end") == std::string::npos) {
         if (call->name == "ZerosLike") {  // ZerosLike directly transform to zero
           CHECK_EQ(call->args.size(), 1);
           CHECK(call->args[0].as<Call>());
-          output_with_inputs_[provide->func] = {make_zero(call->args[0].as<Call>()->type)};
+          output_with_inputs_[op->func] = {make_zero(call->args[0].as<Call>()->type)};
         } else {
-          output_with_inputs_[provide->func] = call->args;
+          output_with_inputs_[op->func] = call->args;
         }
         return Evaluate::make(0);
-      } else {
+      } else {  // fusion end
         Array<Expr> fusion_inputs;
         GetFusionOpInputs(call->args, fusion_inputs);
-        auto str_list = dmlc::Split(fusion_op_name, '_');
+        auto str_list = dmlc::Split(fusion_op_name_, '_');
         CHECK(!str_list.empty());
-        fusion_op_name = str_list[0];
-        auto stmt = Provide::make(provide->func, provide->value_index,
-                                  Call::make(Int(32), fusion_op_name, fusion_inputs, Call::CallType::PureIntrinsic),
-                                  provide->args);
+        auto stmt =
+          Provide::make(op->func, op->value_index,
+                        Call::make(Int(32), str_list[0], fusion_inputs, Call::CallType::PureIntrinsic), op->args);
         output_with_inputs_.clear();
+        fusion_op_name_.clear();
         return stmt;
       }
     }
@@ -379,7 +384,9 @@ class FusionMutator : public IRMutator {
       fusion_inputs.push_back(item);
     }
   }
+
   std::unordered_map<FunctionRef, Array<Expr>, NodeHash, NodeEqual> output_with_inputs_;
+  std::string fusion_op_name_;
 };
 
 Stmt Optimize(Stmt &s, BuildInfoOpt &opt) {
