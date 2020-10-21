@@ -13,36 +13,13 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-#include <algorithm>
-#include <fstream>
-#include <unordered_map>
-#include <unordered_set>
-
-#include "build_module.h"
-#include "composite/util.h"
-#include "dmlc/logging.h"
 #include "dmlc/common.h"
 #include "picojson.h"
-#include "topi/broadcast.h"
+#include "build_module.h"
+#include "composite/util.h"
+#include "composite/optimize/optimize.h"
 
 namespace akg {
-using FuncRefMap = std::unordered_map<FunctionRef, FunctionRef, NodeHash, NodeEqual>;
-using FuncRefSet = std::unordered_set<FunctionRef, NodeHash, NodeEqual>;
-using FuncTensorMap = std::unordered_map<FunctionRef, Tensor, NodeHash, NodeEqual>;
-struct BuildInfo {
-  Array<Tensor> tensors;         // topi's output tensor, which should be compute node
-  Array<NodeRef> args;           // the composite kernel's inputs and outputs
-  Map<Tensor, Buffer> in_binds;  // the tensors which should be in bind
-  std::string kernel_name;       // the composite kernel's name
-};
-
-struct BuildInfoOpt {
-  FuncRefMap inplaces;           // the tensors which should be in bind
-  FuncRefMap sames;              // the tensors which are same
-  FuncRefSet fakeout;            // the tensors which are not output
-  std::vector<Tensor> sch_only;  // the tensors which should only used in sch, not output
-};
-
 std::tuple<std::string, picojson::array, picojson::array, picojson::array> ParseInputJson(
   const picojson::value &input_json) {
   picojson::array input_desc;
@@ -78,7 +55,9 @@ struct OpDesc {
 
 class OpDescsParser {
  public:
-  explicit OpDescsParser(picojson::array op_descs_json) : op_descs_json_(std::move(op_descs_json)) {}
+  OpDescsParser(picojson::array op_descs_json, const std::vector<std::string> &input_tensors,
+                const std::vector<std::string> &output_tensors)
+      : op_descs_json_(std::move(op_descs_json)), input_tensors_(input_tensors), output_tensors_(output_tensors) {}
   ~OpDescsParser() = default;
 
   void Parse() {
@@ -108,9 +87,13 @@ class OpDescsParser {
 
  public:
   std::vector<OpDesc> op_descs_;
+  FuncRefSet input_funcs_;
+  FuncRefSet output_funcs_;
 
  private:
   const picojson::array op_descs_json_;
+  const std::vector<std::string> input_tensors_;
+  const std::vector<std::string> output_tensors_;
   std::unordered_map<std::string, Tensor> tensor_map_;
 
  private:
@@ -164,6 +147,12 @@ class OpDescsParser {
     if (tensor_map_.count(tensor_name) == 0) {
       Tensor t = placeholder(shape, type, tensor_name);
       tensor_map_[tensor_name] = t;
+      if (std::find(input_tensors_.begin(), input_tensors_.end(), tensor_name) != input_tensors_.end()) {
+        input_funcs_.insert(t->op);
+      }
+      if (std::find(output_tensors_.begin(), output_tensors_.end(), tensor_name) != output_tensors_.end()) {
+        output_funcs_.insert(t->op);
+      }
     }
     input_output.push_back(tensor_map_[tensor_name]);
   }
@@ -389,9 +378,11 @@ class FusionMutator : public IRMutator {
   std::string fusion_op_name_;
 };
 
-Stmt Optimize(Stmt &s, BuildInfoOpt &opt) {
+Stmt Optimize(Stmt &s, BuildInfoOpt &opt, const FuncRefSet &input_funcs, const FuncRefSet &output_funcs) {
   // fusion
   s = FusionMutator().Mutate(s);
+  // elemwise opt
+  s = ElimTransformOp(s, input_funcs, output_funcs, opt);
   // inplace_assign
   s = InplaceAssignMutator(opt).Mutate(s);
   return s;
@@ -400,6 +391,8 @@ Stmt Optimize(Stmt &s, BuildInfoOpt &opt) {
 class Emitter : public IRVisitor {
  public:
   Emitter(FuncTensorMap &tensor_map, BuildInfoOpt &opt) : tensor_map_(tensor_map), opt_(opt) {}
+
+ private:
   void Visit_(const AttrStmt *op) override {
     if (op->attr_key == "attrs") {
       op_attrs_ = Downcast<Map<std::string, NodeRef>>(op->node);
@@ -426,6 +419,9 @@ class Emitter : public IRVisitor {
     }
     const auto *topi_f = air::runtime::Registry::Get(op_name);
     CHECK(topi_f) << "Akg topi has no op: " << op_name;
+    if (op_name == "Reshape") {  // reshape's attr may have shape [-1], it will cause error.
+      op_attrs_.Set("shape", op->args);
+    }
     Tensor t = (*topi_f)(real_input, op_attrs_);
     if (op_name == "Assign") {
       EmitAssign(t, inputs[0]);
@@ -506,9 +502,7 @@ void ProcessSames(FuncTensorMap &tensor_map, BuildInfoOpt &opt) {
   }
 }
 
-void CollectInputs(const picojson::array &input_desc, FuncTensorMap &tensor_map, BuildInfo &info) {
-  std::vector<std::string> input_tensors;
-  ParseInputTensors(input_desc, input_tensors);
+void CollectInputs(const std::vector<std::string> &input_tensors, FuncTensorMap &tensor_map, BuildInfo &info) {
   for (const auto &input : input_tensors) {
     auto iter =
       std::find_if(tensor_map.begin(), tensor_map.end(),
@@ -519,10 +513,8 @@ void CollectInputs(const picojson::array &input_desc, FuncTensorMap &tensor_map,
   }
 }
 
-void CollectOutputsAndComputes(const picojson::array &output_desc, FuncTensorMap &tensor_map, BuildInfoOpt &opt,
-                               BuildInfo &info) {
-  std::vector<std::string> output_tensors;
-  ParseOutputTensors(output_desc, output_tensors);
+void CollectOutputsAndComputes(const std::vector<std::string> &output_tensors, FuncTensorMap &tensor_map,
+                               BuildInfoOpt &opt, BuildInfo &info) {
   for (const auto &output : output_tensors) {
     auto iter = std::find_if(
       tensor_map.begin(), tensor_map.end(),
@@ -542,12 +534,12 @@ void CollectSchOnlyComputes(BuildInfoOpt &opt, BuildInfo &info) {
   }
 }
 
-void CollectBuildInfo(const picojson::array &input_desc, const picojson::array &output_desc, FuncTensorMap &tensor_map,
-                      BuildInfoOpt &opt, BuildInfo &info) {
+void CollectBuildInfo(const std::vector<std::string> &input_tensors, const std::vector<std::string> &output_tensors,
+                      FuncTensorMap &tensor_map, BuildInfoOpt &opt, BuildInfo &info) {
   CollectBinds(tensor_map, opt, info);
   ProcessSames(tensor_map, opt);
-  CollectInputs(input_desc, tensor_map, info);
-  CollectOutputsAndComputes(output_desc, tensor_map, opt, info);
+  CollectInputs(input_tensors, tensor_map, info);
+  CollectOutputsAndComputes(output_tensors, tensor_map, opt, info);
   CollectSchOnlyComputes(opt, info);
 }
 
@@ -560,21 +552,25 @@ void ExtractBuildInfo(const picojson::value &input_json, BuildInfo &info) {
   // 1. parse input json
   std::tie(kernelname, input_desc, output_desc, op_descs) = ParseInputJson(input_json);
   info.kernel_name = kernelname;
+  std::vector<std::string> input_tensors;
+  ParseInputTensors(input_desc, input_tensors);
+  std::vector<std::string> output_tensors;
+  ParseOutputTensors(output_desc, output_tensors);
   // 2. parse op descs
-  auto parser = OpDescsParser(op_descs);
+  auto parser = OpDescsParser(op_descs, input_tensors, output_tensors);
   parser.Parse();
   // 3. make stmt by op descs
   auto stmt = MakeStmt(parser.op_descs_);
   LOG(INFO) << "\n========STMT START========\n" << stmt << "\n========STMT END========\n";
   // 4. optimize stmt
   BuildInfoOpt opt;
-  stmt = Optimize(stmt, opt);
+  stmt = Optimize(stmt, opt, parser.input_funcs_, parser.output_funcs_);
   LOG(INFO) << "\n========OPTIMIZED STMT START========\n" << stmt << "\n========OPTIMIZED STMT END========\n";
   // 5. emit stmt by topi
   FuncTensorMap tensor_map;
   Emitter(tensor_map, opt).Visit(stmt);
   // 6. collect build info: args, compute, binds
-  CollectBuildInfo(input_desc, output_desc, tensor_map, opt, info);
+  CollectBuildInfo(input_tensors, output_tensors, tensor_map, opt, info);
 }
 
 int ExtractKernelNum(const picojson::value &v) {
