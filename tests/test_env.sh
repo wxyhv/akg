@@ -23,6 +23,7 @@ usage()
     echo "       use camodel if compiled with -DUSE_CCE_RT_SIM"
     echo "       use kc_air  if compiled with -DUSE_KC_AIR"
     echo "       use gpu if compiled with -DUSE_CUDA"
+    echo "       use gpu-ci if compiled with -DUSE_CUDA"
 }
 
 CUR_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
@@ -58,6 +59,17 @@ if [ $# -eq 1 ]; then
             ;;
         "gpu")
             echo "Configuration setting in gpu successfully."
+            ;;
+	"gpu_ci")
+            pip_show_str=`pip show akg`
+            str1=${pip_show_str#*Location:}
+            str2=${str1%Requires*}
+            str3=${str2%?}
+            AKG_ROOT=${str3#* }
+            TVM_ROOT="${AKG_ROOT}/third_party/incubator-tvm"
+            LIBAKG_ROOT="${AKG_ROOT}/build"
+            export LD_LIBRARY_PATH=${LIBAKG_ROOT}:${LD_LIBRARY_PATH}
+            export PYTHONPATH=${TVM_ROOT}/python:${TVM_ROOT}/topi:${TVM_ROOT}/topi/python:${AKG_ROOT}/tests/common:${AKG_ROOT}/python:${AKG_ROOT}/tests/fuzz/tune:${PYTHONPATH}
             ;;
 	*)
 	    echo "Configuration not set."
