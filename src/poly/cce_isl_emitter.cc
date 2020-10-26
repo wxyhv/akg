@@ -1344,10 +1344,6 @@ std::string CCEIslEmitter::FindRealizeScopeToString(const isl::id &var) {
 Expr CCEIslEmitter::FindRealizeScope(const isl::id &var) { return Expr(FindRealizeScopeToString(var)); }
 
 Stmt CCEIslEmitter::InsertRealize(Stmt stmt, const isl::id &var, bool is_L0) {
-  if (var.get_name().find("_local_") == std::string::npos) {
-    LOG(WARNING) << "Realize a tensor " << var.get_name() << " that should be declared in bind. Please check";
-  }
-
   stmt = FindInnerRealize(var.get_name()).Mutate(stmt);
 
   // A tensor may be defined multiple times in BufferDefInfo due to nested realize.
