@@ -1330,9 +1330,6 @@ void TilingAnalyzer::AddTilingConstraints() {
   std::vector<TilingStrategy *> actived_strategies;
 
   if (scop_info_.user_config_.GetTarget() == TARGET_CUDA) {
-    ModStrategy mod_strategy(this);
-    actived_strategies.push_back(&mod_strategy);
-
     ReduceStrategy reduce_strategy(this);
     actived_strategies.push_back(&reduce_strategy);
 
