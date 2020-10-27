@@ -41,10 +41,12 @@ def fused_bn_reduce(data, layout, out_dtype):
     data_cast = topi.cast(data, inter_dtype)
 
     out1_sum = topi.sum(data_cast, axis=(0, 1, 2))
-    out1_sum = topi.cast(out1_sum, out_dtype)
+    if out1_sum.dtype != out_dtype:
+        out1_sum = topi.cast(out1_sum, out_dtype)
 
     squared = topi.multiply(data_cast, data_cast)
     out2_squared_sum = topi.sum(squared, axis=(0, 1, 2))
-    out2_squared_sum = topi.cast(out2_squared_sum, out_dtype)
+    if out2_squared_sum.dtype != out_dtype:
+        out2_squared_sum = topi.cast(out2_squared_sum, out_dtype)
 
     return [out1_sum, out2_squared_sum]
