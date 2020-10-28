@@ -396,10 +396,6 @@ std::string GpuIslEmitter::FindRealizeScopeToString(const isl::id &var) {
 Expr GpuIslEmitter::FindRealizeScope(const isl::id &var) { return Expr(FindRealizeScopeToString(var)); }
 
 Stmt GpuIslEmitter::InsertRealize(Stmt stmt, const isl::id &var) {
-  if (var.get_name().find("shared") == std::string::npos && var.get_name().find("local") == std::string::npos) {
-    LOG(WARNING) << "Realize a tensor " << var.get_name() << " that should be declared in bind. Please check";
-  }
-
   stmt = FindInnerRealize(var.get_name()).Mutate(stmt);
 
   // A tensor may be defined multiple times in BufferDefInfo due to nested realize.
