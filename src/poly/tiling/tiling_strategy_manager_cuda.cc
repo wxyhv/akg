@@ -57,10 +57,13 @@ void ReduceStrategy::AddGpuConstraint() {
   bool all_reduce = reduce_axes.size() == depth;
   if (all_reduce || has_transpose) {
     auto extent = all_reduce ? MIN_TILE : warp_sizes_;
+    bool is_tuning = analyzer_->scop_info_.user_config_.GetIsTuning();
     for (auto axis : reduce_axes) {
       axis->block_constraints.map_extent_ = MIN_TILE;
       axis->thread_constraints.map_extent_ = MIN_TILE;
-      axis->TileRestrainToSingleValue(CastIntToExpr(extent), TileLevel::LEVEL1);
+      if (!is_tuning) {
+        axis->TileRestrainToSingleValue(CastIntToExpr(extent), TileLevel::LEVEL1);
+      }
     }
   }
 
@@ -72,6 +75,9 @@ void ReduceStrategy::AddGpuConstraint() {
 void GpuStrategy::AddGpuConstraint() {
   InitMappingLimit();
   BuildAxesQueue();
+  if (analyzer_->scop_info_.user_config_.GetIsTuning()) {
+    return;
+  }
   InnerThreadOuterBlock();
   SetMappingConfig();
 }
@@ -247,7 +253,8 @@ void GpuStrategy::InnerThreadOuterBlock() {
     block_cfg_[pending_axes_.size() - 1 - i] = use;
     auto extent = axis->range_extent.as<IntImm>()->value;
     auto inner_extent = axis->l1_constraints.tile_extent_.as<IntImm>()->value;
-    axis->l1_constraints.tile_extent_ = std::min(inner_extent, extent / use);
+    axis->l1_constraints.tile_extent_ =
+      std::min(inner_extent, std::max<int64_t>(ceil(static_cast<float>(extent) / use), 1));
     ++count;
   }
 }

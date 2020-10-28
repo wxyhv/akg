@@ -79,7 +79,18 @@ bool TileLogger::DumpLogFile() {
   }
   of << "===========================================" << std::endl;
   of.close();
+  ClearCache();
   return true;
+}
+
+void TileLogger::ClearCache() {
+  analyze_schedule_tree_stage_.clear();
+  analyze_buffer_live_extent_stage_.clear();
+  analyze_tiling_space_stage_.clear();
+  do_tiling_stage_.clear();
+  do_tuning_stage_.clear();
+  micro_tuning_stage_.clear();
+  gpu_mapping_stage_.clear();
 }
 
 void TileLogger::LogFatalAndSaveLog(const std::string &fatal_log) {

@@ -16,24 +16,32 @@
 #ifndef POLY_TILING_UTILS_H_
 #define POLY_TILING_UTILS_H_
 
+#include <iostream>
+#include <fstream>
+
 #include <tvm/target_info.h>
 #include <tvm/ir.h>
 
-#include <iostream>
-#include <fstream>
+#include "common/target_info.h"
 
 namespace akg {
 namespace ir {
 namespace poly {
 
 /* Device Info  */
-enum DavinciMemScope {
+enum TilingMemScope {
+  // global
   MEM_SCOPE_GM = 0,
+  // davinci
   MEM_SCOPE_UB,
   MEM_SCOPE_L1,
   MEM_SCOPE_L0A,
   MEM_SCOPE_L0B,
   MEM_SCOPE_L0C,
+  // gpu
+  MEM_SCOPE_SHARED,
+  MEM_SCOPE_LOCAL,
+  // end
   MEM_SCOPE_BULK,
 };
 
@@ -55,7 +63,7 @@ class DavinciInfo {
   int64_t davinci_mem_limit_[MEM_SCOPE_BULK]{0};
 
   void InitDavinciMemoryLimit() {
-    auto CollectLimit = [this](const std::string &scope, DavinciMemScope mem) {
+    auto CollectLimit = [this](const std::string &scope, TilingMemScope mem) {
       air::MemoryInfo info = air::GetMemoryInfo(scope);
       CHECK(info.defined());
       davinci_mem_limit_[mem] = info->max_num_bits / 8;
@@ -66,6 +74,35 @@ class DavinciInfo {
     CollectLimit("local.L0B", MEM_SCOPE_L0B);
     CollectLimit("local.L0C", MEM_SCOPE_L0C);
     davinci_mem_limit_[MEM_SCOPE_GM] = 0;
+  }
+};
+
+class GpuInfo {
+ public:
+  ~GpuInfo() {}
+  static GpuInfo &GetInstance() {
+    static GpuInfo hardware_info;
+    return hardware_info;
+  }
+
+  int64_t GetMemoryLimitInScope(int scope_idx) {
+    CHECK_LT(scope_idx, MEM_SCOPE_BULK);
+    return gpu_mem_limit_[scope_idx];
+  }
+
+ private:
+  GpuInfo() { InitGpuMemoryLimit(); }
+  int64_t gpu_mem_limit_[MEM_SCOPE_BULK]{0};
+
+  void InitGpuMemoryLimit() {
+    auto CollectLimit = [this](const std::string &scope, TilingMemScope mem) {
+      air::GpuMemoryInfo info = air::GetGpuMemoryInfo(scope);
+      CHECK(info.defined());
+      gpu_mem_limit_[mem] = info->max_bytes_per_block;
+    };
+    CollectLimit("shared", MEM_SCOPE_SHARED);
+    CollectLimit("reg", MEM_SCOPE_LOCAL);
+    gpu_mem_limit_[MEM_SCOPE_GM] = 0;
   }
 };
 
@@ -83,6 +120,7 @@ class TileLogger {
   void AppendLine(LogStage stage, const std::string &line);
   void AppendLog(LogStage stage, std::stringstream &ss);
   bool DumpLogFile();
+  void ClearCache();
   void LogFatalAndSaveLog(const std::string &fatal_log);
   std::string GetDumpDir();
 
