@@ -23,20 +23,6 @@ namespace akg {
 namespace ir {
 namespace poly {
 
-void ModStrategy::AddGpuConstraint() {
-  auto interested_info = GetInterestedInfo(interested_attr_key);
-  for (auto it : interested_info) {
-    TileAxis *axis = it.first;
-    for (const auto &attr : it.second) {
-      CHECK_NE(attr.attr_value, "");
-      auto mod_value = static_cast<int>(std::strtol(attr.attr_value.c_str(), nullptr, 10));
-      if (mod_value < warp_sizes_ || mod_value % warp_sizes_ != 0) {
-        axis->thread_constraints.map_extent_ = MIN_TILE;
-      }
-    }
-  }
-}
-
 void ReduceStrategy::AddGpuConstraint() {
   // TODO: compare XLA's reduction tiling/mapping strategy with current strategy
   auto reduce_axes = analyzer_->GetAxesOfAttr("REDUCE_AXIS");
@@ -159,7 +145,8 @@ void GpuStrategy::InnerThreadOuterBlock() {
     int64_t shape;
     std::tie(axis, shape) = pending_axes_[i];
     int64_t rest_threads = std::min(max_num_threads_ / activated_threads, thread_limit_[thread_cfg_.size()]);
-    ss << "axis " << axis->index << "_" << axis->dim_axis << " shape = " << shape << ", rest_threads = " << rest_threads;
+    ss << "axis " << axis->index << "_" << axis->dim_axis << " shape = " << shape
+       << ", rest_threads = " << rest_threads;
     auto SkipMapping = [this, &axis, &shape, &ss]() {
       if (axis->block_constraints.map_extent_ > 1) {
         pending_axes_.push_back(std::make_pair(axis, shape));
@@ -181,7 +168,7 @@ void GpuStrategy::InnerThreadOuterBlock() {
       SkipMapping();
       continue;
     }
-    
+
     ++inner_dim;
     auto use = GetThreadSize(rest_threads, shape);
     activated_threads *= (use - 1 + warp_sizes_) / warp_sizes_ * warp_sizes_;
@@ -254,6 +241,7 @@ void GpuStrategy::InnerThreadOuterBlock() {
     ss << ", use = " << use << ", actived blocks = " << activated_blocks;
     analyzer_->logger_.AppendLog(GPU_MAPPING, ss);
     block_cfg_[pending_axes_.size() - 1 - i] = use;
+    axis->l1_constraints.tile_extent_ = shape / use;
     ++count;
   }
 }
@@ -345,6 +333,8 @@ bool GpuStrategy::IsElemWiseAxis(TileAxis *axis) {
 }
 
 // No constraint found in cuda
+
+void ModStrategy::AddGpuConstraint() {}
 
 void CastStrategy::AddGpuConstraint() {}
 
