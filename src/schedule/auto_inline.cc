@@ -17,6 +17,8 @@
 #include <tvm/operation.h>
 #include <tvm/schedule_pass.h>
 #include <tvm.h>
+#include <vector>
+#include <stack>
 
 namespace air {
 namespace schedule {
@@ -123,7 +125,69 @@ void GetConvInputName(const Operation &op, std::unordered_set<std::string> &inpu
   }
 }
 
-void AutoInline(Schedule sch, const Target &target) {
+class CSE {
+ public:
+  std::unordered_set<Operation> FindCommonSubexpr(Schedule sch) {
+    for (const Stage &s : sch->stages) {
+      op_list.insert(s->op);
+    }
+    for (const auto op : sch->outputs) {
+      count_used_number(op);
+    }
+    for (const auto op : counter) {
+      if (op.second > 1){
+        RemoveShortCommonExpr(op.first, op.first);
+      }
+    }
+    std::unordered_set<Operation> common_op;
+    for (const auto op : counter) {
+      int input_num = 0;
+      input_num = count_input_number(op.first, input_num);
+      if (op.first.as<ComputeOpNode>() != nullptr && op.second > 1 && input_num > 2) {
+        common_op.insert(op.first);
+      }
+    }
+    return common_op;
+  }
+
+ private:
+  void count_used_number(const Operation &op) {
+    if (const auto compute = op.as<ComputeOpNode>()) {
+      for (const auto parent : op->InputTensors()) {
+        if (op_list.count(parent->op) == 0) continue;
+        if (counter.count(parent->op) == 0) counter[parent->op] = 0;
+        counter[parent->op]++;
+        count_used_number(parent->op);
+      }
+    }
+  }
+
+  int count_input_number(const Operation op, int input_num) {
+    if (op.as<PlaceholderOpNode>() != nullptr) return (input_num + 1);
+    if (const auto compute = op.as<ComputeOpNode>()) {
+      for (const auto parent : op->InputTensors()) {
+        input_num = count_input_number(parent->op, input_num);
+      }
+    }
+    return input_num;
+  }
+
+  void RemoveShortCommonExpr(const Operation op, const Operation root) {
+    if (const auto cur_op  = op.as<ComputeOpNode>()) {
+      for (const auto parent : cur_op->InputTensors()) {
+        if (counter.count(parent->op) && counter[parent->op] > 0) {
+          counter[parent->op] -= counter[root];
+        }
+        RemoveShortCommonExpr(parent->op, root);
+      }
+    }
+  }
+
+  std::unordered_set<Operation> op_list;
+  std::unordered_map<Operation, int> counter;
+};
+
+void AutoInline(Schedule sch, const Target &target ,bool enable_cse) {
   // Note: do not support inline of hybrid ops
   std::unordered_set<Operation, NodeHash, NodeEqual> uninlinable;
   for (const Stage &s : sch->stages) {
@@ -143,10 +207,15 @@ void AutoInline(Schedule sch, const Target &target) {
     }
   }
 
+  std::unordered_set<Operation> common_subexpr;
+  if (target->device_type == kDLGPU && enable_cse){
+    common_subexpr = CSE().FindCommonSubexpr(sch);
+  }
+
   for (Stage s : sch->stages) {
     if (!s.is_scheduled() && (IsInjective(s->op) || air::schedule::IsElemWise(s->op)) && !CantInline(s->op, target) &&
         !s->is_output && uninlinable.count(s->op) == 0 && !(has_conv && !IsConvInline(s->op, conv_inputs)) &&
-        (s->op->attrs.count("no_inline") == 0)) {
+        (s->op->attrs.count("no_inline") == 0 && common_subexpr.count(s->op) == 0)) {
       static_cast<void>(s.compute_inline());
     }
   }
