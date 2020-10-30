@@ -265,6 +265,16 @@ TVM_REGISTER_GLOBAL("Neg").set_body([](TVMArgs args, TVMRetValue *rv) {
 
 TVM_REGISTER_GLOBAL("Exp").set_body([](TVMArgs args, TVMRetValue *rv) { TOPI_ONE_INPUT_CALL(args, rv, topi::exp); });
 
+TVM_REGISTER_GLOBAL("Tanh").set_body([](TVMArgs args, TVMRetValue *rv) {
+  auto call = [](const Tensor &tensor) {
+    std::string name = "T_tanh_" + tensor->op->name;
+    // Do not use topi::tanh here, since it expands the tanh with `fast_tanh_float` for fp32 tensors.
+    return air::compute(
+      tensor->shape, [&](const Array<Var> &i) { return air::tanh(tensor(i)); }, name, "elemwise");
+  };
+  TOPI_ONE_INPUT_CALL(args, rv, call);
+});
+
 TVM_REGISTER_GLOBAL("TensorAdd").set_body([](TVMArgs args, TVMRetValue *rv) {
   TOPI_TWO_INPUTS_CALL(args, rv, topi::add);
 });
