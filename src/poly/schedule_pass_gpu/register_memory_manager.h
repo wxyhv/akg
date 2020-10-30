@@ -38,7 +38,7 @@ class RegisterMemoryManager : public SchedulePass {
 
   virtual isl::schedule Run(isl::schedule sch);
 
-  void HoistRegisterMemoryOnDepth(isl::schedule_node &node);
+  isl::schedule HoistRegisterMemoryOnDepth(isl::schedule_node &node, size_t depth);
 
   isl::union_set GatherMappingsTo(MappingCfg *cfg);
 
@@ -53,12 +53,18 @@ class RegisterMemoryManager : public SchedulePass {
 
   bool UnrolledLoop(const TensorFootprintCluster &fp_cluster);
 
+  isl::schedule HoistRegisterMemory(isl::schedule_node root, size_t depth);
+
+  void IsOutofMemory(std::vector<BufferDefInfo> promoted_infos);
+
   size_t UpdateDepth(const isl::schedule_node &root);
 
  private:
   ScopInfo &scop_info_;
   isl::schedule schedule_;
   std::vector<std::string> configed_tensors_;
+  bool memory_exceeding_{false};
+  const unsigned int MAX_REGISTER_TENSOR_SIZE{10000};
 };
 
 }  // namespace poly

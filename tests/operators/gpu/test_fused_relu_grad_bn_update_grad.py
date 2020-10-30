@@ -52,8 +52,7 @@ def test_fused_relu_grad_bn_update_grad(shape, out_shape, dtype="float16", layou
             op_attrs=op_attrs,
             kernel_name="fused_relu_grad_bn_update_grad_auto",
             attrs={
-                "target": "cuda",
-                "register_memory_depth":3})
+                "target": "cuda"})
     else:
         mod = utils.op_build_test(fused_relu_grad_bn_update_grad_manual, shape_list, dtype_list, kernel_name="fused_relu_grad_bn_update_grad_manual", op_attrs=op_attrs)
     

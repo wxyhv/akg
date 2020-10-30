@@ -53,7 +53,7 @@ isl::union_set RegisterMemoryManager::GatherMappingsTo(MappingCfg *cfg) {
   return mapping;
 }
 
-void RegisterMemoryManager::HoistRegisterMemoryOnDepth(isl::schedule_node &node) {
+isl::schedule RegisterMemoryManager::HoistRegisterMemoryOnDepth(isl::schedule_node &node, size_t depth) {
   auto block_cfg = scop_info_.user_config_.GetBlockConfig();
   auto res_node = node;
   auto block_mapping = GatherMappingsTo(block_cfg);
@@ -66,59 +66,68 @@ void RegisterMemoryManager::HoistRegisterMemoryOnDepth(isl::schedule_node &node)
 
   isl::schedule_node root_node = schedule_.get_root();
 
-  auto thread_schedule = MapDomainAllWithType(root_node, thread_cfg, scop_info_.upa_node_mapping_, THREAD_MARKER);
-  auto block_schedule = MapDomainAllWithType(root_node, block_cfg, scop_info_.upa_node_mapping_, BLOCK_MARKER);
+  isl::schedule sch = schedule_;
+  if (memory_exceeding_) {
+    depth = depth + 1;
+    sch = HoistRegisterMemory(root_node, depth);
+    return sch;
+  } else {
+    auto thread_schedule = MapDomainAllWithType(root_node, thread_cfg, scop_info_.upa_node_mapping_, THREAD_MARKER);
+    auto block_schedule = MapDomainAllWithType(root_node, block_cfg, scop_info_.upa_node_mapping_, BLOCK_MARKER);
 
-  auto tmp_node = res_node;
-  if (node.isa<isl::schedule_node_band>()) {
-    tmp_node = res_node.child(0);
-  }
-
-  auto partial_sched_mupa = ShortScheduleMupa(root_node, tmp_node);
-  auto partial_sched_with_block = isl::union_map::from(partial_sched_mupa).intersect_domain(block_mapping);
-  partial_sched_mupa = partial_sched_mupa.flat_range_product(block_schedule);
-  for (size_t index = 0; index < scop_info_.analysis_result_.buffer_def_infos_.size(); index++) {
-    BufferDefInfo &buffer_info = scop_info_.analysis_result_.buffer_def_infos_[index];
-
-    if (buffer_info.dst_tensor_id.to_str().find("shared") != std::string::npos) {
-      continue;
+    auto tmp_node = res_node;
+    if (node.isa<isl::schedule_node_band>()) {
+      tmp_node = res_node.child(0);
     }
 
-    auto fp_cluster = buffer_info.GetFootPrintClusterGPU(res_node);
+    auto partial_sched_mupa = ShortScheduleMupa(root_node, tmp_node);
+    auto partial_sched_with_block = isl::union_map::from(partial_sched_mupa).intersect_domain(block_mapping);
+    partial_sched_mupa = partial_sched_mupa.flat_range_product(block_schedule);
+    for (size_t index = 0; index < scop_info_.analysis_result_.buffer_def_infos_.size(); index++) {
+      BufferDefInfo &buffer_info = scop_info_.analysis_result_.buffer_def_infos_[index];
 
-    if (fp_cluster == nullptr || !fp_cluster->foot_print_.box.is_valid()) {
-      continue;
+      if (buffer_info.dst_tensor_id.to_str().find("shared") != std::string::npos) {
+        continue;
+      }
+
+      auto fp_cluster = buffer_info.GetFootPrintClusterGPU(res_node);
+
+      if (fp_cluster == nullptr || !fp_cluster->foot_print_.box.is_valid()) {
+        continue;
+      }
+
+      auto tensor_id = buffer_info.tensor_id;
+      auto box_sizes = fp_cluster->GetFixedBoxSizes();
+
+      if (box_sizes.size() == 0) {
+        LOG(FATAL) << "Can not manage a scalar tensor in register memory promotion";
+      }
+
+      partial_sched_mupa = partial_sched_mupa.flat_range_product(thread_schedule);
+
+      if (!IsPromote(*fp_cluster, partial_sched_mupa, thread_schedule)) {
+        continue;
+      }
+
+      if (!ReuseTensorCluster(*fp_cluster, partial_sched_mupa)) {
+        continue;
+      }
+
+      auto active_domains = CollectDomain(res_node);
+      isl::id dst_tensor_id = GpuDstId(GpuMemType::LOCAL, tensor_id);
+      GatherBufferFootprintDefInfo(res_node, buffer_info);
+      node = PlaceOuterDataCopyBelow(scop_info_, node, *fp_cluster, tensor_id, dst_tensor_id, partial_sched,
+                                     schedule_.get_domain().get_space());
+
+      // active_buffer_footprints for codegen
+      auto dst_id = GpuDstId(GpuMemType::LOCAL, tensor_id);
+      scop_info_.analysis_result_.active_buffer_footprints_.emplace_back(std::make_pair(
+        active_domains,
+        BufferedFootPrintInfo{std::shared_ptr<TensorFootprintCluster>(std::move(fp_cluster)), partial_sched, dst_id}));
+      buffer_info.find_buffer = true;
     }
-
-    auto tensor_id = buffer_info.tensor_id;
-    auto box_sizes = fp_cluster->GetFixedBoxSizes();
-
-    if (box_sizes.size() == 0) {
-      LOG(FATAL) << "Can not manage a scalar tensor in register memory promotion";
-    }
-
-    partial_sched_mupa = partial_sched_mupa.flat_range_product(thread_schedule);
-
-    if (!IsPromote(*fp_cluster, partial_sched_mupa, thread_schedule)) {
-      continue;
-    }
-
-    if (!ReuseTensorCluster(*fp_cluster, partial_sched_mupa)) {
-      continue;
-    }
-
-    auto active_domains = CollectDomain(res_node);
-    isl::id dst_tensor_id = GpuDstId(GpuMemType::LOCAL, tensor_id);
-    GatherBufferFootprintDefInfo(res_node, buffer_info);
-    node = PlaceOuterDataCopyBelow(scop_info_, node, *fp_cluster, tensor_id, dst_tensor_id, partial_sched,
-                                   schedule_.get_domain().get_space());
-
-    // active_buffer_footprints for codegen
-    auto dst_id = GpuDstId(GpuMemType::LOCAL, tensor_id);
-    scop_info_.analysis_result_.active_buffer_footprints_.emplace_back(std::make_pair(
-      active_domains,
-      BufferedFootPrintInfo{std::shared_ptr<TensorFootprintCluster>(std::move(fp_cluster)), partial_sched, dst_id}));
-    buffer_info.find_buffer = true;
+    sch = node.get_schedule();
+    return sch;
   }
 }
 
@@ -196,6 +205,8 @@ void RegisterMemoryManager::CreateTensorCluster(const isl::schedule_node &node, 
     }
   }
 
+  std::vector<BufferDefInfo> promoted_infos;
+
   for (const auto &item : tensor_list) {
     isl::id dst_tensor_id = GpuDstId(GpuMemType::LOCAL, item);
     std::vector<size_t> buffer_sizes;
@@ -219,7 +230,34 @@ void RegisterMemoryManager::CreateTensorCluster(const isl::schedule_node &node, 
       TensorFootprintCluster::HoistBufferFootprintCluster(outer_sch, item, reads, copyin, writes, fake_copyin);
     if (promoted_info.footprints_cluster != nullptr) {
       promoted_info.footprint_cluster_map.emplace_back(std::make_pair(node, promoted_info.footprints_cluster));
+      promoted_infos.push_back(promoted_info);
+      // scop_info_.analysis_result_.buffer_def_infos_.push_back(promoted_info);
+    }
+  }
+
+  IsOutofMemory(promoted_infos);
+
+  if (!memory_exceeding_) {
+    for (auto promoted_info : promoted_infos) {
       scop_info_.analysis_result_.buffer_def_infos_.push_back(promoted_info);
+    }
+  }
+}
+
+void RegisterMemoryManager::IsOutofMemory(std::vector<BufferDefInfo> promoted_infos) {
+  memory_exceeding_ = false;
+  for (auto promoted_info : promoted_infos) {
+    auto box_sizes = promoted_info.footprints_cluster->GetFixedBoxSizes();
+    if (!box_sizes.empty()) {
+      auto tensor_size = box_sizes[0];
+      for (unsigned int i = 1; i < box_sizes.size(); ++i) {
+        tensor_size = tensor_size * box_sizes[i];
+      }
+
+      if (tensor_size > MAX_REGISTER_TENSOR_SIZE) {
+        memory_exceeding_ = true;
+        break;
+      }
     }
   }
 }
@@ -263,6 +301,26 @@ size_t RegisterMemoryManager::UpdateDepth(const isl::schedule_node &node) {
   return band.n_member();
 }
 
+isl::schedule RegisterMemoryManager::HoistRegisterMemory(isl::schedule_node root, size_t depth) {
+  auto bands = BandsContainingScheduleDepth(root, depth);
+  bands = FilterWithFunc(
+    [root, depth](isl::schedule_node node) {
+      auto band = node.as<isl::schedule_node_band>();
+      return !IsThreadMappedMark(node) || node.schedule_depth() + band.n_member() == depth;
+    },
+    bands);
+  bands = BandsSplitAfterDepth(bands, root, depth);
+
+  isl::schedule tmp_sch;
+  for (auto band : bands) {
+    if (IsThreadMappedMark(band)) {
+      band = band.child(0);
+    }
+    tmp_sch = HoistRegisterMemoryOnDepth(band, depth);
+  }
+  return tmp_sch;
+}
+
 isl::schedule RegisterMemoryManager::Run(isl::schedule sch) {
   LOG(INFO) << ">>>>>>>>Register memory promotion<<<<<<<<<<<<<<<";
   schedule_ = sch;
@@ -274,24 +332,9 @@ isl::schedule RegisterMemoryManager::Run(isl::schedule sch) {
     if (scop_info_.user_config_.GetRegisterDepth() >= 0) {
       depth = scop_info_.user_config_.GetRegisterDepth();
     }
-    auto bands = BandsContainingScheduleDepth(root, depth);
-    bands = FilterWithFunc(
-      [root, depth](isl::schedule_node node) {
-        auto band = node.as<isl::schedule_node_band>();
-        return !IsThreadMappedMark(node) || node.schedule_depth() + band.n_member() == depth;
-      },
-      bands);
-    bands = BandsSplitAfterDepth(bands, root, depth);
-
-    for (auto band : bands) {
-      if (IsThreadMappedMark(band)) {
-        band = band.child(0);
-      }
-      HoistRegisterMemoryOnDepth(band);
-      schedule_ = band.get_schedule();
-    }
+    sch = HoistRegisterMemory(root, depth);
   }
-  return schedule_;
+  return sch;
 }
 
 }  // namespace poly
