@@ -27,7 +27,7 @@ class UTStmtBuilder {
   UTStmtBuilder() = default;
   ~UTStmtBuilder() = default;
   static air::Stmt CreateFor(
-      const std::string &loop_var_name,
+      air::Var loop_var,
       int32_t min,
       int32_t extent,
       air::Stmt body);
@@ -36,14 +36,14 @@ class UTStmtBuilder {
       air::Stmt body);
   static air::Stmt CreateProvideAssign(
       air::ir::FunctionRef func_dst,
-      const std::vector<std::string> &vars,
+      air::Array<air::Expr> vars,
       air::Expr src,
       int value_index = 0);
 
   template <typename T>
   static air::Stmt CreateProvideBinary(
       air::ir::FunctionRef func_dst,
-      const std::vector<std::string> &vars,
+      air::Array<air::Expr> vars,
       air::Expr src1,
       air::Expr src2,
       int value_index = 0) {
@@ -51,7 +51,7 @@ class UTStmtBuilder {
         func_dst,
         value_index,
         T::make(src1, src2),
-        UTExprBuilder::CreateVars(vars));
+        vars);
   }
 };  // class UTStmtBuilder
 }  // namespace akg

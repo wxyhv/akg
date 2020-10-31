@@ -58,6 +58,7 @@ class AutoPolyTest1 : public AutoPolyTestBase {
   }
   ~AutoPolyTest1() = default;
   void Construct() {
+    vp_.AddVars({"i0", "i1"});
     a_ = UTExprBuilder::PlaceholderOpNode("a", {32, 1024}, air::Float(16));
     b_ = UTExprBuilder::PlaceholderOpNode("b", {1024}, air::Float(16));
     c_ = UTExprBuilder::PlaceholderOpNode("c", {1024}, air::Float(16));
@@ -73,18 +74,18 @@ class AutoPolyTest1 : public AutoPolyTestBase {
                     out_,
                     air::ir::ProducerConsumer::make(out_, true,
                         UTStmtBuilder::CreateFor(
-                            "i0", 0, 32,
+                            vp_.GetVar("i0"), 0, 32,
                             UTStmtBuilder::CreateFor(
-                                "i1", 0, 1024,
+                                vp_.GetVar("i1"), 0, 1024,
                                 air::ir::Block::make(
                                     UTStmtBuilder::CreateProvideBinary<air::ir::Add>(
-                                        out_0_, {"i1"},
-                                        UTExprBuilder::ElementOf(b_, {"i1"}),
-                                        UTExprBuilder::ElementOf(c_, {"i1"})),
+                                        out_0_, vp_.GetVars({"i1"}),
+                                        UTExprBuilder::ElementOf(b_, vp_.GetVars({"i1"})),
+                                        UTExprBuilder::ElementOf(c_, vp_.GetVars({"i1"}))),
                                     UTStmtBuilder::CreateProvideBinary<air::ir::Add>(
-                                        out_, {"i0", "i1"},
-                                        UTExprBuilder::ElementOf(out_0_, {"i1"}),
-                                        UTExprBuilder::ElementOf(a_, {"i0", "i1"}))))))))));
+                                        out_, vp_.GetVars({"i0", "i1"}),
+                                        UTExprBuilder::ElementOf(out_0_, vp_.GetVars({"i1"})),
+                                        UTExprBuilder::ElementOf(a_, vp_.GetVars({"i0", "i1"})))))))))));
     t_a_ = UTExprBuilder::CreateTensorByPlaceholder(a_);
     t_b_ = UTExprBuilder::CreateTensorByPlaceholder(b_);
     t_c_ = UTExprBuilder::CreateTensorByPlaceholder(c_);
@@ -95,6 +96,7 @@ class AutoPolyTest1 : public AutoPolyTestBase {
     RegisterTensor(t_out_);
   }
 
+  UTVariablePool vp_;
   air::Operation a_;
   air::Operation b_;
   air::Operation c_;
@@ -150,6 +152,7 @@ class AutoPolyTest2 : public AutoPolyTestBase {
   }
   ~AutoPolyTest2() = default;
   void Construct() {
+    vp_.AddVars({"i0", "i1"});
     a_ = UTExprBuilder::PlaceholderOpNode("a", {32, 1024}, air::Float(16));
     b_ = UTExprBuilder::PlaceholderOpNode("b", {1024}, air::Float(16));
     c_ = UTExprBuilder::PlaceholderOpNode("c", {1024}, air::Float(16));
@@ -165,18 +168,18 @@ class AutoPolyTest2 : public AutoPolyTestBase {
                     out_,
                     air::ir::ProducerConsumer::make(out_, true,
                         UTStmtBuilder::CreateFor(
-                            "i1", 0, 1024,
+                            vp_.GetVar("i1"), 0, 1024,
                             air::ir::Block::make(
                                 UTStmtBuilder::CreateProvideBinary<air::ir::Add>(
-                                    out_0_, {"i1"},
-                                    UTExprBuilder::ElementOf(b_, {"i1"}),
-                                    UTExprBuilder::ElementOf(c_, {"i1"})),
+                                    out_0_, vp_.GetVars({"i1"}),
+                                    UTExprBuilder::ElementOf(b_, vp_.GetVars({"i1"})),
+                                    UTExprBuilder::ElementOf(c_, vp_.GetVars({"i1"}))),
                                 UTStmtBuilder::CreateFor(
-                                    "i0", 0, 32,
+                                    vp_.GetVar("i0"), 0, 32,
                                     UTStmtBuilder::CreateProvideBinary<air::ir::Add>(
-                                        out_, {"i0", "i1"},
-                                        UTExprBuilder::ElementOf(out_0_, {"i1"}),
-                                        UTExprBuilder::ElementOf(a_, {"i0", "i1"}))))))))));
+                                        out_, vp_.GetVars({"i0", "i1"}),
+                                        UTExprBuilder::ElementOf(out_0_, vp_.GetVars({"i1"})),
+                                        UTExprBuilder::ElementOf(a_, vp_.GetVars({"i0", "i1"})))))))))));
     t_a_ = UTExprBuilder::CreateTensorByPlaceholder(a_);
     t_b_ = UTExprBuilder::CreateTensorByPlaceholder(b_);
     t_c_ = UTExprBuilder::CreateTensorByPlaceholder(c_);
@@ -187,6 +190,7 @@ class AutoPolyTest2 : public AutoPolyTestBase {
     RegisterTensor(t_out_);
   }
 
+  UTVariablePool vp_;
   air::Operation a_;
   air::Operation b_;
   air::Operation c_;
@@ -244,6 +248,7 @@ class AutoPolyTest3 : public AutoPolyTestBase {
   }
   ~AutoPolyTest3() = default;
   void Construct() {
+    vp_.AddVars({"i0", "i1"});
     a_ = UTExprBuilder::PlaceholderOpNode("a", {32, 1024}, air::Float(16));
     b_ = UTExprBuilder::PlaceholderOpNode("b", {1024}, air::Float(16));
     c_ = UTExprBuilder::PlaceholderOpNode("c", {1024}, air::Float(16));
@@ -260,19 +265,19 @@ class AutoPolyTest3 : public AutoPolyTestBase {
                     air::ir::ProducerConsumer::make(out_, true,
                         air::ir::Block::make(
                             UTStmtBuilder::CreateFor(
-                                "i0", 0, 1024,
+                                vp_.GetVar("i0"), 0, 1024,
                                 UTStmtBuilder::CreateProvideBinary<air::ir::Add>(
-                                    out_0_, {"i0"},
-                                    UTExprBuilder::ElementOf(b_, {"i0"}),
-                                    UTExprBuilder::ElementOf(c_, {"i0"}))),
+                                    out_0_, vp_.GetVars({"i0"}),
+                                    UTExprBuilder::ElementOf(b_, vp_.GetVars({"i0"})),
+                                    UTExprBuilder::ElementOf(c_, vp_.GetVars({"i0"})))),
                             UTStmtBuilder::CreateFor(
-                                "i0", 0, 32,
+                                vp_.GetVar("i0"), 0, 32,
                                 UTStmtBuilder::CreateFor(
-                                    "i1", 0, 1024,
+                                    vp_.GetVar("i1"), 0, 1024,
                                     UTStmtBuilder::CreateProvideBinary<air::ir::Add>(
-                                        out_, {"i0", "i1"},
-                                        UTExprBuilder::ElementOf(out_0_, {"i1"}),
-                                        UTExprBuilder::ElementOf(a_, {"i0", "i1"}))))))))));
+                                        out_, vp_.GetVars({"i0", "i1"}),
+                                        UTExprBuilder::ElementOf(out_0_, vp_.GetVars({"i1"})),
+                                        UTExprBuilder::ElementOf(a_, vp_.GetVars({"i0", "i1"})))))))))));
     t_a_ = UTExprBuilder::CreateTensorByPlaceholder(a_);
     t_b_ = UTExprBuilder::CreateTensorByPlaceholder(b_);
     t_c_ = UTExprBuilder::CreateTensorByPlaceholder(c_);
@@ -283,6 +288,7 @@ class AutoPolyTest3 : public AutoPolyTestBase {
     RegisterTensor(t_out_);
   }
 
+  UTVariablePool vp_;
   air::Operation a_;
   air::Operation b_;
   air::Operation c_;

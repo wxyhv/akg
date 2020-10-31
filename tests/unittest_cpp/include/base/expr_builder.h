@@ -43,14 +43,14 @@ class UTExprBuilder {
   static air::Expr TensorElement(
       const std::string &name,
       const std::vector<int32_t> &shapes,
-      const std::vector<std::string> &axis_names,
+      const air::Array<air::Expr> &axis_vars,
       air::DataType dtype = air::Float(16));
   static air::Expr ElementOf(
       const air::Operation &op,
-      const std::vector<std::string> &axis_names);
+      const air::Array<air::Expr> &axis_vars);
   static air::Expr ElementOfPlaceholderOp(
       const air::Operation &op,
-      const std::vector<std::string> &axis_names);
+      const air::Array<air::Expr> &axis_vars);
   static air::Expr CreateCall(
       const air::ir::FunctionRef func,
       air::Array<air::Expr> args,
@@ -58,6 +58,20 @@ class UTExprBuilder {
       int value_index = 0);
   static air::Tensor CreateTensorByPlaceholder(const air::Operation op);
 };  // UTExprBuilder
+
+class UTVariablePool {
+ public:
+  UTVariablePool() = default;
+  ~UTVariablePool() = default;
+  void AddVar(const std::string &name);
+  void AddVars(const std::vector<std::string> &names);
+  air::Var GetVar(const std::string &name) const;
+  air::Array<air::Expr> GetVars(const std::vector<std::string> &names) const;
+  void Reset();
+
+ private:
+  std::map<std::string, air::Var> map_name_var_;
+};  // class UTVariablePool
 
 class UTTensorElementHelper {
  public:
@@ -67,11 +81,15 @@ class UTTensorElementHelper {
   air::Expr Elem(const std::string &name,
                  uint32_t dim,
                  air::DataType dtype = air::Float(16)) const;
+  const UTVariablePool &GetVarPool() const {
+    return var_pool_;
+  }
 
  private:
   std::vector<int32_t> shapes_;
   std::string axis_name_prefix_;
   std::vector<std::string> axis_names_;
+  UTVariablePool var_pool_;
 };  // class UTTensorElementHelper
 }  // namespace akg
 #endif  // UT_BASE_EXPR_BUILDER_H_
