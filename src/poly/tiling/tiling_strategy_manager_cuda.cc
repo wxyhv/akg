@@ -241,7 +241,9 @@ void GpuStrategy::InnerThreadOuterBlock() {
     ss << ", use = " << use << ", actived blocks = " << activated_blocks;
     analyzer_->logger_.AppendLog(GPU_MAPPING, ss);
     block_cfg_[pending_axes_.size() - 1 - i] = use;
-    axis->l1_constraints.tile_extent_ = shape / use;
+    auto extent = axis->range_extent.as<IntImm>()->value;
+    auto inner_extent = axis->l1_constraints.tile_extent_.as<IntImm>()->value;
+    axis->l1_constraints.tile_extent_ = std::min(inner_extent, extent / use);
     ++count;
   }
 }

@@ -108,6 +108,12 @@ struct MappingCfg {
       return z;
     }
   }
+  void Reset() {
+    bound = 0;
+    x.second = 0;
+    y.second = 0;
+    z.second = 0;
+  }
 };
 
 class TensorFootprintCluster;
@@ -232,6 +238,7 @@ class UserConfig {
   void SetUnroll(const int max_unroll_loop) { this->max_unroll_loop_ = max_unroll_loop; }
   bool GetUnrollShared() const { return unroll_shared_; }
   void SetUnrollShared(const bool unroll_shared) { this->unroll_shared_ = unroll_shared; }
+  void SetDisableLoopFusion(const bool disable_loop_fusion) { this->disable_loop_fusion_ = disable_loop_fusion; }
 
   // getter for schedule tree transform config
   bool GetRemoveSelfDependence() const { return remove_self_dependence_; }
