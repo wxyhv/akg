@@ -34,7 +34,9 @@ def fused_bn_update_grad(head, data_sum, in_bn, layout='NHWC', out_dtype="float3
     inbn_cast = topi.cast(in_bn, inter_dtype)
     bn_gamma_ad = bn_gamma_grad(head_cast, inbn_cast, data_sum, layout)
 
-    bn_beta_ad = topi.cast(bn_beta_ad, out_dtype)
-    bn_gamma_ad = topi.cast(bn_gamma_ad, out_dtype)
+    if bn_beta_ad.dtype != out_dtype:
+        bn_beta_ad = topi.cast(bn_beta_ad, out_dtype)
+    if bn_gamma_ad.dtype != out_dtype:
+        bn_gamma_ad = topi.cast(bn_gamma_ad, out_dtype)
 
     return [bn_beta_ad, bn_gamma_ad]

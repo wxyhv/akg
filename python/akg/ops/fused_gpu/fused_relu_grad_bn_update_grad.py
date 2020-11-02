@@ -33,8 +33,11 @@ def fused_relu_grad_bn_update_grad(data_sum, in_bn, head_active, in_active, layo
 
     bn_gamma_ad = bn_gamma_grad(relugrad_cast, inbn_cast, data_sum, layout)
     bn_beta_ad = bn_beta_grad(relugrad_cast, layout)
-    bn_gamma_ad = topi.cast(bn_gamma_ad, out_dtype)
-    bn_beta_ad = topi.cast(bn_beta_ad, out_dtype)
+    
+    if bn_gamma_ad.dtype != out_dtype:
+        bn_gamma_ad = topi.cast(bn_gamma_ad, out_dtype)
+    if bn_beta_ad.dtype != out_dtype:
+        bn_beta_ad = topi.cast(bn_beta_ad, out_dtype)
 
     return [bn_gamma_ad, bn_beta_ad]
 
