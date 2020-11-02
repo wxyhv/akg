@@ -19,10 +19,13 @@
 
 #include <tvm/base.h>
 #include <tvm/schedule.h>
+#include <tvm/build_module.h>
 
 namespace akg {
 namespace schedule {
-TVM_DLL void AutoInline(air::Schedule sch);
+TVM_DLL void AutoInline(air::Schedule sch, const air::Target &target);
+
+TVM_DLL void AutoFuse(air::Schedule sch);
 }  // namespace schedule
 }  // namespace akg
 #endif  // INCLUDE_AKG_SCHEDULE_PASS_H_
