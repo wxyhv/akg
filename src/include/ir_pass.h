@@ -69,6 +69,14 @@ Stmt EmitInsn(Stmt stmt, bool enable_bisect, bool enable_cover_protect, const Ma
 Stmt EmitInsnDebug(Stmt stmt);
 
 /*!
+ * \brief replace point word separators in variables with underscore.
+ *
+ * \param stmt The stmt to be transformed
+ * \return Transformed stmt.
+ */
+Stmt ReplaceSeparator(Stmt stmt);
+
+/*!
  * \brief rewrite tensor.value[0] to tensor_v0.
  *
  * \param stmt The stmt to be transformed

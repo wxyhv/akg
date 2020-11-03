@@ -23,7 +23,6 @@
 
 /*
  * 2019.12.30 - Define new function of buffer_align and buffer_tile.
- * 2020.10.19 - The joiner in the fused_name changed from "." to "_"
  */
 
 #include <tvm/schedule.h>
@@ -293,7 +292,7 @@ Stage& Stage::fuse(IterVar outer, IterVar inner, IterVar* p_target) {  // NOLINT
   IterVarType iter_type = outer->iter_type;
   if (inner->iter_type > iter_type) iter_type = inner->iter_type;
   std::string fused_name =
-      outer->var->name_hint + "_" + inner->var->name_hint + "_fused";
+      outer->var->name_hint + "." + inner->var->name_hint + ".fused";
 
   IterVar fused = IterVarNode::make(
       Range(), Var(fused_name, outer->var.type()), iter_type);
