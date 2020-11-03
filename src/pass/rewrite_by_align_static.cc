@@ -231,6 +231,22 @@ class RewriteAllocateAndIndex : public IRMutator {
     return stmt;
   }
 
+  Stmt Mutate_(const IfThenElse *op, const Stmt &s) {
+    in_condition_ = true;
+    Expr condition = this->Mutate(op->condition);
+    in_condition_ = false;
+    Stmt then_case = this->Mutate(op->then_case);
+    Stmt else_case;
+    if (op->else_case.defined()) {
+      else_case = this->Mutate(op->else_case);
+    }
+    if (condition.same_as(op->condition) && then_case.same_as(op->then_case) && else_case.same_as(op->else_case)) {
+      return s;
+    } else {
+      return IfThenElse::make(condition, then_case, else_case);
+    }
+  }
+
   Stmt Mutate_(const Store *op, const Stmt &s) final {
     auto it = scope_align_.find(op->buffer_var.get());
     if (it != scope_align_.end()) {
@@ -275,8 +291,8 @@ class RewriteAllocateAndIndex : public IRMutator {
     int64_t align = GetIntConst(op->predicate);
     if (in_insn_ && align > 0 && IsUbBuffer(op->buffer_var->name_hint)) {
       int64_t blk_sz = GetUbBlkSize(op->type);
-
-      auto index = FixIndex(op->index, align, blk_sz);
+      auto index = this->Mutate(op->index);
+      index = FixIndex(index, align, blk_sz);
       Expr ret = Load::make(op->type, op->buffer_var, index, op->predicate);
       return ret;
     }
@@ -348,6 +364,7 @@ class RewriteAllocateAndIndex : public IRMutator {
   std::map<const Variable *, int> var2ext_;
   std::vector<const For *> fors_;
   bool in_insn_;
+  bool in_condition_;
 };
 }  // namespace
 
