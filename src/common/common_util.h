@@ -20,6 +20,7 @@
 #include <sstream>
 #include <string>
 #include <vector>
+#include <cstdlib>
 
 namespace akg {
 namespace common {
@@ -50,6 +51,17 @@ inline std::vector<std::string> Split(const std::string &str, const std::string 
   }
   return result;
 }
+
+inline std::string GetStringEnv(const char *env_name) {
+  const char *ret = getenv(env_name);
+  return ret != nullptr ? std::string(ret) : std::string();
+}
+
+inline int GetIntegerEnv(const char *env_name) {
+  auto str_ret = GetStringEnv(env_name);
+  return !str_ret.empty() ? static_cast<int>(std::strtol(str_ret.c_str(), nullptr, 10)) : 0;
+}
+
 }  // namespace common
 }  // namespace akg
 #endif  // COMMON_UTIL_H_

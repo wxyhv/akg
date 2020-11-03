@@ -184,7 +184,9 @@ class TileSpaceCollector {
   }
 
   bool ScanDown(size_t axis_idx, size_t band_idx) {
-    if (axis_idx == tile_axes_.size()) return AppendCand(band_idx);
+    if (axis_idx == tile_axes_.size()) {
+      return AppendCand(band_idx);
+    }
     TileAxis *axis = tile_axes_[axis_idx];
     TileAxis::Constraint &cons = axis->l1_constraints;
     const auto tile_min = cons.tile_min_.as<IntImm>();
@@ -193,10 +195,18 @@ class TileSpaceCollector {
     if (tile_min && tile_mod && tile_extent) {
       bool min_tile_ok = false;
       for (int64_t tile = tile_min->value; tile <= tile_extent->value; ++tile) {
-        if (tile != tile_min->value && tile != tile_extent->value && (tile % tile_mod->value != 0)) continue;
+        bool break_constraint =
+          (tile != tile_min->value) && (tile != tile_extent->value) && (tile % tile_mod->value != 0);
+        if (analyzer_.scop_info_.user_config_.GetPruneTuningSpace() && break_constraint) {
+          continue;
+        }
         cand_.UpdateConstTile(axis, tile);
-        if (!cand_.SpaceVerify(axis, LEVEL1, band_idx)) continue;
-        if (!ScanDown(axis_idx + 1, band_idx)) return min_tile_ok;
+        if (analyzer_.scop_info_.user_config_.GetPruneTuningSpace() && !cand_.SpaceVerify(axis, LEVEL1, band_idx)) {
+          continue;
+        }
+        if (!ScanDown(axis_idx + 1, band_idx)) {
+          return min_tile_ok;
+        }
         if (!min_tile_ok) min_tile_ok = true;
       }
       return true;
@@ -208,14 +218,35 @@ class TileSpaceCollector {
 
   bool AppendCand(size_t band_idx) {
     process_++;
+
+    // check memory constraint
     int64_t mem_sz, align_sz;
-    std::tie(mem_sz, align_sz) = cand_.MemInfer(MEM_SCOPE_UB, band_idx);
-    if (align_sz > mem_limit_[MEM_SCOPE_UB]) return false;
+    if (analyzer_.scop_info_.user_config_.GetTarget() == TARGET_CCE) {
+      std::tie(mem_sz, align_sz) = cand_.MemInfer(MEM_SCOPE_UB, band_idx);
+      if (analyzer_.scop_info_.user_config_.GetPruneTuningSpace() && align_sz > mem_limit_[MEM_SCOPE_UB]) {
+        return false;
+      }
+    } else {
+      int64_t shared_sz, local_sz;
+      std::tie(shared_sz, std::ignore) = cand_.MemInfer(MEM_SCOPE_SHARED, band_idx);
+      if (analyzer_.scop_info_.user_config_.GetPruneTuningSpace() && shared_sz > mem_limit_[MEM_SCOPE_SHARED]) {
+        return false;
+      }
+      std::tie(local_sz, std::ignore) = cand_.MemInfer(MEM_SCOPE_LOCAL, band_idx);
+      if (analyzer_.scop_info_.user_config_.GetPruneTuningSpace() && local_sz > mem_limit_[MEM_SCOPE_LOCAL]) {
+        return false;
+      }
+      mem_sz = std::max(shared_sz, local_sz);
+      align_sz = mem_sz;
+    }
+
+    // collect tile size
     std::vector<int> tile(tile_axes_.size());
     for (size_t i = 0; i < tile_axes_.size(); ++i) {
       auto tile_val = cand_.GetConstTileVal(tile_axes_[i]);
       tile[i] = tile_val.first;
     }
+
     auto LargerThan = [&tile](std::vector<int> &other) -> bool {
       for (size_t j = 0; j < tile.size(); ++j) {
         if (tile[j] < other[j]) return false;
@@ -233,30 +264,50 @@ class TileSpaceCollector {
       ss << "], mem=(" << mem_sz << ", " << align_sz << "), " << op;
       LOG(INFO) << ss.str();
     };
-    for (auto &result : result_.back()) {
-      // skip memory align tiling
-      if ((mem_sz == result.mem_size) && (align_sz > result.align_size) && (LargerThan(result.tile))) {
-        if (level_ >= DUMP_LEVEL_CANDIDATE) DumpCand("skip");
-        return true;
-      }
-      // smaller memory, larger tile, then replace
-      if ((mem_sz <= result.mem_size) && (align_sz <= result.align_size) && (LargerThan(result.tile))) {
-        if (level_ >= DUMP_LEVEL_CANDIDATE) DumpCand("replace");
-        result.tile = std::move(tile);
-        result.mem_size = mem_sz;
-        result.align_size = align_sz;
-        return true;
+
+    // pruning
+    if (analyzer_.scop_info_.user_config_.GetTarget() == TARGET_CCE &&
+        analyzer_.scop_info_.user_config_.GetPruneTuningSpace()) {
+      for (auto &result : result_.back()) {
+        // skip memory align tiling
+        if ((mem_sz == result.mem_size) && (align_sz > result.align_size) && (LargerThan(result.tile))) {
+          if (level_ >= DUMP_LEVEL_CANDIDATE) {
+            DumpCand("skip");
+          }
+          return true;
+        }
+        // smaller memory, larger tile, then replace
+        if ((mem_sz <= result.mem_size) && (align_sz <= result.align_size) && (LargerThan(result.tile))) {
+          if (level_ >= DUMP_LEVEL_CANDIDATE) {
+            DumpCand("replace");
+          }
+          result.tile = std::move(tile);
+          result.mem_size = mem_sz;
+          result.align_size = align_sz;
+          return true;
+        }
       }
     }
-    if (level_ >= DUMP_LEVEL_CANDIDATE) DumpCand("new");
+
+    // record result
+    if (level_ >= DUMP_LEVEL_CANDIDATE) {
+      DumpCand("new");
+    }
     result_.back().emplace_back(Result{std::move(tile), mem_sz, align_sz});
     return true;
   }
 
   void CollectMemLimit() {
-    DavinciInfo &d_info = DavinciInfo::GetInstance();
-    for (auto i = 0; i < MEM_SCOPE_BULK; ++i) {
-      this->mem_limit_[i] = d_info.GetMemoryLimitInScope(i);
+    if (analyzer_.scop_info_.user_config_.GetTarget() == TARGET_CCE) {
+      DavinciInfo &d_info = DavinciInfo::GetInstance();
+      for (auto i = 0; i < MEM_SCOPE_BULK; ++i) {
+        this->mem_limit_[i] = d_info.GetMemoryLimitInScope(i);
+      }
+    } else {
+      GpuInfo &gpu_info = GpuInfo::GetInstance();
+      for (auto i = 0; i < MEM_SCOPE_BULK; ++i) {
+        this->mem_limit_[i] = gpu_info.GetMemoryLimitInScope(i);
+      }
     }
   }
 
@@ -329,7 +380,9 @@ NodeRef GenerateTilingSpace(const isl::schedule &sch, ScopInfo &scop_info, Stmt 
   CHECK(!scop_info.cube_info_.HasCube()) << "cube op is not supported by auto tiling generator now!";
   TilingAnalyzer analyzer(sch, scop_info, body);
   bool need_tiling = analyzer.Prepare();
-
+  std::stringstream ss;
+  ss << body;
+  analyzer.logger_.AppendLog(DO_TUNING, ss);
   if (!analyzer.logger_.DumpLogFile()) LOG(WARNING) << "Write tiling log fail.";
   TileSpaceCollector collector(analyzer, dump_level);
   if (need_tiling) collector.Collect();

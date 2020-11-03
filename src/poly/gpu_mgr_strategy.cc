@@ -16,6 +16,7 @@
 #include "poly/gpu_mgr_strategy.h"
 
 #include "schedule_pass_gpu/mapping_outer_band.h"
+#include "schedule_pass_gpu/gpu_dma_analysis.h"
 #include "schedule_pass_gpu/shared_memory_manager.h"
 #include "schedule_pass_gpu/register_memory_manager.h"
 #include "schedule_pass/tile_outer_band.h"
@@ -40,6 +41,10 @@ void GPUMgrStrategy::RegisterPasses() {
   passes_.clear();
   RegisterNormalizationPasses();
   RegisterSchedulingPasses();
+  RegisterPass(std::make_shared<GpuDmaAnalysis>(scop_info_));
+  if (scop_info_.user_config_.GetIsTuning()) {
+    return;
+  }
   RegisterTilingPasses();
   RegisterPass(std::make_shared<MappingOuterBand>(pass_info_, scop_info_));
   RegisterMemPromPasses();

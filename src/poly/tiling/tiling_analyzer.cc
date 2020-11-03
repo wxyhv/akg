@@ -347,7 +347,7 @@ bool TileCandidate::SpaceVerify(const TileAxis *axis, TileLevel level, const int
   return true;
 }
 
-std::pair<int64_t, int64_t> TileCandidate::MemInfer(DavinciMemScope scope, int band_idx) {
+std::pair<int64_t, int64_t> TileCandidate::MemInfer(TilingMemScope scope, int band_idx) {
   tiling_band_ = band_idx;
   if (!is_update_) {
     DoMemInfer();
@@ -423,7 +423,7 @@ int64_t TileCandidate::CalActualTile(const CalAlignInfo *align_info) {
     }
     return align_type;
   };
-  if (this->analyzer_->op_type_ != VECTOR_OP) {
+  if (this->analyzer_->scop_info_.user_config_.GetTarget() != TARGET_CCE || this->analyzer_->op_type_ != VECTOR_OP) {
     return actual_tile;
   }
   std::string align_type = GetAlignType();
@@ -468,7 +468,7 @@ void TileCandidate::UpdateMemoryAfterBuffer(const BufferEntry *buf, MemInferInfo
   int64_t buf_size = buf->size * buf->expand_size * fix_size->value;
   CHECK_GT(buf_size, 0) << "Buffer size must be positive.";
   int64_t act_buf_size = buf_size;
-  DavinciMemScope scope = buf->scope;
+  TilingMemScope scope = buf->scope;
   bool this_band_buf = (scope == MEM_SCOPE_GM);
   auto FindPartialMatch = [](const std::string &full_name, const std::unordered_set<std::string> name_set) -> bool {
     for (const auto &part_name : name_set) {
@@ -504,7 +504,7 @@ void TileCandidate::UpdateMemoryAfterBuffer(const BufferEntry *buf, MemInferInfo
 
 bool TileCandidate::GetActualBufSize(const BufferEntry *buf, BufSizeInfo *buf_size_info) {
   bool this_band_buf = false;
-  static const bool is_l0_tile[MEM_SCOPE_BULK] = {false, false, false, true, true, true};
+  static const bool is_l0_tile[MEM_SCOPE_BULK] = {false, false, false, true, true, true, false, false};
   for (auto &it : *(buf->tile_axis)) {
     TileAxis *a = it;
     if (a == analyzer_->RootAxis()) {
@@ -562,36 +562,37 @@ bool TileCandidate::GetActualBufSize(const BufferEntry *buf, BufSizeInfo *buf_si
 }
 
 void TileCandidate::GetElemwiseActualBufSize(const BufferEntry *buf, BufSizeInfo *buf_size_info) {
-  if (buf_size_info->is_elem) {
-    if (buf_size_info->is_bcast) {
-      // Elemwise and bcast buffer cannot be reused.
-      buf_size_info->act_buf_size *= 2;
-      if (buf->tile_axis != nullptr && !buf->tile_axis->empty()) {
-        TileAxis *bc_last = buf->tile_axis->back();
-        int64_t const_extent = bc_last->GetConstExtent();
-        if (const_extent != -1) {
-          int64_t block_size = GetMaxAlignBytes(bc_last->data_size);
-          int64_t l1_size = this->GetConstTileVal(bc_last).first;
-          if (l1_size == TileVarId::UNDEFINE) {
-            l1_size = const_extent;
-          }
-          if (l1_size < block_size) {
-            CHECK_GT(l1_size, 0);
-            buf_size_info->act_buf_size *= (block_size - 1 + l1_size) / l1_size;
-          }
+  if (analyzer_->scop_info_.user_config_.GetTarget() != TARGET_CCE || !buf_size_info->is_elem) {
+    return;
+  }
+  if (buf_size_info->is_bcast) {
+    // Elemwise and bcast buffer cannot be reused.
+    buf_size_info->act_buf_size *= 2;
+    if (buf->tile_axis != nullptr && !buf->tile_axis->empty()) {
+      TileAxis *bc_last = buf->tile_axis->back();
+      int64_t const_extent = bc_last->GetConstExtent();
+      if (const_extent != -1) {
+        int64_t block_size = GetMaxAlignBytes(bc_last->data_size);
+        int64_t l1_size = this->GetConstTileVal(bc_last).first;
+        if (l1_size == TileVarId::UNDEFINE) {
+          l1_size = const_extent;
+        }
+        if (l1_size < block_size) {
+          CHECK_GT(l1_size, 0);
+          buf_size_info->act_buf_size *= (block_size - 1 + l1_size) / l1_size;
         }
       }
-    } else {
-      int64_t align = GetAlignBytes(buf->size);
-      if (buf_size_info->f_mul < align || (align != 0 && buf_size_info->f_mul % align != 0)) {
-        CHECK_GT(buf_size_info->act_buf_size, 0);
-        int64_t align_m = buf_size_info->f_mul;
-        while (align_m % align != 0) {
-          align_m += 1;
-        }
-        double exp = static_cast<double>(align_m) / static_cast<double>(buf_size_info->f_mul);
-        buf_size_info->act_buf_size = static_cast<int64_t>(static_cast<double>(buf_size_info->act_buf_size) * exp);
+    }
+  } else {
+    int64_t align = GetAlignBytes(buf->size);
+    if (buf_size_info->f_mul < align || (align != 0 && buf_size_info->f_mul % align != 0)) {
+      CHECK_GT(buf_size_info->act_buf_size, 0);
+      int64_t align_m = buf_size_info->f_mul;
+      while (align_m % align != 0) {
+        align_m += 1;
       }
+      double exp = static_cast<double>(align_m) / static_cast<double>(buf_size_info->f_mul);
+      buf_size_info->act_buf_size = static_cast<int64_t>(static_cast<double>(buf_size_info->act_buf_size) * exp);
     }
   }
 }
@@ -774,8 +775,10 @@ class LinearAccessPatternBuilder : public IRVisitor {
     CHECK(!seq_.empty());
     seq_[0].scope_pair_offset = end;
     seq_.emplace_back(StmtEntry{cur_axis_, -end, nullptr});
-    CollectCastedBuf();
-    UpdateBufferAlignSize();
+    if (analyzer_->scop_info_.user_config_.GetTarget() == TARGET_CCE) {
+      CollectCastedBuf();
+      UpdateBufferAlignSize();
+    }
     BuildBufferUsageTimetable();
   }
 
@@ -891,8 +894,10 @@ class LinearAccessPatternBuilder : public IRVisitor {
  private:
   void StmtAppend(const std::string &def) {
     std::vector<BufferEntry *> ref_buf;
+    auto tensor_mem_flows = analyzer_->scop_info_.analysis_result_.GetTensorMemFlows();
+
+    // Deal with referenced buffers
     for (const std::string &ref : cur_ref_) {
-      auto tensor_mem_flows = analyzer_->scop_info_.analysis_result_.GetTensorMemFlows();
       MemFlow &mem_flow = tensor_mem_flows[ref];
       CHECK(!mem_flow.empty());
       if (local_buf_.count(ref) && mem_flow.size() == 2U) {
@@ -912,15 +917,16 @@ class LinearAccessPatternBuilder : public IRVisitor {
         ref_buf.push_back(from);
       }
     }
-    auto tensor_mem_flows = analyzer_->scop_info_.analysis_result_.GetTensorMemFlows();
-    MemFlow &def_flow = tensor_mem_flows[def];
 
+    // Deal with defined buffers
+    MemFlow &def_flow = tensor_mem_flows[def];
+    CHECK(!def_flow.empty());
     BufferEntry *def_buf = GetBuffer(def, def_flow.back());
 
     StmtAppend(def_buf, ref_buf);
     if (!local_buf_.count(def)) {
       BufferEntry *from = def_buf;
-      for (int64_t i = def_flow.size() - 2; i >= 0; i--) {
+      for (int64_t i = def_flow.size() - 2; i >= 0; --i) {
         BufferEntry *to = GetBuffer(def, def_flow[i]);
 
         StmtAppend(to, {from});
@@ -1178,6 +1184,10 @@ class LinearAccessPatternBuilder : public IRVisitor {
       CHECK_GT(dsize, 0) << name << "'s data type error, bytes = 0";
       for (Expr dim : i.first->shape) shape *= dim;
       CHECK(shape.defined()) << "Buffer " << name << "'s shape not defined.";
+      shape = CanonicalSimplify(shape);
+      if (analyzer_->scop_info_.user_config_.GetTarget() == TARGET_CUDA) {
+        break;
+      }
       if (!analyzer_->is_dynamic_ && reduce_src_buf_.find(name) != reduce_src_buf_.end()) {
         expand_size *= BISEC_REDUCE_MEM_EXPANSION;
       }
@@ -1187,7 +1197,6 @@ class LinearAccessPatternBuilder : public IRVisitor {
       if (aligned_buf_.find(name) != aligned_buf_.end()) {
         expand_size *= GetAlignBytes(dsize);
       }
-      shape = CanonicalSimplify(shape);
       break;
     }
     buf->size = dsize;
@@ -1209,9 +1218,10 @@ class LinearAccessPatternBuilder : public IRVisitor {
   std::unordered_map<std::string, int> expanded_buf_;
   std::unordered_map<std::string, int64_t> casted_buf_;
 
-  std::unordered_map<int, DavinciMemScope> mem_type_to_scope_ = {
-    {DDR, MEM_SCOPE_GM},   {L1_, MEM_SCOPE_L1},   {UB_, MEM_SCOPE_UB},   {L0A_, MEM_SCOPE_L0A},
-    {L0B_, MEM_SCOPE_L0B}, {L0C_, MEM_SCOPE_L0C}, {UBL0_, MEM_SCOPE_UB}, {UBL1_, MEM_SCOPE_UB}};
+  std::unordered_map<int, TilingMemScope> mem_type_to_scope_ = {
+    {DDR, MEM_SCOPE_GM},         {L1_, MEM_SCOPE_L1},      {UB_, MEM_SCOPE_UB},   {L0A_, MEM_SCOPE_L0A},
+    {L0B_, MEM_SCOPE_L0B},       {L0C_, MEM_SCOPE_L0C},    {UBL0_, MEM_SCOPE_UB}, {UBL1_, MEM_SCOPE_UB},
+    {SHARED_, MEM_SCOPE_SHARED}, {LOCAL_, MEM_SCOPE_LOCAL}};
 };
 
 std::vector<TileAxis *> TilingAnalyzer::GetAxesContainsAttr(const std::string attr_key) const {

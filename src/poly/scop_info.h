@@ -153,6 +153,7 @@ class UserConfig {
     ParseBoolAttr(attrs, "pragma_speedup_tiling", &pragma_speedup_tiling_);
     ParseBoolAttr(attrs, "pragma_allow_tail_tiling", &pragma_allow_tail_tiling_);
     ParseBoolAttr(attrs, "pragma_analyze_multicore", &pragma_analyze_multicore_);
+    ParseBoolAttr(attrs, "prune_tuning_space", &prune_tuning_space_);
     ParseBoolAttr(attrs, "pragma_checkcoincident", &tile_check_coincident_);
     ParseIntAttr(attrs, "max_unroll_loop", &max_unroll_loop_);
     ParseBoolAttr(attrs, "unroll_shared", &unroll_shared_);
@@ -233,6 +234,7 @@ class UserConfig {
   bool GetPragmaAnalyzeReuseBuffer() const { return pragma_analyze_reuse_buffer_; }
   bool GetPragmaAllowTailTiling() const { return pragma_allow_tail_tiling_; }
   bool GetPragmaAnalyzeMulticore() const { return pragma_analyze_multicore_; }
+  bool GetPruneTuningSpace() const { return prune_tuning_space_; }
   bool GetTileCheckCoincident() const { return tile_check_coincident_; }
   int GetMaxUnrollLoop() const { return max_unroll_loop_; }
   void SetUnroll(const int max_unroll_loop) { this->max_unroll_loop_ = max_unroll_loop; }
@@ -438,6 +440,7 @@ class UserConfig {
   bool pragma_speedup_tiling_{false};
   bool pragma_allow_tail_tiling_{true};
   bool pragma_analyze_multicore_{true};
+  bool prune_tuning_space_{true};
   bool tile_check_coincident_{true};
   int max_unroll_loop_{1};
   bool unroll_shared_{false};

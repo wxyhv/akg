@@ -658,10 +658,10 @@ std::vector<double> TilingPriorityScorer::ComputeVectorization(std::vector<TileA
     for (auto it : analyzer_.buf_info_) {
       auto buf = it.second.get();
       int coef;
-      if (buf->scope == DavinciMemScope::MEM_SCOPE_GM) {
+      if (buf->scope == TilingMemScope::MEM_SCOPE_GM) {
         // continuous dma copy is considered as the most important factor
         coef = 2;
-      } else if (buf->scope == DavinciMemScope::MEM_SCOPE_UB) {
+      } else if (buf->scope == TilingMemScope::MEM_SCOPE_UB) {
         // vectorization instruction is also important
         coef = 1;
       } else {

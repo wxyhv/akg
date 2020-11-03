@@ -61,7 +61,7 @@ def dump_tiling_info(level):
         logging.info("index 0 has %d candidate(s) tiling factors", len(tuning_spaces["tuning_space"]))
         tuning_spaces_len = len(tuning_spaces["tuning_space"])
         for i in range(tuning_spaces_len):
-            info = "candicate %d:("
+            info = "candidate %d:("
             for l1_candidate in tuning_spaces["tuning_space"][i]:
                 info += ("(" + str(l1_candidate) + ", " + str(L0_DEFAULT_TILING) + "),")
             info += ")"

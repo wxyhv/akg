@@ -99,7 +99,7 @@ void TilingSolver::CollectMemoryLimit() {
   auto error_scope = global_attrs.GetStringAttr(kErrorScope, "");
   for (auto i = 0; i < MEM_SCOPE_BULK; ++i) {
     this->mem_limit_[i] = d_info.GetMemoryLimitInScope(i) * percentage_;
-    if (i == DavinciMemScope::MEM_SCOPE_UB && error_scope == "local.UB") {
+    if (i == TilingMemScope::MEM_SCOPE_UB && error_scope == "local.UB") {
       this->mem_limit_[i] =
         std::max(static_cast<int>(this->mem_limit_[i] * GetNewAllocRatioWhenRewriteFail(this->mem_limit_[i])), 1);
       global_attrs.Set(kErrorScope, StringImm::make(""));
@@ -931,7 +931,7 @@ bool TraverseSolver::MemoryVerify(TileLevel level, int band, int64_t *deviation)
   std::vector<int64_t> expanded_size;
   int dev = 0;
   for (int i = 0; i < MEM_SCOPE_BULK; ++i) {
-    auto scope = static_cast<DavinciMemScope>(i);
+    auto scope = static_cast<TilingMemScope>(i);
     std::pair<int64_t, int64_t> mem_pair = cand_.MemInfer(scope, band);
     int64_t origin = mem_pair.first;
     int64_t expand = mem_pair.second;

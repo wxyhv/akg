@@ -207,7 +207,7 @@ class TilingAnalyzer {
   // represent a buffer
   struct BufferEntry {
     std::string name;
-    DavinciMemScope scope;
+    TilingMemScope scope;
     Expr shape;           // tensor size
     int64_t size;         // data type size
     int64_t align_size;   // determine the bytes used for alignment
@@ -334,7 +334,7 @@ class TileCandidate {
   std::pair<int64_t, int64_t> GetConstTileVal(const TileAxis *a);
 
   bool SpaceVerify(const TileAxis *axis, TileLevel level, int band);
-  std::pair<int64_t, int64_t> MemInfer(DavinciMemScope type, int band);
+  std::pair<int64_t, int64_t> MemInfer(TilingMemScope type, int band);
 
   void InsertAxisBack(TileAxis *a) {
     this->tile_axis_.emplace_back(a);
