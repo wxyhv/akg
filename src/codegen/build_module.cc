@@ -495,6 +495,13 @@ Stmt LowerStmt(Schedule sch, const Array<NodeRef> &in_args, const Array<NodeRef>
 
   if (target_platform->device_type == kDLGPU) {
     if (polyhedral) {
+      
+      stmt = NEXT_PASS(RewriteMultiValueFunc, stmt);
+      Map<Tensor, Tensor> replace;
+      RenameBinds(*binds_0, config, *args, *arg_list_0, replace);
+      PassMgr::SetArgs(*arg_list_0);
+      stmt = NEXT_PASS(RenameRealize, stmt, *binds_0, replace);
+
       if (global_attrs.GetBoolAttr(kEnableFuseAxis, false)) {
         Array<NodeRef> fuse_axis_res = NEXT_PASS(FuseAxis, stmt, *arg_list_0, *binds_0);
         CHECK_EQ(fuse_axis_res.size(), 3);
