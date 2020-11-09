@@ -27,12 +27,7 @@ isl::union_set RegisterMemoryManager::GatherMappingsTo(MappingCfg *cfg) {
   isl::schedule_node root = schedule_.get_root();
   auto domain_node = root.as<isl::schedule_node_domain>();
   auto domain = domain_node.domain();
-
-  auto upa_node_mapping = scop_info_.upa_node_mapping_;
-  std::vector<isl::schedule_node> mapping_filters;
-  for (auto element : upa_node_mapping) {
-    mapping_filters.push_back(element.first);
-  }
+  auto mapping_filters = CollectNode<isl::schedule_node_filter>(schedule_);
 
   std::vector<isl::id> filters;
   for (size_t idx = 0; idx < cfg->bound; ++idx) {
@@ -40,13 +35,26 @@ isl::union_set RegisterMemoryManager::GatherMappingsTo(MappingCfg *cfg) {
     auto id = isl::id(root.ctx(), value.first);
     filters.push_back(id);
   }
-
   mapping_filters = FilterNode(mapping_filters, filters);
+
   auto mapping = isl::union_set::empty(domain.ctx());
   for (auto item : mapping_filters) {
     if (item.isa<isl::schedule_node_filter>()) {
       auto filter = item.as<isl::schedule_node_filter>();
-      auto filter_domain = filter.filter().intersect(CollectDomain(item));
+      if (filter.has_parent() && !filter.parent().isa<isl::schedule_node_mark>()) {
+        continue;
+      }
+
+      isl::union_set uset = filter.get_filter();
+      std::vector<isl::set> vset;
+      uset.foreach_set([&vset](isl::set s) { vset.push_back(s); });
+      if (!vset.empty()) {
+        auto filter_name = vset[0].get_tuple_name();
+        if (filter_name == READ_ID_NAME || filter_name == WRITE_ID_NAME) {
+          continue;
+        }
+      }
+
       mapping = mapping.unite(filter.filter());
     }
   }
@@ -231,7 +239,6 @@ void RegisterMemoryManager::CreateTensorCluster(const isl::schedule_node &node, 
     if (promoted_info.footprints_cluster != nullptr) {
       promoted_info.footprint_cluster_map.emplace_back(std::make_pair(node, promoted_info.footprints_cluster));
       promoted_infos.push_back(promoted_info);
-      // scop_info_.analysis_result_.buffer_def_infos_.push_back(promoted_info);
     }
   }
 
@@ -295,7 +302,11 @@ size_t RegisterMemoryManager::UpdateDepth(const isl::schedule_node &node) {
   auto band = node.as<isl::schedule_node_band>();
   for (size_t i = 0; i < band.n_member(); i++) {
     if (!band.member_get_coincident(i)) {
-      return i;
+      if (i == 0) {
+        return band.n_member();
+      } else {
+        return i;
+      }
     }
   }
   return band.n_member();

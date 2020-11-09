@@ -208,7 +208,6 @@ std::unique_ptr<TensorFootprintCluster> TensorFootprintCluster::ComputeFootprint
   cluster->foot_print_ = ComputeFootprintOfRange(scoped_access.domain_factor_domain());
 
   if (!cluster->foot_print_.box.is_valid()) {
-    LOG(WARNING) << "foot_print_ box is invalid, scoped_access: " << scoped_access.domain_factor_domain();
     return cluster;
   }
 
@@ -1793,7 +1792,6 @@ void CreateTensorFootprintClusters(TensorClusterInfo &tensor_info, const isl::id
       tensor_info.push_back(std::move(footprint_cluster));
     } else {
       unapproximatable.insert(tensor_id);
-      LOG(INFO) << "access of tensor " << tensor_id << " is unapproximatable: " << access;
     }
   }
 }

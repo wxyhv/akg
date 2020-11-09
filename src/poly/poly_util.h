@@ -50,9 +50,128 @@ namespace poly {
 #define TIMER_SHOW(NAME, SPEC_GEMM) \
   { LOG(INFO) << "[ Polyhedral exec time" << SPEC_GEMM << " ], " << NAME << " spent " << TIMER_DURATION << " ms"; }
 
+#define FOREACH(X)                \
+  X(elewise_single_VS_add)        \
+  X(elewise_single_VS_mul)        \
+  X(elewise_single_rec)           \
+  X(elewise_single_log)           \
+  X(elewise_single_exp)           \
+  X(elewise_single_sqrt)          \
+  X(elewise_single_rsqrt)         \
+  X(vec_single_cast)              \
+  X(vec_single_floor)             \
+  X(vec_single_round)             \
+  X(elewise_single_ceil)          \
+  X(vec_single_trunc)             \
+  X(elewise_single_not)           \
+  X(elewise_single_fabs)          \
+  X(elewise_single_relu)          \
+  X(broadcast)                    \
+  X(pandora_select)               \
+  X(pandora_cmp)                  \
+  X(reg_mov)                      \
+  X(mad)                          \
+  X(elewise_binary_add)           \
+  X(elewise_binary_sub)           \
+  X(elewise_binary_mul)           \
+  X(elewise_binary_div)           \
+  X(elewise_binary_mod)           \
+  X(elewise_binary_min)           \
+  X(elewise_binary_max)           \
+  X(elewise_binary_or)            \
+  X(elewise_binary_and)           \
+  X(elewise_binary_EQ)            \
+  X(elewise_binary_NE)            \
+  X(elewise_binary_GT)            \
+  X(elewise_binary_GE)            \
+  X(elewise_binary_LT)            \
+  X(elewise_binary_LE)            \
+  X(elewise_binary_scalar_axpy)   \
+  X(four2five_nchw)               \
+  X(vec_argmax)                   \
+  X(elewise_binary_proposal_sort) \
+  X(elewise_binary_topk_sort)     \
+  X(elewise_binary_nms)           \
+  X(with)                         \
+  X(vec_argmin)                   \
+  X(elewise_binary_dropout)       \
+  X(elewise_binary_iou)           \
+  X(elewise_binary_unknown)       \
+  X(assignment)                   \
+  X(im2col)                       \
+  X(poly_op_type_max)             \
+  X(vmadd)                        \
+  X(vmaddrelu)                    \
+  X(vaxpy)                        \
+  X(vmla)                         \
+  X(elewise_binary_bitwise_and)   \
+  X(elewise_binary_bitwise_or)    \
+  X(elewise_single_bitwise_not)   \
+  X(tvm_if_then_else)             \
+  X(reshape)                      \
+  X(transpose)                    \
+  X(divide_var)                   \
+  X(sub_relu)                     \
+  X(pow)                          \
+  X(isnan)                        \
+  X(load3d_l1_ub)                 \
+  X(tanh)
+
+#define GENERATE_ENUM(ENUM) ENUM,
+
+enum class PolyOpType : int { FOREACH(GENERATE_ENUM) };
+
+const std::map<std::string, PolyOpType> POLY_SUPPORTED_OPS = {
+  {"log", PolyOpType::elewise_single_log},
+  {"exp", PolyOpType::elewise_single_exp},
+  {"sqrt", PolyOpType::elewise_single_sqrt},
+  {"rsqrt", PolyOpType::elewise_single_rsqrt},
+  {"fabs", PolyOpType::elewise_single_fabs},
+  {"rec", PolyOpType::elewise_single_rec},
+  {"floor", PolyOpType::vec_single_floor},
+  {"round", PolyOpType::vec_single_round},
+  {"ceil", PolyOpType::elewise_single_ceil},
+  {"trunc", PolyOpType::vec_single_trunc},
+  {"not", PolyOpType::elewise_single_not},
+  {"relu", PolyOpType::elewise_single_relu},
+  {"EQ", PolyOpType::elewise_binary_EQ},
+  {"NE", PolyOpType::elewise_binary_NE},
+  {"GT", PolyOpType::elewise_binary_GT},
+  {"GE", PolyOpType::elewise_binary_GE},
+  {"LT", PolyOpType::elewise_binary_LT},
+  {"LE", PolyOpType::elewise_binary_LE},
+  {"fargmax", PolyOpType::vec_argmax},
+  {"fargmin", PolyOpType::vec_argmin},
+  {"four2five_nchw", PolyOpType::four2five_nchw},
+  {"vand", PolyOpType::elewise_binary_and},
+  {"bitwise_and", PolyOpType::elewise_binary_bitwise_and},
+  {"bitwise_or", PolyOpType::elewise_binary_bitwise_or},
+  {"bitwise_not", PolyOpType::elewise_single_bitwise_not},
+  {"proposal_sort", PolyOpType::elewise_binary_proposal_sort},
+  {"topk_sort", PolyOpType::elewise_binary_topk_sort},
+  {"nms", PolyOpType::elewise_binary_nms},
+  {"dropout", PolyOpType::elewise_binary_dropout},
+  {"iou", PolyOpType::elewise_binary_iou},
+  {"vmadd", PolyOpType::vmadd},
+  {"vmaddrelu", PolyOpType::vmaddrelu},
+  {"vaxpy", PolyOpType::vaxpy},
+  {"vmla", PolyOpType::vmla},
+  {"tvm_if_then_else", PolyOpType::tvm_if_then_else},
+  {"reshape", PolyOpType::reshape},
+  {"transpose", PolyOpType::transpose},
+  {"divide_var", PolyOpType::divide_var},
+  {"sub_relu", PolyOpType::sub_relu},
+  {"pow", PolyOpType::pow},
+  {"isnan", PolyOpType::isnan},
+  {"load3d_l1_ub", PolyOpType::load3d_l1_ub},
+  {"tanh", PolyOpType::tanh},
+};
+
 unsigned int WrappedStrtol(const std::string &str);
 
 bool IsEndsWith(const std::string &str, const std::string &suffix);
+
+bool IsStartsWith(const std::string &str, const std::string &prefix);
 
 std::vector<std::string> Split(const std::string &str, const std::string &pattern);
 
@@ -67,6 +186,8 @@ Stmt PeelOuterLetStmt(const Stmt &s, std::vector<Stmt> &outer_stmts);
 isl::union_map ShortSchedule(const isl::schedule_node &node);
 isl::union_map LocalSchedule(const isl::schedule_node &node);
 isl::multi_union_pw_aff ShortScheduleMupa(const isl::schedule_node &root, const isl::schedule_node &tree);
+isl::multi_union_pw_aff ShortScheduleMupaImpl(const isl::schedule_node &root, const isl::schedule_node &relative_root,
+                                              const isl::schedule_node &node);
 void GetAffOffsetAndNumVars(const isl::aff &aff, int &offset, int &num_vars);
 bool IsAffVarPlusOffset(const isl::aff &aff);
 bool IsAffNonZeroConst(const isl::aff &aff);
@@ -210,6 +331,7 @@ constexpr auto THREAD_IDX_Z = "threadIdx.z";
 
 constexpr auto SYNC_FLAG = "_sync_";
 constexpr auto STORAGE_SYNC = "tvm_storage_sync";
+constexpr auto REDUCE = "reduce";
 constexpr auto SYNC_SCOP_WARP = "warp";
 constexpr auto SYNC_SCOP_SHARED = "shared";
 constexpr auto SYNC_SCOP_GLOBAL = "global";
@@ -236,9 +358,26 @@ constexpr auto ATTR_IM2COL_KEY = "im2colKey";
 
 constexpr auto THREAD_MARKER = "thread_marker";
 constexpr auto BLOCK_MARKER = "block_marker";
+constexpr auto REDUCE_MARKER = "reduce_marker_";
+constexpr auto ATOMIC_MARKER = "atomic";
+constexpr auto X_DIRECTION = "X_DIRECTION";
+constexpr auto Y_DIRECTION = "Y_DIRECTION";
+constexpr auto REDUCE_INIT = "red_init_";
+constexpr auto REDUCE_UPDATE = "red_update_";
+constexpr auto INSERT_SYNC = "insert_sync";
 
 constexpr auto READ_ID_NAME = "GMread";
 constexpr auto WRITE_ID_NAME = "GMwrite";
+
+constexpr auto AKG_REDUCE_SUM = "SumOp";
+constexpr auto AKG_REDUCE_MIN = "MinOp";
+constexpr auto AKG_REDUCE_MAX = "MaxOp";
+constexpr auto AKG_REDUCE_AND = "AndOp";
+constexpr auto AKG_REDUCE_OR = "OrOp";
+constexpr auto AKG_REDUCE_UNSUPPORTED = "X";
+
+const std::unordered_set<std::string> AkgSupportedReduceOp = {AKG_REDUCE_SUM, AKG_REDUCE_MIN, AKG_REDUCE_MAX,
+                                                              AKG_REDUCE_AND, AKG_REDUCE_OR};
 
 const std::vector<std::string> ConvATTRList = {ATTR_CONV_FEATURE_W,  ATTR_CONV_KERNEL_H,   ATTR_CONV_KERNEL_W,
                                                ATTR_CONV_STRIDE_H,   ATTR_CONV_STRIDE_W,   ATTR_CONV_DILATION_H,

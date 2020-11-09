@@ -36,7 +36,7 @@ def gen_data(shape, out_shape, dtype, out_dtype, layout):
     head = random_gaussian(shape, miu=1, sigma=0.1).astype(support_list[dtype])
     data_sum = random_gaussian(out_shape, miu=1, sigma=0.1).astype(support_list[out_dtype])
     in_bn = random_gaussian(shape, miu=1, sigma=0.1).astype(support_list[dtype])
-    output = np.full(out_shape, np.nan, out_dtype)
+    output = np.full(out_shape, 0.0, out_dtype)
     expect = bn_update_grad(head, data_sum, in_bn, layout)
     return head, data_sum, in_bn, output, expect
 

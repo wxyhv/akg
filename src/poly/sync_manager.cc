@@ -66,10 +66,30 @@ isl::map SyncManager::GetExtensionSpace(const isl::schedule_node &node, SyncLeve
 isl::schedule_node SyncManager::InsertPromotionSync(const isl::schedule_node &tree) {
   auto seq_node = tree.parent().parent();
   if (!seq_node.isa<isl::schedule_node_sequence>()) {
-   LOG(INFO) << "Unexpected tree structure: need sequence"; 
-   return tree;
+    LOG(INFO) << "Unexpected tree structure: need sequence";
+    return tree;
   }
-  
+
+  bool find_read_or_write = false;
+  for (int i = seq_node.n_children() - 1; i >= 0; --i) {
+    auto filter_node = seq_node.child(i).as<isl::schedule_node_filter>();
+    CHECK(filter_node) << "Expected filters below sequence";
+    // Transform isl::union_set to a vector of isl::set
+    isl::union_set uset = filter_node.get_filter();
+    std::vector<isl::set> vset;
+    uset.foreach_set([&vset](isl::set s) { vset.push_back(s); });
+    // Get current filter name
+    if (!vset.empty()) {
+      if ((vset[0].get_tuple_name() == READ_ID_NAME) || (vset[0].get_tuple_name() == WRITE_ID_NAME)) {
+        find_read_or_write = true;
+      }
+    }
+  }
+
+  if (!find_read_or_write) {
+    return tree;
+  }
+
   std::string cur_filter_name = "";
   std::string next_filter_name = "";
   for (int i = seq_node.n_children() - 1; i >= 0; --i) {
@@ -78,9 +98,7 @@ isl::schedule_node SyncManager::InsertPromotionSync(const isl::schedule_node &tr
     // Transform isl::union_set to a vector of isl::set
     isl::union_set uset = filter_node.get_filter();
     std::vector<isl::set> vset;
-    uset.foreach_set([&vset](isl::set s) {
-      vset.push_back(s);
-    });
+    uset.foreach_set([&vset](isl::set s) { vset.push_back(s); });
     // Get current filter name
     if (!vset.empty()) {
       cur_filter_name = vset[0].get_tuple_name();
@@ -89,8 +107,8 @@ isl::schedule_node SyncManager::InsertPromotionSync(const isl::schedule_node &tr
     if (cur_filter_name == next_filter_name) {
       continue;
     }
-    if ((cur_filter_name == READ_ID_NAME && next_filter_name == WRITE_ID_NAME)
-        || (cur_filter_name == WRITE_ID_NAME && next_filter_name == READ_ID_NAME)) {
+    if ((cur_filter_name == READ_ID_NAME && next_filter_name == WRITE_ID_NAME) ||
+        (cur_filter_name == WRITE_ID_NAME && next_filter_name == READ_ID_NAME)) {
       next_filter_name = cur_filter_name;
       continue;
     }
@@ -99,13 +117,12 @@ isl::schedule_node SyncManager::InsertPromotionSync(const isl::schedule_node &tr
     seq_node = InsertExtensionNode(filter_node.child(0), SyncLevel::BLOCK, true).child(0);
     next_filter_name = cur_filter_name;
   }
-  
+
   // Insert first sync node
   seq_node = InsertExtensionNode(seq_node.child(0).child(0), SyncLevel::BLOCK, false).child(0);
-  
+
   return seq_node;
 }
-
 
 }  // namespace poly
 }  // namespace ir

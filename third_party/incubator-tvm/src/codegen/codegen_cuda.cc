@@ -20,6 +20,16 @@
 /*!
  * \file codegen_cuda.cc
  */
+
+/*
+ * 2020.10.26
+ *   Add function PrintReduce definition.
+ *   Modify the functions:
+ *     Finish()
+ *     Init(bool output_ssa)
+ *     Delete the offset checkout of VisitStmt_(const ir::For* op)
+ */
+
 #include <tvm/base.h>
 #include <tvm/runtime/registry.h>
 #include <tvm/packed_func_ext.h>
@@ -49,6 +59,13 @@ void CodeGenCUDA::AddFunction(LoweredFunc f) {
 }
 
 std::string CodeGenCUDA::Finish() {
+  if (need_reduce_lib_) {
+    if (reduce_lib_type_ == "origin") {
+      decl_stream << "#include \"akg_reduce/reduce.cuh\"\n";
+    } else if (reduce_lib_type_ == "paris") {
+      decl_stream << "#include \"paris_reduce/paris_reduce.cuh\"\n";
+    }
+  }
   if (enable_fp16_) {
     decl_stream << "#if defined(__CUDA_ARCH__) && (__CUDA_ARCH__ >= 530)\n";
     decl_stream << "#include <cuda_fp16.h>\n";
@@ -94,7 +111,6 @@ std::string CodeGenCUDA::Finish() {
 }
 
 void CodeGenCUDA::VisitStmt_(const ir::For* op) {
-  CHECK(is_const_int(op->min, 0));
   if (op->for_type == ir::ForType::Unrolled) {
     PrintIndent();
     stream << "#pragma unroll\n";
@@ -306,6 +322,36 @@ void CodeGenCUDA::PrintStorageSync(const Call* op) {
   }
 }
 
+void CodeGenCUDA::PrintReduce(const Call* op) {
+  if (op->args.size() == 0) return;
+  const std::string& sync = op->args[0].as<StringImm>()->value;
+  if (sync.find("red_init") != std::string::npos) {
+    int len = op->args.size();
+    if (len == 3) {
+      this->PrintIndent();
+      this->stream << op->args[1].as<StringImm>()->value << "\n";
+      this->PrintIndent();
+      this->stream << op->args[2].as<StringImm>()->value << "\n";
+    }
+    in_reduce_area_ = true;
+    return;
+  } else if (sync.find("red_update") != std::string::npos) {
+    int len = op->args.size();
+    if (len == 2) {
+      this->PrintIndent();
+      this->stream << op->args[1].as<StringImm>()->value << "\n";
+    }
+    in_reduce_area_ = false;
+    return;
+  } else if (sync == "atomic") {
+    int len = op->args.size();
+    if (len == 2) {
+      this->PrintIndent();
+      this->stream << op->args[1].as<StringImm>()->value << "\n";
+    }
+  }
+}
+
 void CodeGenCUDA::PrintStorageScope(
     const std::string& scope, std::ostream& os) { // NOLINT(*)
   CHECK_NE(scope, "global");
@@ -378,6 +424,16 @@ void CodeGenCUDA::VisitStmt_(const AttrStmt* op) {
     const Variable* buffer = op->node.as<Variable>();
     const StringImm* layout_str = op->value.as<StringImm>();
     fragment_layouts[buffer] = layout_str->value;
+  } else if (op->attr_key == "GMWriteFlag") {
+    is_GMWrite_ = true;
+  } else if (op->attr_key == "tensorMapInfo") {
+    std::string name = op->value.as<StringImm>()->value;
+    std::string::size_type n = name.find("|");
+    if (n != std::string::npos) {
+      std::string origin_tensor = name.substr(0, n);
+      std::string change_tensor = name.substr(n+1);
+      tensor_name_mod_[origin_tensor] = change_tensor;
+    }
   }
   CodeGenC::VisitStmt_(op);
 }

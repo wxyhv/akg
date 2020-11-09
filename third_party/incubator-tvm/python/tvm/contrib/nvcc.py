@@ -17,6 +17,7 @@
 # pylint: disable=invalid-name
 # 2020.9.15 - Add default GPU arch: sm_70.
 # 2020.9.19 - Modify default GPU arch function.
+# 2020.10.26- Add the logic of finding AkgReduce library.
 """Utility to invoke nvcc compiler in the system"""
 from __future__ import absolute_import as _abs
 
@@ -64,6 +65,16 @@ def compile_cuda(code,
     temp_code = temp.relpath("my_kernel.cu")
     temp_target = temp.relpath("my_kernel.%s" % target)
 
+    # add for finding reduce lib
+    current_path = os.path.dirname(__file__)
+
+    # akg root path
+    akg_root_path = os.path.abspath(os.path.join(current_path, "../../../../.."))
+    akg_root_path += "/src"
+    # mindspore root path
+    mind_root_path = os.path.abspath(os.path.join(current_path, "../../../../.."))
+    mind_root_path += "/akg/src"
+
     with open(temp_code, "w") as out_file:
         out_file.write(code)
 
@@ -90,6 +101,13 @@ def compile_cuda(code,
             cmd += options
         else:
             raise ValueError("options must be str or list of str")
+
+    # add for find reduce lib
+    include_path_akg = "-I" + akg_root_path
+    cmd += [include_path_akg]
+
+    include_path_mind = "-I" + mind_root_path
+    cmd += [include_path_mind]
 
     cmd += ["-o", file_target]
     cmd += [temp_code]

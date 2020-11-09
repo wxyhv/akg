@@ -186,6 +186,7 @@ def round(poly_sch, fuzz_shape=None):
     test_ms_round((1, 1), "float16", poly_sch=poly_sch)
 
 def reduce_sum(poly_sch, fuzz_shape=None):
+    test_ms_reduce_sum((256, 256), 'float32', axis=(1,), keepdims=True, poly_sch=poly_sch)
     test_ms_reduce_sum((9, 1024, 1024), 'float32', axis=None, keepdims=False, poly_sch=poly_sch)
     test_ms_reduce_sum((9, 1024, 1024), 'float32', axis=2, keepdims=True, poly_sch=poly_sch)
     test_ms_reduce_sum((9, 1024, 1024), 'float16', axis=None, keepdims=False, poly_sch=poly_sch)

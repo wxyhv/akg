@@ -61,10 +61,13 @@ using Tiles = std::vector<TilingInfo>;
 
 enum MappingType { NONE = -1, BLOCKS, THREADS };
 struct MappingCfg {
-  MappingType type{NONE};
+ private:
   std::pair<std::string, int> x;
   std::pair<std::string, int> y;
   std::pair<std::string, int> z;
+
+ public:
+  MappingType type{NONE};
   size_t bound{0};
   size_t MaxDim() { return 3; }
   std::string GetPrefix(MappingType type) {
@@ -101,12 +104,27 @@ struct MappingCfg {
   }
   std::pair<std::string, int> GetAt(size_t pos) {
     if (pos == 0) {
-      return x;
+      return GetX();
     } else if (pos == 1) {
-      return y;
+      return GetY();
     } else {
-      return z;
+      return GetZ();
     }
+  }
+  std::pair<std::string, int> GetX() {
+    auto res = x;
+    res.second = res.second == 0 ? 1 : res.second;
+    return res;
+  }
+  std::pair<std::string, int> GetY() {
+    auto res = y;
+    res.second = res.second == 0 ? 1 : res.second;
+    return res;
+  }
+  std::pair<std::string, int> GetZ() {
+    auto res = z;
+    res.second = res.second == 0 ? 1 : res.second;
+    return res;
   }
   void Reset() {
     bound = 0;
@@ -194,11 +212,13 @@ class UserConfig {
     ParseStringAttr(attrs, "dump_poly_dir", &dump_poly_dir_);
 
     if (GetTarget() == TARGET_CUDA) {
+      ParseBoolAttr(attrs, "enable_akg_reduce_lib", &enable_akg_reduce_lib_);
       ParseBoolAttr(attrs, "use_register_memory", &use_register_memory_);
       ParseBoolAttr(attrs, "use_shared_memory", &use_shared_memory_);
       ParseIntAttr(attrs, "register_memory_depth", &register_depth_);
       ParseIntAttr(attrs, "shared_memory_depth", &shared_depth_);
       ParseStringAttr(attrs, "shared_memory_tensors", &shared_tensors_);
+      ParseStringAttr(attrs, "reduce_lib_type", &reduce_lib_type_);
       ParseStringAttr(attrs, "local_memory_tensors", &local_tensors_);
     }
 
@@ -230,12 +250,14 @@ class UserConfig {
   std::vector<NodeRef> GetCustomTiling() { return custom_tiling_; }
   std::string GetBDim() const { return b_dim_; }
   void SetDefaultDim(std::string b_dim) { b_dim_ = b_dim; }
+  void SetPragmaSpeedUpTiling(bool pragma_speedup_tiling) { pragma_speedup_tiling_ = pragma_speedup_tiling; }
   bool GetPragmaSpeedUpTiling() const { return pragma_speedup_tiling_; }
   bool GetPragmaAnalyzeReuseBuffer() const { return pragma_analyze_reuse_buffer_; }
   bool GetPragmaAllowTailTiling() const { return pragma_allow_tail_tiling_; }
   bool GetPragmaAnalyzeMulticore() const { return pragma_analyze_multicore_; }
   bool GetPruneTuningSpace() const { return prune_tuning_space_; }
   bool GetTileCheckCoincident() const { return tile_check_coincident_; }
+  void SetTileCheckCoincident(const bool tile_check_coincident) { tile_check_coincident_ = tile_check_coincident; }
   int GetMaxUnrollLoop() const { return max_unroll_loop_; }
   void SetUnroll(const int max_unroll_loop) { this->max_unroll_loop_ = max_unroll_loop; }
   bool GetUnrollShared() const { return unroll_shared_; }
@@ -317,11 +339,15 @@ class UserConfig {
   // dump all info
   void DumpScopDataScheduleAttrs(std::ofstream &of);
 
+  bool GetEnableAkgReduceLib() { return enable_akg_reduce_lib_; }
+  void SetEnableAkgReduceLib(bool enable_akg_reduce_lib) { enable_akg_reduce_lib_ = enable_akg_reduce_lib; }
+
   bool UseRegisterMemory() { return use_register_memory_; }
   bool UseSharedMemory() { return use_shared_memory_; }
   int GetRegisterDepth() { return register_depth_; }
   int GetSharedDepth() { return shared_depth_; }
   std::string GetSharedTensors() { return shared_tensors_; }
+  std::string GetReduceLibType() { return reduce_lib_type_; }
   std::string GetLocalTensors() { return local_tensors_; }
 
  private:
@@ -420,6 +446,8 @@ class UserConfig {
   bool tile_size_is_var_{false};
   bool outer_band_need_split_{false};
 
+  // lib config
+  bool enable_akg_reduce_lib_{false};
   // memory config
   bool use_register_memory_{true};
   bool use_shared_memory_{true};
@@ -428,6 +456,10 @@ class UserConfig {
   int shared_depth_{-1};
   // shared memory tensor list
   std::string shared_tensors_;
+  // reduce lib type, for now, there are two selection
+  // one is named "origin"
+  // one is named "paris"
+  std::string reduce_lib_type_{"origin"};
   // local memory tensor list
   std::string local_tensors_;
 
@@ -493,6 +525,7 @@ struct OperatorDomainSpace {
 };
 
 using ReduceStmtMap = std::unordered_map<isl::id, std::vector<std::string>, isl::IslIdIslHash>;
+using ReductionsMap = std::unordered_map<isl::id, isl::union_map, isl::IslIdIslHash>;
 using AccessMap = std::unordered_map<const Node *, isl::id>;
 using StatementMap = std::unordered_map<isl::id, const Node *, isl::IslIdIslHash>;
 using OperatorDomainMap = std::unordered_map<isl::id, OperatorDomainSpace, isl::IslIdIslHash>;
@@ -502,6 +535,10 @@ using BufferBindVec = std::vector<std::pair<const NodeRef, const Expr>>;
 
 using Mapping = std::unordered_map<isl::id, isl::union_pw_aff, isl::IslIdIslHash>;
 using UpaNodeMapping = std::vector<std::pair<isl::schedule_node, Mapping>>;
+struct AtomicInfo {
+  std::string tensor_name;
+  std::string tensor_type;
+};
 
 class AnalysisResult {
  public:
@@ -510,6 +547,16 @@ class AnalysisResult {
 
   void RecordWrites(const isl::union_map &writes) { writes_ = writes; }
   void RecordReads(const isl::union_map &reads) { reads_ = reads; }
+  void RecordReductionsMap(const isl::id &tensor_id, const isl::union_map &reduction) {
+    reductions_map_.emplace(tensor_id, reduction);
+  }
+  void RecordReduceAttrs(const std::unordered_set<std::string> &reduce_attrs) {
+    reduce_attrs_ = std::move(reduce_attrs);
+  }
+  void RecordNotReduceAttrs(const std::unordered_set<std::string> &not_reduce_attrs) {
+    not_reduce_attrs_ = std::move(not_reduce_attrs);
+  }
+  void RecordReduceDirection(const std::string reduce_direction) { reduce_direction_ = reduce_direction; }
   void RecordCopyin(const isl::union_map &copyin) { copyin_ = copyin; }
   void RecordFakeCopyin(const isl::union_map &fake_copyin) { fake_copyin_ = fake_copyin; }
   void RecordTransferStmt(const isl::union_set &transfer_stmt) { transfer_stmt_ = transfer_stmt; }
@@ -521,6 +568,13 @@ class AnalysisResult {
     reduce_stmts_.emplace(stmt_id, reduce_axis_list);
   }
   void RecordAccess(const Node *node, const isl::id &tensor_id) { accesses_.emplace(node, tensor_id); }
+  void RecordReduceStatement(const isl::id &tensor_id, const Node *node) {
+    reduce_statements_.emplace(tensor_id, node);
+  }
+  void RecordReduceStatementWriteTensor(const isl::id &tensor_id, std::string name) {
+    reduce_statements_write_tensor_.emplace(tensor_id, name);
+  }
+
   void RecordStatement(const isl::id &tensor_id, const Node *node) { statements_.emplace(tensor_id, node); }
   void RecordStmtOpInfo(const isl::id &tensor_id, const StmtOpInfo &op_info) {
     stmt_op_Info_.emplace(tensor_id, op_info);
@@ -532,10 +586,15 @@ class AnalysisResult {
   void RecordBufferBindVec(const std::pair<const NodeRef, const Expr> &buf_bind) { buf_bind_vec_.push_back(buf_bind); }
   void RecordUpdateTensor(const Tensor &tensor) { update_tensors_.push_back(tensor); }
   void RecordAttrStmt(const AttrStmt *attr_stmt) { attr_stmts_.push_back(attr_stmt); }
-
+  void RecordAtomicTensors(const AtomicInfo &atomic_info) { atomic_tensors_.push_back(atomic_info); }
+  void RecordReduceOutTensors(const std::string &tensor_name) { reduce_out_tensors_.insert(tensor_name); }
   void RecordContextParams(const isl::set &context_params) { context_params_ = context_params; }
   isl::set GetContextParams() { return context_params_; }
+  std::vector<AtomicInfo> GetAtomicTensors() { return atomic_tensors_; }
+  std::unordered_set<std::string> GetReduceOutTensors() { return reduce_out_tensors_; }
   isl::union_map GetReads() const { return reads_; }
+  std::unordered_set<std::string> GetReduceAttrs() const { return reduce_attrs_; }
+  std::unordered_set<std::string> GetNotReduceAttrs() const { return not_reduce_attrs_; }
   isl::union_map &GetWrites() { return writes_; }
   isl::union_map GetWrites() const { return writes_; }
   isl::union_map &GetCopyin() { return copyin_; }
@@ -544,10 +603,24 @@ class AnalysisResult {
   isl::union_set GetTransferStmt() const { return transfer_stmt_; }
   isl::union_map GetInnerBandDependency() const { return inter_band_dependency_; }
 
+  ReductionsMap GetReductionsMap() const { return reductions_map_; }
   ReduceStmtMap &GetReduceStmtMap() { return reduce_stmts_; }
   AccessMap &GetAccessMap() { return accesses_; }
   StatementMap &GetStatementMap() { return statements_; }
   StatementMap GetStatementMap() const { return statements_; }
+  StatementMap GetReduceStatementMap() const { return reduce_statements_; }
+  std::unordered_map<isl::id, std::string, isl::IslIdIslHash> GetReduceStatementWriteTensorMap() const {
+    return reduce_statements_write_tensor_;
+  }
+  std::string GetReduceDirection() const { return reduce_direction_; }
+  bool IsPureReduceSum(const Add *add, const std::string &prov_func_name);
+  std::string GetReduceOpType(isl::id reduce_stmt);
+  void RecordReduceWriteDataType(isl::id reduce_stmt);
+  void RecordReduceInitValue(isl::id reduce_stmt);
+  void RecordReduceInitIds(isl::id reduce_init_id) { reduce_init_ids_.push_back(reduce_init_id); }
+  std::vector<isl::id> GetReduceInitIds() const { return reduce_init_ids_; }
+  std::unordered_map<isl::id, Expr, isl::IslIdIslHash> GetReduceInitValueMap() { return reduce_init_value_map_; }
+  std::unordered_map<isl::id, Type, isl::IslIdIslHash> GetReduceWriteDtypeMap() { return reduce_write_dtype_map_; }
   StmtOpInfoMap &GetStmtOpInfoMap() { return stmt_op_Info_; }
   StmtOpInfoMap GetStmtOpInfoMap() const { return stmt_op_Info_; }
   OperatorDomainMap &GetOperatorDomainMap() { return domains_; }
@@ -568,6 +641,8 @@ class AnalysisResult {
   void InsertConditionalWriteBufferFootprints(const std::string &s) { conditional_write_buffer_footprints_.insert(s); }
   bool GetIsTiled() const { return is_tiled_; }
   void SetIsTiled(bool is_tiled) { is_tiled_ = is_tiled; }
+  bool GetIsGpuDmaAnalysed() const { return is_gpu_dma_analysed_; }
+  void SetIsGpuDmaAnalysed(bool is_gpu_dma_analysed) { is_gpu_dma_analysed_ = is_gpu_dma_analysed; }
   void SetScheduleMapBeforeTile(const isl::union_map &schedule_map_before_tile) {
     schedule_map_before_tile_ = schedule_map_before_tile;
   }
@@ -610,6 +685,10 @@ class AnalysisResult {
  private:
   isl::union_map reads_;
   isl::union_map writes_;
+  ReductionsMap reductions_map_;
+  std::unordered_set<std::string> reduce_attrs_;
+  std::unordered_set<std::string> not_reduce_attrs_;
+  std::string reduce_direction_;
   isl::union_map copyin_;
   isl::union_map fake_copyin_;
   isl::union_set transfer_stmt_;
@@ -617,6 +696,11 @@ class AnalysisResult {
   ReduceStmtMap reduce_stmts_;
   AccessMap accesses_;
   StatementMap statements_;
+  StatementMap reduce_statements_;
+  std::vector<isl::id> reduce_init_ids_;
+  std::unordered_map<isl::id, std::string, isl::IslIdIslHash> reduce_statements_write_tensor_;
+  std::unordered_map<isl::id, Expr, isl::IslIdIslHash> reduce_init_value_map_;
+  std::unordered_map<isl::id, Type, isl::IslIdIslHash> reduce_write_dtype_map_;
   StmtOpInfoMap stmt_op_Info_;
   OperatorDomainMap domains_;
   ReduceMap reduces_;
@@ -631,9 +715,13 @@ class AnalysisResult {
   std::deque<ParamInfo> tiling_constraints_;
   TileSizes tile_sizes_;
   bool is_tiled_{false};
+  bool is_gpu_dma_analysed_{false};
   isl::union_map schedule_map_before_tile_;  // before tiling, after ungroup.
   isl::schedule transformed_schedule_;
   isl::set context_params_;
+
+  std::vector<AtomicInfo> atomic_tensors_;
+  std::unordered_set<std::string> reduce_out_tensors_;
 };
 
 class CubeInfo {
@@ -795,8 +883,10 @@ class ScopInfo {
   static bool IsRead(const isl::id &id) { return IsEndsWith(id.get_name(), kReadSuffix); }
   static bool IsWrite(const isl::id &id) { return IsEndsWith(id.get_name(), kWriteSuffix); }
   static bool IsGMWrite(const isl::id &id) { return id.get_name() == std::string("GMwrite"); }
-  static bool IsSync(const isl::id &id) { return id.name().find_first_of(SYNC_FLAG) == 0; }
-  static bool IsRealize(const isl::id &id) { return id.get_name().find_first_of("REALIZE") == 0; }
+  static bool IsSync(const isl::id &id) { return IsStartsWith(id.name(), SYNC_FLAG); }
+  static bool IsRealize(const isl::id &id) { return IsStartsWith(id.get_name(), "REALIZE"); }
+  static bool IsReduceInit(const isl::id &id) { return IsStartsWith(id.get_name(), "red_init"); }
+  static bool IsReduceUpdate(const isl::id &id) { return IsStartsWith(id.get_name(), "red_update"); }
 
  public:
   isl::ctx ctx_;

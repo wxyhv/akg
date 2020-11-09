@@ -128,6 +128,7 @@ isl::schedule_node SharedMemoryManager::MapCopiesToThreads(isl::schedule_node &r
 
         auto band_node = node.child({0});
         CHECK(band_node.isa<isl::schedule_node_band>()) << "Type of Node must be band.";
+        std::string atomic_type = InAtomicTensors(node);
 
         // split member that does not involved in thread mapping
         bool has_split = false;
@@ -142,9 +143,15 @@ isl::schedule_node SharedMemoryManager::MapCopiesToThreads(isl::schedule_node &r
         // TODO: CHECK <<"no copy band"
 
         // TODO: CHECK <<"attempted to map memory copies to threads below another thread mapping"
-        UpaNodeMapping upa_node_mapping;
-        auto after_map_pair = MapInnerDimToThreads(band_node, true, thread_cfg, upa_node_mapping);
+        Mapping mapping;
+        auto after_map_pair = MapInnerDimToThreads(band_node, true, thread_cfg, mapping, false);
         band_node = after_map_pair.first;
+        if (atomic_type != "" && band_node.isa<isl::schedule_node_mark>() && band_node.has_children() &&
+            band_node.child(0).isa<isl::schedule_node_filter>()) {
+          band_node =
+            band_node.child(0).child(0).insert_mark(isl::id(band_node.ctx(), AtomicMarker("_" + atomic_type)));
+          band_node = band_node.parent().parent();
+        }
         if (has_split) {
           band_node = band_node.parent();
         }
@@ -177,6 +184,42 @@ isl::schedule_node SharedMemoryManager::ManageToShareBelow(isl::schedule &root_s
   auto new_node = HoistClusters(root_node, node, remaining_memory);
   auto sync_manager = scop_info_.sync_manager_;
   return sync_manager.InsertPromotionSync(new_node);
+}
+
+std::set<std::string> SharedMemoryManager::AnalysisReduceTensors() {
+  std::set<std::string> id_sets;
+  if (!scop_info_.user_config_.GetEnableAkgReduceLib()) {
+    return id_sets;
+  }
+
+  /*************************************************
+   * In order to enable cuda atomic operator, add
+   * these tensors for shared memory promotion list
+   *************************************************/
+  auto atomic_tensors = scop_info_.analysis_result_.GetAtomicTensors();
+  if (!atomic_tensors.empty()) {
+    id_sets.clear();
+    for (const auto &item : atomic_tensors) {
+      if (id_sets.count(item.tensor_name) == 0) {
+        id_sets.emplace(item.tensor_name);
+      }
+    }
+  }
+
+  /***********************************************
+   * For the condition that it is without cuda
+   * atomic usage, but with reduce operation.
+   * Also need to add these tensors for shared memory
+   * promotion list.
+   *********************************************/
+  auto reduce_out_tensors = scop_info_.analysis_result_.GetReduceOutTensors();
+  for (const auto &item : reduce_out_tensors) {
+    if (id_sets.count(item) == 0) {
+      id_sets.emplace(item);
+    }
+  }
+
+  return id_sets;
 }
 
 void SharedMemoryManager::CreateClusterList(const isl::schedule_node &node, const isl::union_map &outer_sch) {
@@ -212,6 +255,11 @@ void SharedMemoryManager::CreateClusterList(const isl::schedule_node &node, cons
    ********************************************************/
   std::set_difference(read_sets.begin(), read_sets.end(), write_sets.begin(), write_sets.end(),
                       std::inserter(id_sets, id_sets.begin()));
+
+  if (scop_info_.user_config_.GetEnableAkgReduceLib()) {
+    id_sets = AnalysisReduceTensors();
+  }
+
   if (!configed_tensors_.empty()) {
     id_sets.clear();
     for (const auto &item : configed_tensors_) {
@@ -304,8 +352,12 @@ isl::schedule_node SharedMemoryManager::HoistClusters(const isl::schedule_node &
     auto approximation_size = std::accumulate(box_sizes.begin(), box_sizes.end(), 1, std::multiplies<size_t>());
     size_t byte = 4;
     size_t memory_requirement = approximation_size * byte;
+    bool use_reuse_filter = true;
+    if (InAtomicTensors(buffer_info.tensor_id.name()) || InReduceTensors(buffer_info.tensor_id.name())) {
+      use_reuse_filter = false;
+    }
     if (memory_requirement < remaining_memory) {
-      if (!ReuseTensorCluster(*fp_cluster, partial_sched_mupa) &&
+      if (use_reuse_filter && !ReuseTensorCluster(*fp_cluster, partial_sched_mupa) &&
           !CoalescingAccessWay(root_node, res_node, *fp_cluster)) {
         continue;
       }
@@ -398,6 +450,7 @@ void SharedMemoryManager::UpdateDepth(const isl::schedule_node &root) {
   if (outer_band.isa<isl::schedule_node_band>()) {
     auto block_depth = cfg->bound + 1;
     auto outer_band_depth = outer_band.as<isl::schedule_node_band>().n_member();
+    block_depth = std::min<int>(block_depth, outer_band_depth);
     if (block_depth > outer_band_depth && !UnderThreadMarker(block_depth)) {
       depth_ = block_depth;
     } else {
@@ -416,6 +469,50 @@ bool SharedMemoryManager::UnderThreadMarker(size_t depth) {
   }
   return false;
 }
+
+std::string SharedMemoryManager::InAtomicTensors(isl::schedule_node &node) {
+  if (!node.isa<isl::schedule_node_filter>()) {
+    return "";
+  }
+  auto filter = node.as<isl::schedule_node_filter>().filter();
+  auto filter_set = filter.unwrap();
+  std::string atomic_type = "";
+  filter_set.range().foreach_set([this, &atomic_type](const isl::set &s) -> void {
+    std::string promoted_tensor = s.get_tuple_name();
+    std::string posfix = "_shared";
+    std::string::size_type pos = promoted_tensor.find(posfix);
+    if (pos != std::string::npos) {
+      std::string tensor = promoted_tensor.substr(0, pos);
+      for (const auto &item : scop_info_.analysis_result_.GetAtomicTensors()) {
+        if (item.tensor_name == tensor) {
+          atomic_type = item.tensor_type;
+        }
+      }
+    }
+  });
+  return atomic_type;
+}
+
+bool SharedMemoryManager::InAtomicTensors(std::string name) {
+  for (const auto &item : scop_info_.analysis_result_.GetAtomicTensors()) {
+    if (item.tensor_name == name) {
+      return true;
+    }
+  }
+  return false;
+}
+
+bool SharedMemoryManager::InReduceTensors(std::string name) {
+  for (const auto &item : scop_info_.analysis_result_.GetReduceOutTensors()) {
+    if (item == name) {
+      return true;
+    }
+  }
+  return false;
+}
+
+std::string SharedMemoryManager::AtomicMarker(std::string type) { return ATOMIC_MARKER + type; }
+
 }  // namespace poly
 }  // namespace ir
 }  // namespace akg

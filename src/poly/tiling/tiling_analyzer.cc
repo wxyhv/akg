@@ -1344,7 +1344,9 @@ void TilingAnalyzer::AddTilingConstraints() {
     actived_strategies.push_back(&reduce_strategy);
 
     GpuStrategy gpu_strategy(this);
-    actived_strategies.push_back(&gpu_strategy);
+    if (!scop_info_.analysis_result_.GetIsGpuDmaAnalysed()) {
+      actived_strategies.push_back(&gpu_strategy);
+    }
 
     strategy_manager.SetStrategies(actived_strategies);
     strategy_manager.ExecuteGpu();

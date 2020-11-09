@@ -64,7 +64,7 @@ def test_fused_relu_grad_bn_double_update_grad(shape_f16, shape_f32, layout='NHW
     data_list = [data_1, data_2, data_3, data_4, data_5, data_6, data_7]
     data_tmp7, data_tmp15, data_tmp22, out_shape = compute_py(data_1, data_2, data_3, data_4, data_5, data_6, data_7, layout)
     expect = [data_tmp7, data_tmp15, data_tmp22]
-    output = np.full(out_shape, np.nan, 'float32')
+    output = np.full(out_shape, 0.0, 'float32')
     output = [output, output, output]
 
     if poly_sch:

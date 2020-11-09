@@ -1227,6 +1227,180 @@ bool AnalysisResult::HasBufferDefInfo(const isl::id &tensor_id) const {
   return false;
 }
 
+bool AnalysisResult::IsPureReduceSum(const Add *add, const std::string &prov_func_name) {
+  Expr dst, src;
+  bool collect_lhs = true;
+  auto FoundDst = [&add, &dst, &src, &collect_lhs, &prov_func_name](const NodeRef &node) {
+    if (dst.defined() || src.defined()) {
+      return;
+    }
+    const auto call = node.as<Call>();
+    if (call == nullptr || call->func->func_name() != prov_func_name) {
+      return;
+    }
+    if (collect_lhs) {
+      dst = add->a;
+      src = add->b;
+    } else {
+      dst = add->b;
+      src = add->a;
+    }
+  };
+  air::ir::PostOrderVisit(add->a, FoundDst);
+  collect_lhs = false;
+  air::ir::PostOrderVisit(add->b, FoundDst);
+
+  if (!dst.defined() || !src.defined()) {
+    return false;
+  }
+
+  std::vector<Expr> dst_indice;
+  std::vector<Expr> src_indice;
+  std::vector<std::vector<Expr>> src_list;
+  bool collect_dst = true;
+  auto IsNum = [](std::string name) -> bool {
+    for (auto c : name)
+      if (c > '9' || c < '0') return false;
+    return true;
+  };
+  auto CollectIndex = [&dst_indice, &src_indice, &src_list, &collect_dst, &IsNum](const NodeRef &node) {
+    const auto call = node.as<Call>();
+    if (call == nullptr || POLY_SUPPORTED_OPS.count(call->name)) {
+      return;
+    }
+    std::vector<Expr> target_vec;
+
+    for (const auto arg : call->args) {
+      bool is_num = arg.as<IntImm>() != nullptr;
+      if (arg.as<Variable>()) {
+        is_num = IsNum(arg.as<Variable>()->name_hint);
+      }
+      if (is_num) {
+        continue;
+      }
+      target_vec.emplace_back(arg);
+    }
+    if (collect_dst) {
+      dst_indice = target_vec;
+    } else {
+      src_indice.insert(src_indice.end(), target_vec.begin(), target_vec.end());
+      src_list.emplace_back(target_vec);
+    }
+  };
+  air::ir::PostOrderVisit(dst, CollectIndex);
+  collect_dst = false;
+  air::ir::PostOrderVisit(src, CollectIndex);
+
+  auto ExprDiff = [](std::vector<Expr> a, std::vector<Expr> b) -> std::vector<Expr> {
+    std::vector<Expr> res;
+    for (auto e1 : a) {
+      bool is_dup = false;
+      auto c = b.empty() ? res : b;
+      for (auto e2 : c) {
+        if (!Equal(e2, e1)) {
+          continue;
+        }
+        is_dup = true;
+        break;
+      }
+      if (!is_dup) {
+        res.emplace_back(e1);
+      }
+    }
+    return res;
+  };
+  auto unique_dst_indice = ExprDiff(dst_indice, {});
+  auto unique_src_indice = ExprDiff(src_indice, {});
+  auto reduce_indice = ExprDiff(unique_src_indice, unique_dst_indice);
+  auto unique_red_indice = ExprDiff(reduce_indice, {});
+
+  // 1. check unique_dst.index + unique_reduce.index = unique_src.index
+  if (unique_dst_indice.size() + unique_red_indice.size() != unique_src_indice.size()) {
+    return false;
+  }
+
+  // 2. check each src size is equal (only allow broadcast)
+  //    e.g.1 out[i, j] = src1[i, j, k] * src2[i]  -> is pure elem
+  //    e.g.2 out[i, j] = src1[i, k] * src2[j, k]  -> not pure elem
+  for (auto i = 0; i < static_cast<int>(src_list.size()) - 1; ++i) {
+    auto only_cur = ExprDiff(src_list[i], src_list[i + 1]);
+    auto only_next = ExprDiff(src_list[i + 1], src_list[i]);
+    int diff_set_size = only_cur.size() + only_next.size();
+    auto diff_size = std::abs(static_cast<int>(src_list[i].size()) - static_cast<int>(src_list[i + 1].size()));
+    if (diff_set_size != diff_size) {
+      return false;
+    }
+  }
+  return true;
+}
+
+void AnalysisResult::RecordReduceWriteDataType(isl::id reduce_stmt) {
+  auto init_value_map = GetReduceInitValueMap();
+  auto it = init_value_map.find(reduce_stmt);
+  if (it == init_value_map.end()) {
+    return;
+  }
+  auto init_value = it->second;
+  if (!init_value.defined()) {
+    return;
+  }
+  reduce_write_dtype_map_[reduce_stmt] = init_value.type();
+}
+
+void AnalysisResult::RecordReduceInitValue(isl::id reduce_stmt) {
+  Expr init_value;
+  auto red_map = GetReduceStatementMap();
+  auto it = red_map.find(reduce_stmt);
+  if (it == red_map.end()) {
+    return;
+  }
+  auto provide = static_cast<const Provide *>(it->second);
+  if (provide == nullptr) {
+    return;
+  }
+  auto red_tensor_name = provide->func->func_name();
+  for (auto it : GetStatementMap()) {
+    auto prev_provide = static_cast<const Provide *>(it.second);
+    if (prev_provide == nullptr || prev_provide == provide || prev_provide->func->func_name() != red_tensor_name) {
+      continue;
+    }
+    init_value = prev_provide->value;
+    RecordReduceInitIds(it.first);
+  }
+  if (!init_value.defined()) {
+    return;
+  }
+  reduce_init_value_map_[reduce_stmt] = init_value;
+}
+
+std::string AnalysisResult::GetReduceOpType(isl::id reduce_stmt) {
+  auto red_map = GetReduceStatementMap();
+  auto it = red_map.find(reduce_stmt);
+  if (it == red_map.end()) {
+    return std::string();
+  }
+  auto provide = static_cast<const Provide *>(it->second);
+  if (provide == nullptr) {
+    return std::string();
+  }
+  if (provide->value.as<Max>()) {
+    return AKG_REDUCE_MAX;
+  }
+  if (provide->value.as<Min>()) {
+    return AKG_REDUCE_MIN;
+  }
+  if (provide->value.as<And>()) {
+    return AKG_REDUCE_AND;
+  }
+  if (provide->value.as<Or>()) {
+    return AKG_REDUCE_OR;
+  }
+  if (const auto add = provide->value.as<Add>()) {
+    return IsPureReduceSum(add, provide->func->func_name()) ? AKG_REDUCE_SUM : AKG_REDUCE_UNSUPPORTED;
+  }
+  return std::string();
+}
+
 static std::string MemTypeToString(const MemType &memType) {
   switch (memType) {
     case MemType::UB_:

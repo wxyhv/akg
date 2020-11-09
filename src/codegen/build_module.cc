@@ -495,7 +495,6 @@ Stmt LowerStmt(Schedule sch, const Array<NodeRef> &in_args, const Array<NodeRef>
 
   if (target_platform->device_type == kDLGPU) {
     if (polyhedral) {
-      
       stmt = NEXT_PASS(RewriteMultiValueFunc, stmt);
       Map<Tensor, Tensor> replace;
       RenameBinds(*binds_0, config, *args, *arg_list_0, replace);

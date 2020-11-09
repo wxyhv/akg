@@ -256,6 +256,7 @@ class GpuStrategy : public TilingStrategy {
     PURE_ELEM,
     REDUCTION,
     ALL_REDUCE,
+    BITWISE_REDUCTION,
     TRANSPOSE,
   };
   void AddDavinciConstraint();
@@ -294,6 +295,7 @@ class GpuStrategy : public TilingStrategy {
   std::vector<int64_t> block_cfg_;
   std::vector<int64_t> thread_cfg_;
   std::unordered_set<std::string> excluded_attr_ = {"REDUCE_AXIS", "TRANSPOSE"};
+  int block_count_{0};  // number of mapped blocks
 };
 
 class MulticoreStrategy {
