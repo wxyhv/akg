@@ -18,71 +18,13 @@
 #define POLY_STMT_PARSE_H_
 
 #include "isl.h"
+
 #include "ir_pass.h"
+#include "poly_util.h"
+
 namespace akg {
 namespace ir {
 namespace poly {
-#define FOREACH(X)                \
-  X(elewise_single_VS_add)        \
-  X(elewise_single_VS_mul)        \
-  X(elewise_single_rec)           \
-  X(elewise_single_log)           \
-  X(elewise_single_exp)           \
-  X(elewise_single_sqrt)          \
-  X(elewise_single_rsqrt)         \
-  X(vec_single_cast)              \
-  X(vec_single_floor)             \
-  X(vec_single_round)             \
-  X(elewise_single_ceil)          \
-  X(vec_single_trunc)             \
-  X(elewise_single_not)           \
-  X(elewise_single_fabs)          \
-  X(elewise_single_relu)          \
-  X(broadcast)                    \
-  X(pandora_select)               \
-  X(pandora_cmp)                  \
-  X(reg_mov)                      \
-  X(mad)                          \
-  X(elewise_binary_add)           \
-  X(elewise_binary_sub)           \
-  X(elewise_binary_mul)           \
-  X(elewise_binary_div)           \
-  X(elewise_binary_mod)           \
-  X(elewise_binary_min)           \
-  X(elewise_binary_max)           \
-  X(elewise_binary_or)            \
-  X(elewise_binary_and)           \
-  X(elewise_binary_EQ)            \
-  X(elewise_binary_NE)            \
-  X(elewise_binary_GT)            \
-  X(elewise_binary_GE)            \
-  X(elewise_binary_LT)            \
-  X(elewise_binary_LE)            \
-  X(elewise_binary_scalar_axpy)   \
-  X(four2five_nchw)               \
-  X(vec_argmax)                   \
-  X(elewise_binary_proposal_sort) \
-  X(elewise_binary_topk_sort)     \
-  X(elewise_binary_nms)           \
-  X(with)                         \
-  X(vec_argmin)                   \
-  X(elewise_binary_dropout)       \
-  X(elewise_binary_iou)           \
-  X(elewise_binary_unknown)       \
-  X(assignment)                   \
-  X(im2col)                       \
-  X(poly_op_type_max)             \
-  X(vmadd)                        \
-  X(vmaddrelu)                    \
-  X(vaxpy)                        \
-  X(vmla)                         \
-  X(elewise_binary_bitwise_and)   \
-  X(elewise_binary_bitwise_or)    \
-  X(elewise_single_bitwise_not)
-
-#define GENERATE_ENUM(ENUM) ENUM,
-
-enum class PolyOpType : int { FOREACH(GENERATE_ENUM) };
 
 struct StmtOpInfo {
   std::vector<PolyOpType> ops;

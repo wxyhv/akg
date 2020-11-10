@@ -18,6 +18,7 @@
 #define POLY_MAPPING_H_
 
 #include "poly/schedule_pass.h"
+#include "poly/reduce_manager.h"
 
 namespace akg {
 namespace ir {
@@ -38,6 +39,10 @@ class MappingOuterBand : public SchedulePass {
   virtual isl::schedule Run(isl::schedule sch);
 
   isl::schedule DoBlockMapping(const isl::schedule &sch);
+  isl::union_map GetReduceWriteStmt(const isl::schedule_node_band &band);
+  void MarkReduceOutTensor(const isl::schedule_node_band &band);
+  bool NeedAtomicAdd(const isl::schedule_node_band &band, size_t n_block_map);
+  void MarkAtomicAddTensor(const isl::schedule_node_band &band);
   isl::schedule DoThreadMapping(const isl::schedule &sch);
 
   size_t MapThreadHelper(isl::schedule_node &thread_root);
@@ -62,6 +67,12 @@ class MappingOuterBand : public SchedulePass {
                                     const isl::multi_union_pw_aff &domain_to_warp);
   SyncCandidate *CountSyncNumberAmongLoop(SyncCandidate *head);
   int GetBestSyncStartPoint(bool is_outer);
+
+  size_t GetReduceId() const;
+  std::string GetMarkerName(const isl::schedule_node &node, std::string find_name);
+  isl::schedule DetectAndMarkReduce(const isl::schedule &sch);
+  isl::schedule InsertReduceMarker(const isl::schedule &sch, const ReductionsMap &reduce_map);
+  isl::schedule_node InsertReduceExtension(const isl::schedule_node &node);
 
  private:
   PassInfo &pass_info_;

@@ -136,6 +136,26 @@ isl::schedule Scop::Transform(const isl::schedule &input_schedule) {
     }
   }
   if (info_.user_config_.GetTarget() == TARGET_CUDA) {
+    auto reduce_st_map = info_.analysis_result_.GetReduceStatementMap();
+    info_.user_config_.SetEnableAkgReduceLib(!reduce_st_map.empty());
+    if (info_.user_config_.GetEnableAkgReduceLib()) {
+      bool has_supported_op = false;
+      LOG(INFO) << "====== Reduce op type ========";
+      for (auto it : reduce_st_map) {
+        LOG(INFO) << it.first << " -> " << info_.analysis_result_.GetReduceOpType(it.first);
+        auto type = info_.analysis_result_.GetReduceOpType(it.first);
+        if (type == AKG_REDUCE_UNSUPPORTED) {
+          LOG(INFO) << "detect unsupported type, disable akg reduce lib.";
+          info_.user_config_.SetEnableAkgReduceLib(false);
+          break;
+        }
+        has_supported_op = has_supported_op || AkgSupportedReduceOp.count(type);
+      }
+      if (!has_supported_op) {
+        LOG(INFO) << "no supported reduce op, disable akg reduce lib.";
+      }
+    }
+
     info_.user_config_.SetConsiderCoincidence(true);
     GPUMgrStrategy gpu_strategy(info_);
     final_schedule = mgr.Run(input_schedule, gpu_strategy);

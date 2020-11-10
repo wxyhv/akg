@@ -25,11 +25,21 @@
  * 2019.12.30 - Add call to PrintBufferHeader function.
  */
 
+/*
+ * 2020.10.26
+ *   Add PrintReduce empty definition
+ *   Add call to PrintReduce function.
+ *   Modify the functions:
+ *     VisitStmt_(const Store* op)
+ *     AddFunction(LoweredFunc f)
+ */
+
 #include <iomanip>
 #include <cctype>
 #include "codegen_c.h"
 #include "../pass/ir_util.h"
 #include "../arithmetic/compute_expr.h"
+#include <fstream>
 
 namespace air {
 namespace codegen {
@@ -100,6 +110,11 @@ void CodeGenC::AddFunction(LoweredFunc f) {
 
       if (handle_data_type_.count(v.get())) {
         PrintType(handle_data_type_.at(v.get()), stream);
+        if (i == f->args.size() - 1) {
+          std::ostringstream ss;
+          PrintType(handle_data_type_.at(v.get()), ss);
+          reduce_type_ = ss.str();
+        }
       } else {
         stream << "void";
       }
@@ -327,6 +342,9 @@ void CodeGenC::BindThreadIndex(const IterVar& iv) {
 }
 
 void CodeGenC::PrintStorageSync(const Call* op) { // NOLINT(*)
+}
+
+void CodeGenC::PrintReduce(const Call* op) { // NOLINT(*)
 }
 
 void CodeGenC::PrintStorageScope(const std::string& scope, std::ostream& os) { // NOLINT(*)
@@ -672,11 +690,31 @@ void CodeGenC::VisitExpr_(const Load* op, std::ostream& os) {  // NOLINT(*)
 }
 
 void CodeGenC::VisitStmt_(const Store* op) {
+  if (is_GMWrite_) {
+    is_GMWrite_ = false;
+    return;
+  }
+
   Type t = op->value.type();
   if (t.lanes() == 1) {
     std::string value = this->PrintExpr(op->value);
     std::string ref  = this->GetBufferRef(t, op->buffer_var.get(), op->index);
     this->PrintIndent();
+
+    if (in_reduce_area_) {
+      std::map<std::string, std::string>::iterator it;
+      for (it = tensor_name_mod_.begin(); it != tensor_name_mod_.end(); ++it) {
+        if (ref.find(it->first) != std::string::npos) {
+          std::string change = it->second;
+          int len = ref.size();
+          std::size_t found = value.find(ref);
+          ref = change;
+          value = value.replace(found, len, change);
+          break;
+        }
+      }
+    }
+
     stream << ref << " = " << value << ";\n";
   } else {
     CHECK(is_one(op->predicate))
@@ -894,6 +932,10 @@ void CodeGenC::VisitStmt_(const Evaluate *op) {
   if (call) {
     if (call->is_intrinsic(intrinsic::tvm_storage_sync)) {
       this->PrintStorageSync(call); return;
+    } else if (call->is_intrinsic("reduce")) {
+      need_reduce_lib_ = true;
+      this->PrintReduce(call);
+      return;
     } else if (call->is_intrinsic(intrinsic::tvm_struct_set)) {
       CHECK_EQ(call->args.size(), 4);
       std::string value = PrintExpr(call->args[3]);

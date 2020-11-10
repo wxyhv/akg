@@ -96,14 +96,15 @@ std::vector<isl::schedule_node> BandsSplitAfterDepth(const std::vector<isl::sche
 
 std::pair<isl::schedule_node, isl::schedule_node> MapInnerDimToThreads(const isl::schedule_node &node,
                                                                        const bool is_promotion, MappingCfg *mapping_cfg,
-                                                                       UpaNodeMapping &upa_node_mapping);
+                                                                       Mapping &mapping, bool is_y_reduce);
 isl::schedule_node CreateAndInsertMapFilter(const isl::schedule_node &node, const bool is_promotion,
-                                            isl::union_pw_aff_list upa_list, MappingCfg *mapping_cfg,
-                                            UpaNodeMapping &upa_node_mapping);
+                                            isl::union_pw_aff_list upa_list, MappingCfg *mapping_cfg, Mapping &mapping,
+                                            std::vector<isl::id> reduce_init_ids);
 isl::schedule_node CheckMapSizeAndApplyTile(const isl::schedule_node &thread_root,
-                                            const isl::union_pw_aff_list &aff_list, MappingCfg *mapping_cfg);
+                                            const isl::union_pw_aff_list &aff_list, MappingCfg *mapping_cfg,
+                                            bool is_y_reduce);
 
-bool IsEqual(const isl::schedule_node node1, const isl::schedule_node node2);
+bool IsEqualNode(const isl::schedule_node node1, const isl::schedule_node node2);
 isl::multi_union_pw_aff MapDomainToThread(const isl::schedule_node &node, MappingCfg *mapping_cfg,
                                           const UpaNodeMapping &upa_node_mapping);
 isl::multi_union_pw_aff MapDomainAllWithType(const isl::schedule_node &node, MappingCfg *mapping_cfg,
@@ -116,6 +117,9 @@ std::vector<isl::schedule_node> CollectFnNode(const std::function<bool(const isl
 
 isl::val GetInstancesBound(isl::schedule_node &node, isl::union_map ancestors_schedule, isl::val unroll_val);
 isl::schedule_node UnrollByMarkOptions(isl::schedule_node &node, uint64_t unroll);
+
+isl::map GetExtensionSpace(const isl::schedule_node &node, const isl::id &id);
+isl::schedule_node InsertExtensionNodeBeforeOrAfter(const isl::schedule_node &node, const isl::id &id, bool before);
 
 }  // namespace poly
 }  // namespace ir

@@ -781,6 +781,9 @@ void SpaceAnalyzer::IdentifyCastAxes() {
       if (attr_value.empty()) continue;
       attr_value += "->";
       attr_value += dst.name + ":" + std::to_string(dst.type_byte);
+      if (dst.loops.empty()) {
+        analyzer_->RootAxis()->MarkWithAttr(AttrInfo{attr_key, attr_value});
+      }
       for (auto it1 : dst.loops) {
         std::vector<const For *> loops = it1.second;
         for (auto loop : loops) {

@@ -21,6 +21,12 @@
  * \file codegen_cuda.h
  * \brief Utility to generate cuda code
  */
+
+/*
+ * 2020.10.26
+ *   Add function PrintReduce.
+ */
+
 #ifndef TVM_CODEGEN_CODEGEN_CUDA_H_
 #define TVM_CODEGEN_CODEGEN_CUDA_H_
 
@@ -45,6 +51,7 @@ class CodeGenCUDA final : public CodeGenC {
   // override behavior
   void VisitStmt_(const ir::For* op) final;
   void PrintStorageSync(const Call* op) final;
+  void PrintReduce(const Call* op) final;
   void PrintStorageScope(const std::string& scope, std::ostream& os) final;  // NOLINT(*)
   void PrintVecBinaryOp(
       const std::string&op, Type t,

@@ -231,7 +231,7 @@ std::vector<isl::schedule_node> BandsSplitAfterDepth(const std::vector<isl::sche
 
 std::pair<isl::schedule_node, isl::schedule_node> MapInnerDimToThreads(const isl::schedule_node &node,
                                                                        const bool is_promotion, MappingCfg *mapping_cfg,
-                                                                       UpaNodeMapping &upa_node_mapping) {
+                                                                       Mapping &mapping, bool is_y_reduce) {
   CHECK(mapping_cfg != nullptr) << "threadconfig is null";
   isl::schedule_node_band band_node = node.as<isl::schedule_node_band>();
   size_t n_thread_map = std::min(static_cast<size_t>(band_node.n_member()), mapping_cfg->bound);
@@ -239,6 +239,7 @@ std::pair<isl::schedule_node, isl::schedule_node> MapInnerDimToThreads(const isl
 
   auto partial_schedule = band_node.get_partial_schedule();
   auto upa_list = partial_schedule.get_union_pw_aff_list().reverse();
+
   if (is_promotion) {
     // we need to to get range of promoted band from extension node so that we can correctly fix stride
     auto parent = node;
@@ -252,7 +253,11 @@ std::pair<isl::schedule_node, isl::schedule_node> MapInnerDimToThreads(const isl
     }
   }
 
-  isl::schedule_node fix_node = CheckMapSizeAndApplyTile(node, upa_list, mapping_cfg);
+  if (is_y_reduce) {
+    upa_list = upa_list.reverse();
+  }
+
+  isl::schedule_node fix_node = CheckMapSizeAndApplyTile(node, upa_list, mapping_cfg, is_y_reduce);
   bool tiled = !fix_node.is_equal(node);
 
   // drop un-mapped aff after tiling
@@ -262,7 +267,9 @@ std::pair<isl::schedule_node, isl::schedule_node> MapInnerDimToThreads(const isl
   fix_node = fix_node.insert_mark(isl::id(fix_node.ctx(), THREAD_MARKER));
   fix_node = fix_node.child(0);
 
-  auto after_map_node = CreateAndInsertMapFilter(fix_node, is_promotion, upa_list, mapping_cfg, upa_node_mapping);
+  std::vector<isl::id> reduce_init_ids;
+  auto after_map_node =
+    CreateAndInsertMapFilter(fix_node, is_promotion, upa_list, mapping_cfg, mapping, reduce_init_ids);
   after_map_node = after_map_node.parent();
   if (is_promotion && tiled) {
     after_map_node = after_map_node.parent();
@@ -276,13 +283,15 @@ std::pair<isl::schedule_node, isl::schedule_node> MapInnerDimToThreads(const isl
 }
 
 isl::schedule_node CreateAndInsertMapFilter(const isl::schedule_node &node, const bool is_promotion,
-                                            isl::union_pw_aff_list upa_list, MappingCfg *mapping_cfg,
-                                            UpaNodeMapping &upa_node_mapping) {
+                                            isl::union_pw_aff_list upa_list, MappingCfg *mapping_cfg, Mapping &mapping,
+                                            std::vector<isl::id> reduce_init_ids) {
   // create mapping filter
   CHECK(mapping_cfg != nullptr) << "threadconfig is null";
 
-  Mapping mapping;
   isl::union_set domain = node.get_schedule().get_domain();
+  if (node.ancestor(2) && node.ancestor(2).isa<isl::schedule_node_filter>()) {
+    domain = node.ancestor(2).as<isl::schedule_node_filter>().get_filter();
+  }
   size_t num_map = upa_list.size();
   for (size_t i = 0; i < num_map; ++i) {
     std::pair<std::string, int> cfg = mapping_cfg->GetAt(i);
@@ -293,21 +302,32 @@ isl::schedule_node CreateAndInsertMapFilter(const isl::schedule_node &node, cons
     mapping[id] = upa;
     domain = upa.domain();
   }
-  if (!is_promotion) {
-    for (size_t i = num_map; i < mapping_cfg->bound; ++i) {
-      CHECK(!domain.is_null());
-      auto universe = domain.universe();
-      std::pair<std::string, int> cfg = mapping_cfg->GetAt(i);
-      auto id = isl::id(node.ctx(), cfg.first);
-      mapping[id] = isl::union_pw_aff(universe, isl::val::zero(domain.ctx()));
-    }
+  for (size_t i = num_map; i < mapping_cfg->bound; ++i) {
+    CHECK(!domain.is_null());
+    auto universe = domain.universe();
+    std::pair<std::string, int> cfg = mapping_cfg->GetAt(i);
+    auto id = isl::id(node.ctx(), cfg.first);
+    mapping[id] = isl::union_pw_aff(universe, isl::val::zero(domain.ctx()));
   }
 
   // extract unique domain
   auto map_domain = mapping.cbegin()->second.domain();
-  for (const auto &kvp : mapping) {
-    CHECK(map_domain.is_equal(kvp.second.domain()));
+  if (!is_promotion) {
+    for (const auto &kvp : mapping) {
+      CHECK(map_domain.is_equal(kvp.second.domain()));
+    }
   }
+
+  isl::union_set init_uset = map_domain.empty(map_domain.ctx());
+  if (mapping_cfg->type == BLOCKS) {
+    map_domain.foreach_set([&init_uset, reduce_init_ids](const isl::set &s) -> void {
+      for (auto id : reduce_init_ids) {
+        init_uset = id.get_name() == s.get_tuple_name() ? init_uset.unite(isl::union_set(s)) : init_uset;
+      }
+    });
+    map_domain = map_domain.subtract(init_uset);
+  }
+
   auto map_filter = map_domain.universe();
   for (const auto &kvp : mapping) {
     auto id = kvp.first;
@@ -316,10 +336,13 @@ isl::schedule_node CreateAndInsertMapFilter(const isl::schedule_node &node, cons
     map_filter = map_filter.intersect(upa.zero_union_set());
   }
 
+  if (mapping_cfg->type == BLOCKS) {
+    map_filter = map_filter.unite(init_uset);
+  }
+
   // insert mapping filter
   isl::schedule_node map_filter_node = node;
   map_filter_node = map_filter_node.insert_filter(map_filter);
-  upa_node_mapping.emplace_back(std::make_pair(map_filter_node, mapping));
   return map_filter_node;
 }
 
@@ -333,23 +356,32 @@ isl::schedule_node CreateAndInsertMapFilter(const isl::schedule_node &node, cons
  * Therefore, we must check map size and apply tile before mapping.
  */
 isl::schedule_node CheckMapSizeAndApplyTile(const isl::schedule_node &mapping_root,
-                                            const isl::union_pw_aff_list &aff_list, MappingCfg *mapping_cfg) {
+                                            const isl::union_pw_aff_list &aff_list, MappingCfg *mapping_cfg,
+                                            bool is_y_reduce) {
   bool need_tile = false;
   std::vector<int> mapping_sizes;
   CHECK(mapping_cfg != nullptr) << "mapping config is null";
+  size_t block_count = 0;
   for (size_t i = 0; i < aff_list.size(); ++i) {
     auto aff = aff_list.get_at(i);
     auto extent = aff.max_val().get_num_si() + 1;
-    if (i < mapping_cfg->bound) {
-      auto map_size = mapping_cfg->GetAt(i).second;
-      if (mapping_cfg->type == MappingType::BLOCKS) {
+    if (mapping_cfg->type == MappingType::BLOCKS) {
+      if (aff_list.size() - 1 - i < mapping_cfg->bound) {
+        auto map_size = mapping_cfg->GetAt(block_count).second;
+        ++block_count;
         need_tile = need_tile || (extent > map_size && extent % map_size != 0);
+        mapping_sizes.emplace_back(map_size);
       } else {
-        need_tile = need_tile || extent > map_size;
+        mapping_sizes.emplace_back(extent);
       }
-      mapping_sizes.emplace_back(map_size);
     } else {
-      mapping_sizes.emplace_back(extent);
+      if (i < mapping_cfg->bound) {
+        auto map_size = mapping_cfg->GetAt(i).second;
+        need_tile = need_tile || extent > map_size;
+        mapping_sizes.emplace_back(map_size);
+      } else {
+        mapping_sizes.emplace_back(extent);
+      }
     }
   }
 
@@ -363,20 +395,15 @@ isl::schedule_node CheckMapSizeAndApplyTile(const isl::schedule_node &mapping_ro
   tile_size = isl::multi_val::zero(space);
 
   auto len = static_cast<int>(mapping_sizes.size());
-  if (mapping_cfg->type == MappingType::BLOCKS) {
-    for (auto i = 0; i < len; ++i) {
-      tile_size = tile_size.set_val(i, isl::val(ctx, mapping_sizes[i]));
-    }
-  } else {
-    for (auto i = len - 1; i >= 0; --i) {
-      tile_size = tile_size.set_val(len - 1 - i, isl::val(ctx, mapping_sizes[i]));
-    }
+  for (auto i = len - 1; i >= 0; --i) {
+    int pos = is_y_reduce ? i : len - 1 - i;
+    tile_size = tile_size.set_val(pos, isl::val(ctx, mapping_sizes[i]));
   }
 
   return TileBand(mapping_root, tile_size).child(0);
 }
 
-bool IsEqual(const isl::schedule_node node1, const isl::schedule_node node2) {
+bool IsEqualNode(const isl::schedule_node node1, const isl::schedule_node node2) {
   auto node_ptr1 = node1.get();
   auto node_ptr2 = node2.get();
 
@@ -386,21 +413,42 @@ bool IsEqual(const isl::schedule_node node1, const isl::schedule_node node2) {
   if (node_ptr1 == node_ptr2) {
     return true;
   }
+  if (isl_schedule_node_get_type(node_ptr1) != isl_schedule_node_get_type(node_ptr2)) {
+    return false;
+  }
+  if (node1.isa<isl::schedule_node_band>()) {
+    isl::schedule_node_band band_node1 = node1.as<isl::schedule_node_band>();
+    isl::schedule_node_band band_node2 = node2.as<isl::schedule_node_band>();
 
-  auto n1 = isl_schedule_node_get_tree_depth(node_ptr1);
-  auto n2 = isl_schedule_node_get_tree_depth(node_ptr2);
-  if (n1 < 0 || n2 < 0) {
-    return false;
-  }
-  if (n1 != n2) {
-    return false;
-  }
-  for (int i = 0; i < n1; ++i) {
-    if (node_ptr1->child_pos[i] != node_ptr2->child_pos[i]) {
+    if (band_node1.permutable() != band_node2.permutable()) {
       return false;
     }
-  }
 
+    if (band_node1.n_member() != band_node2.n_member()) {
+      return false;
+    }
+
+    size_t count = 0;
+    while (count < band_node1.n_member()) {
+      if (band_node1.member_get_coincident(static_cast<int>(count)) !=
+          band_node2.member_get_coincident(static_cast<int>(count))) {
+        return false;
+      }
+      ++count;
+    }
+
+    if (!band_node1.get_partial_schedule().plain_is_equal(band_node2.get_partial_schedule())) {
+      return false;
+    }
+  } else if (node1.isa<isl::schedule_node_filter>()) {
+    isl::schedule_node_filter filter_node1 = node1.as<isl::schedule_node_filter>();
+    isl::schedule_node_filter filter_node2 = node2.as<isl::schedule_node_filter>();
+
+    if (!filter_node1.filter().is_equal(filter_node2.filter())) {
+      return false;
+    }
+    return IsEqualNode(filter_node1.child(0), filter_node2.child(0));
+  }
   return true;
 }
 
@@ -417,28 +465,19 @@ isl::multi_union_pw_aff MapDomainToThread(const isl::schedule_node &node, Mappin
   isl::union_set empty_domain = isl::union_set::empty(space);
   space = space.add_named_tuple_id_ui(isl::id(node.ctx(), SYNC_BLOCK), thread_ids.size());
   auto domain_threads = isl::multi_union_pw_aff(empty_domain, isl::multi_val::zero(space));
+  UpaNodeMapping tmp_upa_node_mapping = upa_node_mapping;
 
-  for (auto upa_mapping : upa_node_mapping) {
-    auto upa_node = upa_mapping.first;
-    auto tmp_node = upa_node;
-    while (!tmp_node.is_null() && tmp_node.has_parent() && !tmp_node.isa<isl::schedule_node_mark>()) {
-      tmp_node = tmp_node.parent();
-    }
-
-    if (tmp_node.isa<isl::schedule_node_mark>()) {
-      std::string mark_id = tmp_node.as<isl::schedule_node_mark>().get_id().get_name();
-      if (mark_id.find(THREAD_MARKER) == std::string::npos) {
-        continue;
+  auto CompareFromInner = [&domain_threads, &tmp_upa_node_mapping, thread_ids, node,
+                           space](isl::schedule_node compare_node) -> isl::schedule_node {
+    for (size_t i = 0; i < tmp_upa_node_mapping.size(); ++i) {
+      auto upa_mapping = tmp_upa_node_mapping[i];
+      auto upa_node = upa_mapping.first;
+      auto tmp_node = upa_node;
+      if (!tmp_node.is_null() && tmp_node.has_parent() && tmp_node.parent().isa<isl::schedule_node_filter>()) {
+        tmp_node = tmp_node.parent();
       }
-    }
 
-    if (!tmp_node.is_null() && tmp_node.has_parent()) {
-      tmp_node = tmp_node.parent();
-    }
-
-    for (size_t i = 0; i < node.n_children(); ++i) {
-      auto node_child = node.child(i);
-      if (IsEqual(tmp_node, node_child)) {
+      if (IsEqualNode(tmp_node, compare_node)) {
         auto mapping = upa_mapping.second;
         auto upa_list = isl::union_pw_aff_list(node.ctx(), thread_ids.size());
         for (auto thread_id : thread_ids) {
@@ -457,9 +496,13 @@ isl::multi_union_pw_aff MapDomainToThread(const isl::schedule_node &node, Mappin
           upa_node_thread = upa_node_thread.intersect_domain(domain_upa_node);
           domain_threads = domain_threads.union_add(upa_node_thread);
         }
+        tmp_upa_node_mapping.erase(tmp_upa_node_mapping.begin() + i);
+        return compare_node;
       }
     }
-  }
+    return compare_node;
+  };
+  node.map_descendant_bottom_up(CompareFromInner);
 
   auto domain_node = CollectDomain(node);
   bool sub_set = domain_node.is_subset(domain_threads.domain());
@@ -490,8 +533,7 @@ isl::multi_union_pw_aff MapDomainAllWithType(const isl::schedule_node &node, Map
     auto upa_node = upa_mapping.first;
     auto tmp_node = upa_node;
     CHECK(!tmp_node.is_null() && tmp_node.has_parent()) << "node from upa_node_mapping is invalid.";
-    // get the marker node above this filter node.
-    tmp_node = tmp_node.parent();
+
     // check whether this node is a mark node with map_type.
     if (!tmp_node.isa<isl::schedule_node_mark>() ||
         (tmp_node.isa<isl::schedule_node_mark>() &&
@@ -663,6 +705,26 @@ isl::schedule_node UnrollByMarkOptions(isl::schedule_node &node, uint64_t unroll
   ancestors_schedule = ancestors_schedule.intersect_domain(domain);
   GetInstancesBound(node, ancestors_schedule, unroll_val);
   return node;
+}
+
+isl::map GetExtensionSpace(const isl::schedule_node &node, const isl::id &id) {
+  auto prefix = ShortScheduleMupaImpl(node.root(), node.root(), node.parent());
+  auto schedule_space = prefix.get_space();
+  auto space = schedule_space.params().add_named_tuple_id_ui(id, 0);
+  auto extension_space = isl::map::universe(schedule_space.map_from_domain_and_range(space));
+  return extension_space;
+}
+
+isl::schedule_node InsertExtensionNodeBeforeOrAfter(const isl::schedule_node &node, const isl::id &id, bool before) {
+  auto space = GetExtensionSpace(node, id);
+  isl::schedule_node graft = isl::schedule_node::from_extension(space);
+  auto extension_node = node;
+  if (before) {
+    extension_node = extension_node.graft_before(graft);
+  } else {
+    extension_node = extension_node.graft_after(graft);
+  }
+  return extension_node;
 }
 
 }  // namespace poly

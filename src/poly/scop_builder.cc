@@ -274,49 +274,10 @@ bool ParseWithStmt(const Expr &s, const AnalysisResult &result) {
   return paserWith.GetResult();
 }
 
-std::map<std::string, PolyOpType> call_op_ = {
-  {"log", PolyOpType::elewise_single_log},
-  {"exp", PolyOpType::elewise_single_exp},
-  {"sqrt", PolyOpType::elewise_single_sqrt},
-  {"rsqrt", PolyOpType::elewise_single_rsqrt},
-  {"fabs", PolyOpType::elewise_single_fabs},
-  {"rec", PolyOpType::elewise_single_rec},
-  {"floor", PolyOpType::vec_single_floor},
-  {"round", PolyOpType::vec_single_round},
-  {"ceil", PolyOpType::elewise_single_ceil},
-  {"trunc", PolyOpType::vec_single_trunc},
-  {"not", PolyOpType::elewise_single_not},
-  {"relu", PolyOpType::elewise_single_relu},
-  {"EQ", PolyOpType::elewise_binary_EQ},
-  {"NE", PolyOpType::elewise_binary_NE},
-  {"GT", PolyOpType::elewise_binary_GT},
-  {"GE", PolyOpType::elewise_binary_GE},
-  {"LT", PolyOpType::elewise_binary_LT},
-  {"LE", PolyOpType::elewise_binary_LE},
-  {"fargmax", PolyOpType::vec_argmax},
-  {"fargmin", PolyOpType::vec_argmin},
-  {"four2five_nchw", PolyOpType::four2five_nchw},
-  {"vand", PolyOpType::elewise_binary_and},
-  {"bitwise_and", PolyOpType::elewise_binary_bitwise_and},
-  {"bitwise_or", PolyOpType::elewise_binary_bitwise_or},
-  {"bitwise_not", PolyOpType::elewise_single_bitwise_not},
-  {"proposal_sort", PolyOpType::elewise_binary_proposal_sort},
-  {"topk_sort", PolyOpType::elewise_binary_topk_sort},
-  {"nms", PolyOpType::elewise_binary_nms},
-  {"dropout", PolyOpType::elewise_binary_dropout},
-  {"iou", PolyOpType::elewise_binary_iou},
-  {"vmadd", PolyOpType::vmadd},
-  {"vmaddrelu", PolyOpType::vmaddrelu},
-  {"vaxpy", PolyOpType::vaxpy},
-  {"vmla", PolyOpType::vmla},
-};
-
 void ParseStmtOpCall(const isl::id &id, const Call *call, AnalysisResult &result, const FunctionRef &func) {
   CHECK(call);
   if (call->call_type == Call::PureIntrinsic) {
-    if (call_op_.count(call->name) > 0) {
-      result.GetStmtOpInfoMap().at(id).ops.push_back(call_op_[call->name]);
-    } else if (0 == strcmp(call->name.c_str(), "with")) {
+    if (0 == strcmp(call->name.c_str(), "with")) {
       result.GetStmtOpInfoMap().at(id).ops.push_back(PolyOpType::with);
       if (!result.GetStmtOpInfoMap().at(id).isWith) {
         for (unsigned i = 0; i < call->args.size(); ++i) {
@@ -326,20 +287,6 @@ void ParseStmtOpCall(const isl::id &id, const Call *call, AnalysisResult &result
           }
         }
       }
-    } else if (0 == strcmp(call->name.c_str(), "reshape")) {
-      // do nothing
-    } else if (0 == strcmp(call->name.c_str(), "transpose")) {
-      // do nothing
-    } else if (0 == strcmp(call->name.c_str(), "divide_var")) {
-      // do nothing
-    } else if (0 == strcmp(call->name.c_str(), "sub_relu")) {
-      // do nothing
-    } else if (0 == strcmp(call->name.c_str(), "pow")) {
-      // do nothing
-    } else if (0 == strcmp(call->name.c_str(), "isnan")) {
-      // do nothing
-    } else if (0 == strcmp(call->name.c_str(), "tvm_if_then_else")) {
-      // do nothing
     } else if (0 == strcmp(call->name.c_str(), "load3d_l1_ub")) {
       result.GetStmtOpInfoMap().at(id).isLoad3d = true;
       ParseStmtOps(id, call->args[0], result, func);
@@ -385,6 +332,9 @@ void ParseStmtOpCall(const isl::id &id, const Call *call, AnalysisResult &result
           }
         }
       }
+    } else if (POLY_SUPPORTED_OPS.count(call->name)) {
+      auto it = POLY_SUPPORTED_OPS.find(call->name);
+      result.GetStmtOpInfoMap().at(id).ops.push_back(it->second);
     } else {
       LOG(FATAL) << "Unknown pure intrinsic: " << call->name.c_str() << std::endl;
     }
@@ -726,114 +676,178 @@ isl::schedule MakeScheduleTreeHelper(const NodeRef &s, ScopInfo &scop_info, cons
 
     ssize_t macro_stmt{-1};
 
+    std::unordered_set<std::string> left_args;
+
     /// Visitor implementation
     void Visit_(const Provide *op) final {
-      {
-        size_t stmt_index = scop_info_.analysis_result_.GetStatementMap().size();
-        isl::id id(set.ctx(), macro_stmt >= 0 ? kStatementLabel + std::to_string(macro_stmt)
-                                              : kStatementLabel + std::to_string(stmt_index));
-        scop_info_.analysis_result_.RecordStatement(id, op);
-        auto tuple_space = isl::space(set.ctx(), 0);
-        tuple_space = tuple_space.add_named_tuple_id_ui(id, static_cast<unsigned int>(outer.size()));
-        OperatorDomainSpace op_domain;
-        op_domain.param_space = set.get_space();
-        op_domain.tuple = isl::multi_id(tuple_space, outer);
-        scop_info_.analysis_result_.RecordOperatorDomain(id, op_domain);
-        auto domain = set.unbind_params(op_domain.tuple);
-        sch = isl::schedule::from_domain(domain);
+      size_t stmt_index = scop_info_.analysis_result_.GetStatementMap().size();
+      isl::id id(set.ctx(), macro_stmt >= 0 ? kStatementLabel + std::to_string(macro_stmt)
+                                            : kStatementLabel + std::to_string(stmt_index));
+      scop_info_.analysis_result_.RecordStatement(id, op);
 
-        isl::union_map new_reads, new_writes, new_to_inner;
-        isl::union_map new_reads_with_conds, new_writes_with_conds;
-        isl::set read_set = set;
-        isl::set write_set = set;
-        Stmt stmt = Downcast<Stmt>(s);
-        std::tie(new_reads, new_writes, new_to_inner) =
-          ConstructPolyAccesses(op_domain, stmt, scop_info_.analysis_result_.GetAccessMap());
+      auto tuple_space = isl::space(set.ctx(), 0);
+      tuple_space = tuple_space.add_named_tuple_id_ui(id, static_cast<unsigned int>(outer.size()));
+      OperatorDomainSpace op_domain;
+      op_domain.param_space = set.get_space();
+      op_domain.tuple = isl::multi_id(tuple_space, outer);
+      scop_info_.analysis_result_.RecordOperatorDomain(id, op_domain);
+      auto domain = set.unbind_params(op_domain.tuple);
+      sch = isl::schedule::from_domain(domain);
+      if (scop_info_.user_config_.GetTarget() == TARGET_CUDA && scop_info_.user_config_.GetEnableAkgReduceLib()) {
+        RecordReduceInfo(op, op_domain, id);
+      }
 
-        new_reads_with_conds = new_reads.curry().intersect_domain(read_set.unbind_params(op_domain.tuple)).uncurry();
-        /// has Select
+      isl::union_map new_reads, new_writes, new_to_inner;
+      isl::union_map new_reads_with_conds, new_writes_with_conds;
+      isl::set read_set = set;
+      isl::set write_set = set;
+      isl::set reduction_set = set;
+      Stmt stmt = Downcast<Stmt>(s);
+      std::tie(new_reads, new_writes, new_to_inner) =
+        ConstructPolyAccesses(op_domain, stmt, scop_info_.analysis_result_.GetAccessMap());
+
+      new_reads_with_conds = new_reads.curry().intersect_domain(read_set.unbind_params(op_domain.tuple)).uncurry();
+      /// has Select
 #if (SELECT_DOMAIN_OPT)
-        class CutSetTopDown final : protected IRVisitor {
-         public:
-          CutSetTopDown() {}
-          ~CutSetTopDown() override = default;
+      class CutSetTopDown final : protected IRVisitor {
+       public:
+        CutSetTopDown() {}
+        ~CutSetTopDown() override = default;
 
-          const isl::union_map Run(const Expr &expr, const isl::multi_id &tuple_, const isl::union_map &accesses_,
-                                   const isl::set &read_set_) {
-            accesses = accesses_;
-            read_set = read_set_;
-            tuple = tuple_;
-            Visit(expr);
-            return accesses;
-          }
+        const isl::union_map Run(const Expr &expr, const isl::multi_id &tuple_, const isl::union_map &accesses_,
+                                 const isl::set &read_set_) {
+          accesses = accesses_;
+          read_set = read_set_;
+          tuple = tuple_;
+          Visit(expr);
+          return accesses;
+        }
 
-         private:
-          static std::unordered_set<std::string> GatherCallTensors(const Expr &e) {
-            std::unordered_set<std::string> tensor_names;
-            PostOrderVisit(e, [&](const NodeRef &node) -> void {
-              if (auto op = node.as<Call>()) {
-                if (op->call_type == Call::CallType::Halide) {
-                  tensor_names.insert(op->func->func_name());
-                }
-              }
-            });
-            return tensor_names;
-          }
-
-          void CutAccesses(const Expr &value, const std::vector<Expr> &conds, bool is_else, bool is_or) {
-            auto may_access_tensors = GatherCallTensors(value);
-            isl::union_map must_access = isl::union_map::empty(accesses.space());
-            isl::union_map may_access = isl::union_map::empty(accesses.space());
-            accesses.foreach_map([&](const isl::map &map) {
-              auto tensor = map.get_tuple_id(isl_dim_out).get_name();
-              if (may_access_tensors.count(tensor) == 0) {
-                must_access = must_access.add_map(map);
-              } else {
-                may_access = may_access.add_map(map);
-              }
-            });
-            read_set = CutSet(conds, read_set, is_else, is_or);
-            auto cut_may_access = may_access.curry().intersect_domain(read_set.unbind_params(tuple)).uncurry();
-            accesses = must_access.unite(cut_may_access);
-          }
-
-          void Visit_(const Select *sel) final {
-            auto ec = ExtractCond();
-            std::vector<Expr> conds = ec.run(sel->condition);
-            if (!ec.hasBothOrAndAnd()) {
-              if (isImm(sel->true_value)) {
-                CutAccesses(sel->false_value, conds, true, !ec.IsOr());
-              } else if (isImm(sel->false_value)) {
-                CutAccesses(sel->true_value, conds, false, ec.IsOr());
+       private:
+        static std::unordered_set<std::string> GatherCallTensors(const Expr &e) {
+          std::unordered_set<std::string> tensor_names;
+          PostOrderVisit(e, [&](const NodeRef &node) -> void {
+            if (auto op = node.as<Call>()) {
+              if (op->call_type == Call::CallType::Halide) {
+                tensor_names.insert(op->func->func_name());
               }
             }
-          }
-
-          isl::union_map accesses;
-          isl::set read_set;
-          isl::multi_id tuple;
-        };
-
-        new_reads_with_conds = CutSetTopDown().Run(op->value, op_domain.tuple, new_reads_with_conds, read_set);
-#endif
-        new_writes_with_conds = new_writes.curry().intersect_domain(write_set.unbind_params(op_domain.tuple)).uncurry();
-
-        ParseStmtOps(id, op, scop_info_.analysis_result_, new_reads, new_writes);
-
-        // The parameters should be added as constraints of the reads/writes sets
-        // otherwise isl may not be able to obtain a fixed box.
-        if (macro_stmt >= 0) {
-          auto params = domain.params();
-          new_reads = new_reads.curry().intersect_domain(params).uncurry();
-          new_writes = new_writes.curry().intersect_domain(params).uncurry();
-
-          new_reads_with_conds = new_reads_with_conds.curry().intersect_domain(params).uncurry();
-          new_writes_with_conds = new_writes_with_conds.curry().intersect_domain(params).uncurry();
+          });
+          return tensor_names;
         }
-        scop_info_.analysis_result_.RecordReads(scop_info_.analysis_result_.GetReads().unite(new_reads_with_conds));
-        scop_info_.analysis_result_.RecordWrites(scop_info_.analysis_result_.GetWrites().unite(new_writes_with_conds));
-        found = true;
+
+        void CutAccesses(const Expr &value, const std::vector<Expr> &conds, bool is_else, bool is_or) {
+          auto may_access_tensors = GatherCallTensors(value);
+          isl::union_map must_access = isl::union_map::empty(accesses.space());
+          isl::union_map may_access = isl::union_map::empty(accesses.space());
+          accesses.foreach_map([&](const isl::map &map) {
+            auto tensor = map.get_tuple_id(isl_dim_out).get_name();
+            if (may_access_tensors.count(tensor) == 0) {
+              must_access = must_access.add_map(map);
+            } else {
+              may_access = may_access.add_map(map);
+            }
+          });
+          read_set = CutSet(conds, read_set, is_else, is_or);
+          auto cut_may_access = may_access.curry().intersect_domain(read_set.unbind_params(tuple)).uncurry();
+          accesses = must_access.unite(cut_may_access);
+        }
+
+        void Visit_(const Select *sel) final {
+          auto ec = ExtractCond();
+          std::vector<Expr> conds = ec.run(sel->condition);
+          if (!ec.hasBothOrAndAnd()) {
+            if (isImm(sel->true_value)) {
+              CutAccesses(sel->false_value, conds, true, !ec.IsOr());
+            } else if (isImm(sel->false_value)) {
+              CutAccesses(sel->true_value, conds, false, ec.IsOr());
+            }
+          }
+        }
+
+        isl::union_map accesses;
+        isl::set read_set;
+        isl::multi_id tuple;
+      };
+
+      new_reads_with_conds = CutSetTopDown().Run(op->value, op_domain.tuple, new_reads_with_conds, read_set);
+#endif
+      new_writes_with_conds = new_writes.curry().intersect_domain(write_set.unbind_params(op_domain.tuple)).uncurry();
+
+      ParseStmtOps(id, op, scop_info_.analysis_result_, new_reads, new_writes);
+
+      // The parameters should be added as constraints of the reads/writes sets
+      // otherwise isl may not be able to obtain a fixed box.
+      if (macro_stmt >= 0) {
+        auto params = domain.params();
+        new_reads = new_reads.curry().intersect_domain(params).uncurry();
+        new_writes = new_writes.curry().intersect_domain(params).uncurry();
+
+        new_reads_with_conds = new_reads_with_conds.curry().intersect_domain(params).uncurry();
+        new_writes_with_conds = new_writes_with_conds.curry().intersect_domain(params).uncurry();
       }
+      scop_info_.analysis_result_.RecordReads(scop_info_.analysis_result_.GetReads().unite(new_reads_with_conds));
+      scop_info_.analysis_result_.RecordWrites(scop_info_.analysis_result_.GetWrites().unite(new_writes_with_conds));
+      found = true;
+    }
+
+    void RecordReduceInfo(const Provide *op, OperatorDomainSpace op_domain, isl::id red_id) {
+      auto reduce_attrs = scop_info_.analysis_result_.GetReduceAttrs();
+      if (reduce_attrs.empty()) {
+        return;
+      }
+      bool is_all_reduce = scop_info_.analysis_result_.GetNotReduceAttrs().size() == 0;
+      scop_info_.user_config_.SetTileCheckCoincident(!is_all_reduce);
+      isl::ctx ctx = op_domain.tuple.ctx();
+
+      isl::aff_list aff_list = isl::aff_list(ctx, 0);
+      for (auto id : op_domain.tuple.get_id_list()) {
+        if (reduce_attrs.count(id.get_name()) == 1) {
+          continue;
+        }
+        isl::aff aff = isl::aff::param_on_domain(op_domain.param_space, id);
+        aff = aff.unbind_params_insert_domain(op_domain.tuple);
+        aff_list = aff_list.add(aff);
+      }
+      isl::space op_domain_space = op_domain.tuple.get_space();
+      isl::space space = op_domain_space.params().add_named_tuple_id_ui(red_id, aff_list.size());
+      space = op_domain_space.product(space).unwrap();
+      scop_info_.analysis_result_.RecordReduceStatement(red_id, op);
+      auto type = scop_info_.analysis_result_.GetReduceOpType(red_id);
+      if (AkgSupportedReduceOp.count(type) == 0) {
+        return;
+      }
+      scop_info_.analysis_result_.RecordReductionsMap(red_id,
+                                                      isl::union_map(isl::map(isl::multi_aff(space, aff_list))));
+      scop_info_.analysis_result_.RecordReduceStatementWriteTensor(red_id, op->func->func_name());
+      scop_info_.analysis_result_.RecordReduceInitValue(red_id);
+      scop_info_.analysis_result_.RecordReduceWriteDataType(red_id);
+      std::string reduce_direction;
+      PostOrderVisit(op->value, [&reduce_direction, &reduce_attrs, op](const NodeRef &node) -> void {
+        if (reduce_direction == X_DIRECTION) {
+          return;
+        }
+        auto call = node.as<Call>();
+        if (call == nullptr || call->call_type != Call::CallType::Halide ||
+            call->func->func_name() == op->func->func_name() || call->args.empty()) {
+          return;
+        }
+        auto last_axis = call->args[call->args.size() - 1];
+        auto mod = last_axis.as<FloorMod>();
+        if (mod != nullptr) {
+          if (auto v = mod->a.as<Variable>()) {
+            reduce_direction = reduce_attrs.count(v->name_hint) ? X_DIRECTION : Y_DIRECTION;
+          }
+        } else {
+          if (auto v = last_axis.as<Variable>()) {
+            reduce_direction = reduce_attrs.count(v->name_hint) == 1 ? X_DIRECTION : Y_DIRECTION;
+          }
+        }
+      });
+      if (reduce_direction.empty()) {
+        LOG(WARNING) << "Cannot identify reduce direction for stmt " << red_id;
+      }
+      scop_info_.analysis_result_.RecordReduceDirection(reduce_direction);
     }
 
     void Visit_(const Block *op) final {
@@ -1064,13 +1078,63 @@ isl::schedule MakeScheduleTreeHelper(const NodeRef &s, ScopInfo &scop_info, cons
             }
           }
         }
+        if (scop_info_.user_config_.GetTarget() == TARGET_CUDA && scop_info_.user_config_.GetEnableAkgReduceLib()) {
+          class ExtractReductionAttrs final : public IRVisitor {
+           public:
+            ExtractReductionAttrs(const Stmt stmt, std::unordered_set<std::string> left_args, bool paser_reduce_var)
+                : extract_left_args(left_args), extract_paser_reduce_var(paser_reduce_var) {
+              IRVisitor::Visit(stmt);
+            }
+            ~ExtractReductionAttrs() override = default;
+
+            void Visit_(const Variable *op) final {
+              if (extract_paser_reduce_var) {
+                if (!extract_left_args.count(op->name_hint)) {
+                  extract_reduce_attrs.insert(op->name_hint);
+                }
+              }
+            }
+
+           public:
+            std::unordered_set<std::string> extract_reduce_attrs;
+            std::unordered_set<std::string> extract_left_args;
+            bool extract_paser_reduce_var;
+          };
+
+          const auto pro = op->body.as<Provide>();
+          for (auto i = 0u; i < pro->args.size(); ++i) {
+            auto args_i = pro->args[i];
+            auto mod = args_i.as<FloorMod>();
+            if (mod != nullptr && mod->a.as<Variable>()) {
+              left_args.insert(mod->a.as<Variable>()->name_hint);
+            }
+            auto div = args_i.as<FloorDiv>();
+            if (div != nullptr && div->a.as<Variable>()) {
+              left_args.insert(div->a.as<Variable>()->name_hint);
+            }
+            if (mod == nullptr && div == nullptr && args_i.as<Variable>()) {
+              left_args.insert(args_i.as<Variable>()->name_hint);
+            }
+          }
+
+          ExtractReductionAttrs extract_reduce_attr(op->body, left_args, true);
+          scop_info_.analysis_result_.RecordReduceAttrs(extract_reduce_attr.extract_reduce_attrs);
+          scop_info_.analysis_result_.RecordNotReduceAttrs(left_args);
+          sch = MakeScheduleTreeHelper(op->body, scop_info_, set, outer, macro_stmt);
+          left_args.clear();
+        } else {
+          sch = MakeScheduleTreeHelper(op->body, scop_info_, set, outer, macro_stmt);
+        }
       } else if (op->attr_key == air::ir::attr::buffer_bind_scope) {
         Op_buffer_bind_scope(op);
+        sch = MakeScheduleTreeHelper(op->body, scop_info_, set, outer, macro_stmt);
       } else if (op->attr_key == ATTR_IM2COL_KEY) {
         scop_info_.analysis_result_.RecordAttrStmt(op);
+        sch = MakeScheduleTreeHelper(op->body, scop_info_, set, outer, macro_stmt);
+      } else {
+        sch = MakeScheduleTreeHelper(op->body, scop_info_, set, outer, macro_stmt);
       }
 
-      sch = MakeScheduleTreeHelper(op->body, scop_info_, set, outer, macro_stmt);
       found = true;
     }
   };

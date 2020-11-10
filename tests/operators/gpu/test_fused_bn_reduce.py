@@ -44,7 +44,7 @@ def gen_data(in_shape, in_dtype, layout, out_dtype):
     support_list = {"float16": np.float16, "float32": np.float32}
     data = random_gaussian(in_shape, miu=1, sigma=0.1).astype(support_list[in_dtype])
     expect = compute_fused_bn_reduce(data, layout, out_dtype)
-    output = np.full(expect[0].shape, np.nan, out_dtype)
+    output = np.full(expect[0].shape, 0.0, out_dtype)
     output = [output, output]
     return data, output, expect
 

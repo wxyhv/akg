@@ -24,7 +24,7 @@ def gen_data(in_shape, in_dtype, axis, keepdims):
     expect = np.sum(data, axis=axis, keepdims=keepdims)
     if axis==None and keepdims==False:
         expect = np.broadcast_to(expect, (1,))
-    output = np.full(expect.shape, np.nan, in_dtype)
+    output = np.full(expect.shape, 0.0, in_dtype)
     return data, output, expect
 
 def test_ms_reduce_sum(in_shape, in_dtype, axis=None, keepdims=False, poly_sch=False):

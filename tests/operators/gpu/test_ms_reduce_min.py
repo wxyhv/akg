@@ -24,7 +24,7 @@ def gen_data(in_shape, in_dtype, axis, keepdims):
     expect = np.amin(data, axis=axis, keepdims=keepdims)
     if axis==None and keepdims==False:
         expect = np.broadcast_to(expect, (1,))
-    output = np.full(expect.shape, np.nan, in_dtype)
+    output = np.full(expect.shape, 3.402823e38, in_dtype)
     return data, output, expect
 
 def test_ms_reduce_min(in_shape, in_dtype, axis=None, keepdims=False, poly_sch=False):

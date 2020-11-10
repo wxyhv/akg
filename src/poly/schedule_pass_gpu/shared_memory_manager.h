@@ -70,6 +70,14 @@ class SharedMemoryManager : public SchedulePass {
 
   bool UnderThreadMarker(size_t depth);
 
+  std::string InAtomicTensors(isl::schedule_node &node);
+  bool InAtomicTensors(std::string name);
+  bool InReduceTensors(std::string name);
+
+  std::string AtomicMarker(std::string type);
+
+  std::set<std::string> AnalysisReduceTensors();
+
  private:
   ScopInfo &scop_info_;
   isl::schedule schedule_;

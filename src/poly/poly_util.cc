@@ -35,6 +35,14 @@ bool IsEndsWith(const std::string &str, const std::string &suffix) {
   return (compare == suffix);
 }
 
+bool IsStartsWith(const std::string &str, const std::string &prefix) {
+  if (str.size() < prefix.size()) {
+    return false;
+  }
+  std::string compare = str.substr(0, prefix.size());
+  return (compare == prefix);
+}
+
 std::vector<std::string> Split(const std::string &str, const std::string &pattern) {
   std::vector<std::string> res;
   if (str.empty()) {
