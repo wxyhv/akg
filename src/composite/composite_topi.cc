@@ -533,29 +533,7 @@ TVM_REGISTER_GLOBAL("GreaterEqual").set_body([](TVMArgs args, TVMRetValue *rv) {
   CommonCompare(args, rv, "GreaterEqual");
 });
 
-TVM_REGISTER_GLOBAL("LessEqual").set_body([](TVMArgs args, TVMRetValue *rv) {
-  CHECK_GE(args.size(), 1);
-  auto inputs = args[0].operator Array<NodeRef>();
-  CHECK(inputs[0]->IsInstance<TensorNode>());
-  CHECK(inputs[1]->IsInstance<TensorNode>());
-  auto data1 = Downcast<Tensor>(inputs[0]);
-  auto data2 = Downcast<Tensor>(inputs[1]);
-
-  CHECK_EQ(data1->shape.size(), data2->shape.size())
-    << "x and y must have the same shape. Got different number of dimension: " << data1->shape.size() << " vs "
-    << data2->shape.size();
-  CHECK_EQ(data1->dtype, data2->dtype) << "x and y must have the same dtype: " << data1->dtype << " vs "
-                                       << data2->dtype;
-  Expr true_expr = make_const(data1->dtype, 1);
-  Expr false_expr = make_const(data1->dtype, 0);
-
-  std::string name = "T_less_equal_";
-  (void)name.append(data1->op->name).append("_").append(data2->op->name);
-  *rv = compute(
-    data1->shape,
-    [&](const Array<Var> &indices) { return Select::make(data1(indices) <= data2(indices), true_expr, false_expr); },
-    name, topi::kBroadcast);
-});
+TVM_REGISTER_GLOBAL("LessEqual").set_body([](TVMArgs args, TVMRetValue *rv) { CommonCompare(args, rv, "LessEqual"); });
 
 TVM_REGISTER_GLOBAL("ZerosLike").set_body([](TVMArgs args, TVMRetValue *rv) {
   CHECK_GE(args.size(), 1);
