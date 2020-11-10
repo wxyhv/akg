@@ -385,6 +385,16 @@ TVM_REGISTER_GLOBAL("Reshape").set_body([](TVMArgs args, TVMRetValue *rv) {
   TOPI_ONE_INPUT_ONE_ATTR_CALL(args, rv, topi::reshape, ref);
 });
 
+TVM_REGISTER_GLOBAL("Transpose").set_body([](TVMArgs args, TVMRetValue *rv) {
+  auto ref = [](OpAttr attrs) -> Array<Integer> {
+    CHECK(attrs.count("perm"));
+    auto perm = Downcast<Array<Integer>>(attrs["perm"]);
+    CHECK(!perm.empty());
+    return perm;
+  };
+  TOPI_ONE_INPUT_ONE_ATTR_CALL(args, rv, topi::transpose, ref);
+});
+
 TVM_REGISTER_GLOBAL("Cast").set_body([](TVMArgs args, TVMRetValue *rv) {
   auto type_mapping_copy = type_mapping;
   auto ref = [&type_mapping_copy](OpAttr attrs) -> Type {
