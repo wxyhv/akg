@@ -267,9 +267,7 @@ std::pair<isl::schedule_node, isl::schedule_node> MapInnerDimToThreads(const isl
   fix_node = fix_node.insert_mark(isl::id(fix_node.ctx(), THREAD_MARKER));
   fix_node = fix_node.child(0);
 
-  std::vector<isl::id> reduce_init_ids;
-  auto after_map_node =
-    CreateAndInsertMapFilter(fix_node, is_promotion, upa_list, mapping_cfg, mapping, reduce_init_ids);
+  auto after_map_node = CreateAndInsertMapFilter(fix_node, is_promotion, upa_list, mapping_cfg, mapping);
   after_map_node = after_map_node.parent();
   if (is_promotion && tiled) {
     after_map_node = after_map_node.parent();
@@ -283,8 +281,8 @@ std::pair<isl::schedule_node, isl::schedule_node> MapInnerDimToThreads(const isl
 }
 
 isl::schedule_node CreateAndInsertMapFilter(const isl::schedule_node &node, const bool is_promotion,
-                                            isl::union_pw_aff_list upa_list, MappingCfg *mapping_cfg, Mapping &mapping,
-                                            std::vector<isl::id> reduce_init_ids) {
+                                            isl::union_pw_aff_list upa_list, MappingCfg *mapping_cfg,
+                                            Mapping &mapping) {
   // create mapping filter
   CHECK(mapping_cfg != nullptr) << "threadconfig is null";
 
@@ -318,26 +316,12 @@ isl::schedule_node CreateAndInsertMapFilter(const isl::schedule_node &node, cons
     }
   }
 
-  isl::union_set init_uset = map_domain.empty(map_domain.ctx());
-  if (mapping_cfg->type == BLOCKS) {
-    map_domain.foreach_set([&init_uset, reduce_init_ids](const isl::set &s) -> void {
-      for (auto id : reduce_init_ids) {
-        init_uset = id.get_name() == s.get_tuple_name() ? init_uset.unite(isl::union_set(s)) : init_uset;
-      }
-    });
-    map_domain = map_domain.subtract(init_uset);
-  }
-
   auto map_filter = map_domain.universe();
   for (const auto &kvp : mapping) {
     auto id = kvp.first;
     auto upa = kvp.second;
     upa = upa.sub(isl::union_pw_aff::param_on_domain(map_domain.universe(), id));
     map_filter = map_filter.intersect(upa.zero_union_set());
-  }
-
-  if (mapping_cfg->type == BLOCKS) {
-    map_filter = map_filter.unite(init_uset);
   }
 
   // insert mapping filter

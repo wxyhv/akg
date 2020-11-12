@@ -612,6 +612,8 @@ class AnalysisResult {
   std::unordered_map<isl::id, std::string, isl::IslIdIslHash> GetReduceStatementWriteTensorMap() const {
     return reduce_statements_write_tensor_;
   }
+  void ClearReduceAttrs() { reduce_attrs_.clear(); }
+  void ClearNotReduceAttrs() { not_reduce_attrs_.clear(); }
   std::string GetReduceDirection() const { return reduce_direction_; }
   bool IsPureReduceSum(const Add *add, const std::string &prov_func_name);
   std::string GetReduceOpType(isl::id reduce_stmt);

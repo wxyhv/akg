@@ -65,17 +65,12 @@ class TilingStrategy {
 
 class TilingStrategyManager {
  public:
+  TilingStrategyManager() {}
   ~TilingStrategyManager() {}
-
-  static TilingStrategyManager &GetInstance() {
-    static TilingStrategyManager strategy_manager_;
-    return strategy_manager_;
-  }
 
   void SetStrategies(std::vector<TilingStrategy *> strategies) {
     this->strategies_.assign(strategies.begin(), strategies.end());
   }
-  std::vector<TilingStrategy *> GetStrategies() { return this->strategies_; }
 
   void Execute() {
     for (auto strategy : this->strategies_) {
@@ -90,7 +85,6 @@ class TilingStrategyManager {
   }
 
  private:
-  TilingStrategyManager() {}
   std::vector<TilingStrategy *> strategies_;
 };
 
@@ -100,7 +94,6 @@ class CustomTilingStrategy : public TilingStrategy {
   ~CustomTilingStrategy() {}
   void AddDavinciConstraint();
   void AddGpuConstraint();
-
 
   std::string interested_attr_key = "CUSTOM";
 };
@@ -141,6 +134,7 @@ class ReduceStrategy : public TilingStrategy {
   ~ReduceStrategy() {}
   void AddDavinciConstraint();
   void AddGpuConstraint();
+  void DealWith4DFusedReduce(const std::vector<akg::ir::poly::TileAxis *> &reduce_axes);
 
 };
 
@@ -266,6 +260,7 @@ class GpuStrategy : public TilingStrategy {
   bool IsElemWiseAxis(TileAxis *axis);
 
   void DetermineTemplate();
+  void AdjustThreadMappingLimit();
 
   // Step 0. Init mapping limit according to operation type.
   void InitMappingLimit();

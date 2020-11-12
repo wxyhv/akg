@@ -78,11 +78,11 @@ struct SyncCandidate {
     int count = 0;
     bool finished = false;
     this->ForEachCandidateTopDown([this, &count, &finished, node, level](SyncCandidate *cand) {
-      if (cand == node) {
-        finished = true;
-      }
       if (finished) {
         return;
+      }
+      if (cand == node) {
+        finished = true;
       }
       for (const auto &s : cand->sync) {
         if (s.second.level == level) {

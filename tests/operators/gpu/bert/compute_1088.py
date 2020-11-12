@@ -63,7 +63,8 @@ def test_compute_1088(shape_1, shape_2, out_dtype, multi_out=False, poly_sch=Fal
     shape_list = [shape_1, shape_2]
     dtype_list = [out_dtype, out_dtype]
     if poly_sch:
-        mod = utils.op_build(compute_1088_auto, shape_list, dtype_list, attrs={"target":"cuda"})
+        mod = utils.op_build(compute_1088_auto, shape_list, dtype_list,
+            attrs={"target":"cuda", "enable_akg_reduce_lib":True})
     else:    
         mod = utils.op_build(compute_1088_manual, shape_list, dtype_list)
     

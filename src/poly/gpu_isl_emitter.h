@@ -66,8 +66,7 @@ constexpr auto GM_WRITE_FLAG = "GMWriteFlag";
 
 constexpr auto MEM_TYPE_SHARED = "shared";
 constexpr auto MEM_TYPE_LOCAL = "local";
-const std::map<std::string, std::string> init_value_adapter{
-  {"0f", "0.0f"},  {"0h", "0"}};
+const std::map<std::string, std::string> init_value_adapter{{"0f", "0.0f"}, {"0h", "0"}};
 
 struct ReduceEmitInfo {
   // output tensor info
@@ -79,6 +78,9 @@ struct ReduceEmitInfo {
   std::string output_promoted_tensor_name_for_atomic_;
   std::vector<std::string> output_promoted_tensor_indexs_for_atomic_;
   std::string output_promoted_tensor_info_for_atomic_;
+
+  // used for atomic tensor
+  std::set<std::string> atomic_tensors_;
 
   // tensor info used for reduce emit
   // This tensor may be output promoted tensor and temporary promoted tensor
@@ -96,6 +98,9 @@ struct ReduceEmitInfo {
   bool is_atomic{false};
   std::string output_tensor_data_type_;
   std::string reduce_data_type_;
+
+  // add for init stmt emit
+  std::string for_index_{""};
 };
 
 class GpuIslEmitter : public IslEmitter {
@@ -154,17 +159,17 @@ class GpuIslEmitter : public IslEmitter {
   void MakeOutputTensorInfo();
   void MakeOutputPromotedTensorInfoForAtomic();
   void MakePromotedTensorInfoForReduce();
+  std::string MakePromotedTensorInitStmt(std::string init_value);
   Stmt EmitAkgAtomicReturnInfo(Stmt s, std::string info);
   std::string GetTheIndexOfPromotedTensor(std::string s);
 
   std::set<Tensor> realized_;
 
-  std::unordered_map<const Variable*, Expr> stride_modify_iter_map_;
+  std::unordered_map<const Variable *, Expr> stride_modify_iter_map_;
   std::map<std::string, VarExpr> gpuiter_;
-  std::map<std::string, VarExpr> iter_name_map_{
-    {B0, VarExpr(BLOCK_IDX_X)},  {B1, VarExpr(BLOCK_IDX_Y)},
-    {B2, VarExpr(BLOCK_IDX_Z)},  {T0, VarExpr(THREAD_IDX_X)},
-    {T1, VarExpr(THREAD_IDX_Y)}, {T2, VarExpr(THREAD_IDX_Z)}};
+  std::map<std::string, VarExpr> iter_name_map_{{B0, VarExpr(BLOCK_IDX_X)},  {B1, VarExpr(BLOCK_IDX_Y)},
+                                                {B2, VarExpr(BLOCK_IDX_Z)},  {T0, VarExpr(THREAD_IDX_X)},
+                                                {T1, VarExpr(THREAD_IDX_Y)}, {T2, VarExpr(THREAD_IDX_Z)}};
 
   // used for reduce emit
   bool in_reduce_area_{false};
@@ -188,10 +193,11 @@ class AddAttrCheck : public air::ir::IRVisitor {
     IRVisitor::Visit_(op);
   }
 
-  bool Run(const Stmt &op) { 
+  bool Run(const Stmt &op) {
     IRVisitor::Visit(op);
     return need_add_;
   }
+
  private:
   bool need_add_{true};
 };
@@ -199,7 +205,8 @@ class AddAttrCheck : public air::ir::IRVisitor {
 class AkgReduceAddTensorIndex : public air::ir::IRMutator {
  public:
   explicit AkgReduceAddTensorIndex(std::map<std::string, std::vector<std::string>> i,
-    std::map<std::string, std::vector<std::string>> j) : indexs(i), shapes(j) {}
+                                   std::map<std::string, std::vector<std::string>> j)
+      : indexs(i), shapes(j) {}
   ~AkgReduceAddTensorIndex() override = default;
 
   Stmt Mutate_(const AttrStmt *op, const Stmt &s) override {
@@ -254,8 +261,7 @@ class AkgReduceAddTensorIndex : public air::ir::IRMutator {
       new_args.push_back(StringImm::make(arg2));
 
       return Evaluate::make(
-        Call::make(call->type, call->name, new_args, call->call_type,
-          call->func, call->value_index));
+        Call::make(call->type, call->name, new_args, call->call_type, call->func, call->value_index));
     }
     return IRMutator::Mutate_(op, s);
   }

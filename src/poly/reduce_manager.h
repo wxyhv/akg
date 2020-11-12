@@ -34,14 +34,15 @@ class ReduceManager {
   ReduceManager() {}
   ~ReduceManager() {}
 
-
-  bool SplitReduceStatements(isl::schedule_node &node, isl::union_set reduce_statements, isl::union_map dependences);
+  bool SplitReduceStatements(isl::schedule_node &node, isl::union_set reduce_statements, isl::union_map dependences,
+                             std::vector<isl::id> reduce_init_ids);
   isl::multi_union_pw_aff GetCoincidentMemberRange(const isl::schedule_node &node, size_t first, size_t num);
   isl::union_set GetReduceStatements(isl::union_set domain, isl::union_map reduce_statement_map,
                                      StatementMap all_statements);
 
  private:
-  isl::schedule_node OrderStatements(const isl::schedule_node &node, isl::union_set before, isl::union_set after);
+  isl::schedule_node OrderStatements(const isl::schedule_node &node, isl::union_set before, isl::union_set after,
+                                     std::vector<isl::id> reduce_init_ids);
   bool IsOrderStatements(isl::union_set first_statements, isl::union_set second_statements, isl::union_map dependences);
 };
 

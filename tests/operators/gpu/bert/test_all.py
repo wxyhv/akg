@@ -14,6 +14,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License
 
+from compute_631 import test_compute_631
 from compute_791 import test_compute_791
 from compute_1070 import test_compute_1070
 from compute_1088 import test_compute_1088
@@ -22,6 +23,10 @@ from compute_1420 import test_compute_1420
 from compute_1425 import test_compute_1425
 from compute_1461 import test_compute_1461
 from compute_1486 import test_compute_1486
+
+def compute_631(poly_sch):
+    test_compute_631((640,), (640, 768), (640,), (640, 768), (640, 768), (640, 768), (640, 768),
+        (640,), (640,), (768,), 'float32', poly_sch=poly_sch)
 
 def compute_791(poly_sch):
     test_compute_791((4096,), (4096, 768), (4096,), (4096, 768), (4096, 768), (4096,), (4096,),
@@ -83,8 +88,9 @@ if __name__ == '__main__':
     import traceback
     from datetime import datetime
 
-    op_map = {"791":compute_791, "1070":compute_1070, "1088":compute_1088, "1419":compute_1419, 
-        "1420":compute_1420, "1425":compute_1425, "1461": compute_1461, "1486":compute_1486}
+    op_map = {"631":compute_631, "791":compute_791, "1070":compute_1070, "1088":compute_1088,
+        "1419":compute_1419, "1420":compute_1420, "1425":compute_1425, "1461": compute_1461,
+        "1486":compute_1486}
 
     all_f = list(op_map.values())
     op_map["all"] = all_f

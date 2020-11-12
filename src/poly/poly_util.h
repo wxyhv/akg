@@ -115,7 +115,7 @@ namespace poly {
   X(pow)                          \
   X(isnan)                        \
   X(load3d_l1_ub)                 \
-  X(tanh)
+  X(tanh)                         \
 
 #define GENERATE_ENUM(ENUM) ENUM,
 

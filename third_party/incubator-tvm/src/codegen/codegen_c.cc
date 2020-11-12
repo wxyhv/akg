@@ -110,11 +110,6 @@ void CodeGenC::AddFunction(LoweredFunc f) {
 
       if (handle_data_type_.count(v.get())) {
         PrintType(handle_data_type_.at(v.get()), stream);
-        if (i == f->args.size() - 1) {
-          std::ostringstream ss;
-          PrintType(handle_data_type_.at(v.get()), ss);
-          reduce_type_ = ss.str();
-        }
       } else {
         stream << "void";
       }

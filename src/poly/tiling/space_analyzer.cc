@@ -712,9 +712,13 @@ void SpaceAnalyzer::IdentifyModAxes() {
   auto GetModValue = [](const Expr &arg) -> int {
     int64_t res = -1;
     if (const auto fm = arg.as<FloorMod>()) {
-      if (const auto mod_value = fm->b.as<IntImm>()) res = mod_value->value;
+      if (const auto mod_value = fm->b.as<IntImm>()) {
+        res = mod_value->value;
+      }
     } else if (const auto m = arg.as<Mod>()) {
-      if (const auto mod_value = m->b.as<IntImm>()) res = mod_value->value;
+      if (const auto mod_value = m->b.as<IntImm>()) {
+        res = mod_value->value;
+      }
     }
     return res;
   };
@@ -727,10 +731,15 @@ void SpaceAnalyzer::IdentifyModAxes() {
         // Actually, this can be further improved to cc1 + 17 mod 5 == 0 and this needs lhs equation parsing.
         int64_t mod = GetModValue(c);
         auto lit = t.loops.find(a);
-        if (lit == t.loops.end()) continue;
+        if (lit == t.loops.end()) {
+          continue;
+        }
         for (auto loop : lit->second) {
           TileAxis *axis = analyzer_->Axis(loop);
-          if (axis != nullptr) axis->MarkWithAttr(AttrInfo{attr_key, std::to_string(mod)});
+          if (axis == nullptr) {
+            continue;
+          }
+          axis->MarkWithAttr(AttrInfo{attr_key, std::to_string(mod)});
         }
       }
     }
@@ -739,7 +748,9 @@ void SpaceAnalyzer::IdentifyModAxes() {
     std::vector<ProvideEntry> pes = it.second;
     for (auto pe : pes) {
       Process(pe.dst);
-      for (auto src : pe.src) Process(src);
+      for (auto src : pe.src) {
+        Process(src);
+      }
     }
   }
 }
@@ -758,6 +769,9 @@ std::vector<Expr> SpaceAnalyzer::FindModConstraint(const Expr &arg, std::vector<
   } else if (const auto m = arg.as<Mul>()) {
     constraints = FindModConstraint(m->a, constraints);
     constraints = FindModConstraint(m->b, constraints);
+  } else if (const auto d = arg.as<FloorDiv>()) {
+    constraints = FindModConstraint(d->a, constraints);
+    constraints = FindModConstraint(d->b, constraints);
   }
   return constraints;
 }

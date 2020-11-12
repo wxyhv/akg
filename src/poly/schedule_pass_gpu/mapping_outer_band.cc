@@ -559,7 +559,8 @@ isl::schedule MappingOuterBand::DetectAndMarkReduce(const isl::schedule &sch) {
 
     isl::union_map dependences = pass_info_.dependences_;
     auto node_bak = node;
-    if (!reduce_manager.SplitReduceStatements(node, reduce_statements, dependences)) {
+    auto reduce_init_ids = scop_info_.analysis_result_.GetReduceInitIds();
+    if (!reduce_manager.SplitReduceStatements(node, reduce_statements, dependences, reduce_init_ids)) {
       return node_bak;
     }
     done_separate = all_reduce_map.empty();
@@ -582,6 +583,37 @@ isl::schedule MappingOuterBand::InsertReduceMarker(const isl::schedule &sch, con
       return node;
     }
 
+    isl::multi_union_pw_aff multi_upa = band_node.get_partial_schedule();
+    isl::multi_union_pw_aff del_init_multi_upa = multi_upa;
+    bool has_init = false;
+    for (size_t i = 0; i < multi_upa.size(); ++i) {
+      isl::union_pw_aff upa_i = multi_upa.get_union_pw_aff(i);
+      isl::pw_aff_list pa_list = upa_i.pw_aff_list();
+      isl::union_pw_aff del_init_upa = upa_i.empty(upa_i.get_space());
+      pa_list.foreach([this, &del_init_upa, &has_init](const isl::pw_aff &fn) -> void {
+        for (auto init_id : scop_info_.analysis_result_.GetReduceInitIds()) {
+          if (fn.domain().get_tuple_name() == init_id.get_name()) {
+            has_init = true;
+            return;
+          }
+        }
+        del_init_upa = del_init_upa.union_add(isl::union_pw_aff(fn));
+      });
+      del_init_multi_upa = del_init_multi_upa.set_at(i, del_init_upa);
+    }
+
+    if (has_init) {
+      auto del_init_node = node.del();
+      del_init_node = del_init_node.insert_partial_schedule(del_init_multi_upa);
+      auto del_init_band_node = del_init_node.as<isl::schedule_node_band>();
+      del_init_band_node = del_init_band_node.set_permutable(band_node.permutable());
+      for (size_t i = 0; i < band_node.n_member(); ++i) {
+        auto coincident_i = band_node.member_get_coincident(i);
+        del_init_band_node = del_init_band_node.member_set_coincident(i, coincident_i);
+      }
+      band_node = del_init_band_node;
+    }
+
     for (auto it = all_reduce_map.begin(); it != all_reduce_map.end();) {
       isl::union_map reduce_statement_map = it->second;
       isl::id reduce_id = it->first;
@@ -602,7 +634,7 @@ isl::schedule MappingOuterBand::InsertReduceMarker(const isl::schedule &sch, con
       auto reduce_node = band_node.insert_mark(reduce_marker_name);
       return reduce_node;
     }
-    return node;
+    return band_node;
   };
   final_schedule = final_schedule.get_root().map_descendant_bottom_up(InsertMarker).get_schedule();
   return final_schedule;
@@ -649,14 +681,8 @@ isl::schedule MappingOuterBand::DoBlockMapping(const isl::schedule &sch) {
   node = node.insert_mark(isl::id(node.ctx(), BLOCK_MARKER));
   node = node.child(0);
 
-  auto reduce_init_ids = scop_info_.analysis_result_.GetReduceInitIds();
-  bool is_all_reduce = scop_info_.analysis_result_.GetNotReduceAttrs().size() == 0;
-  if (!is_all_reduce) {
-    reduce_init_ids.clear();
-  }
-
   Mapping mapping;
-  node = CreateAndInsertMapFilter(node, false, upa_list, block_cfg, mapping, reduce_init_ids);
+  node = CreateAndInsertMapFilter(node, false, upa_list, block_cfg, mapping);
   scop_info_.upa_node_mapping_.emplace_back(std::make_pair(node.parent(), mapping));
 
   auto final_schedule = node.get_schedule();
@@ -698,7 +724,8 @@ void MappingOuterBand::MarkAtomicAddTensor(const isl::schedule_node_band &band) 
     [this, &stmt_ids](const isl::map m) { stmt_ids.insert(m.get_tuple_id(isl_dim_type::isl_dim_in)); });
   tensor.foreach_set([this, &stmt_ids](const isl::set &s) -> void {
     for (auto it : scop_info_.analysis_result_.GetReduceStatementMap()) {
-      if (stmt_ids.count(it.first) == 0) {
+      auto provide = static_cast<const Provide *>(it.second);
+      if (stmt_ids.count(it.first) == 0 || provide->func->func_name() != s.get_tuple_name()) {
         continue;
       }
       auto type = scop_info_.analysis_result_.GetReduceOpType(it.first);

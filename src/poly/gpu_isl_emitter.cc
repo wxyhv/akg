@@ -263,6 +263,7 @@ Stmt GpuIslEmitter::EmitWriteAtomic(const isl::ast_node_user &node) {
   reduce_info_.output_tensor_name_ = opl.get_arg(0).as<isl::ast_expr_id>().get_id().name();
   auto opr = rhs.as<isl::ast_expr_op>();
   reduce_info_.output_promoted_tensor_name_for_atomic_ = opr.get_arg(0).as<isl::ast_expr_id>().get_id().name();
+  reduce_info_.atomic_tensors_.insert(reduce_info_.output_promoted_tensor_name_for_atomic_);
 
   Type type = info_.GetDtypeOf(lhs);
   std::stringstream ss;
@@ -363,9 +364,12 @@ Stmt GpuIslEmitter::EmitReduceInit(const isl::ast_node_user &node) {
   map_info += "|";
   map_info += reduce_info_.scalar_tensor_info_;
 
-  Stmt stmt = Evaluate::make(Call::make(
-    Int(32), REDUCE, {StringImm::make(stmt_id.name()), StringImm::make(scalar_info), StringImm::make(shared_info)},
-    Call::Intrinsic));
+  std::string promoted_tensor_init = MakePromotedTensorInitStmt(init_value);
+
+  Stmt stmt = Evaluate::make(Call::make(Int(32), REDUCE,
+                                        {StringImm::make(stmt_id.name()), StringImm::make(scalar_info),
+                                         StringImm::make(shared_info), StringImm::make(promoted_tensor_init)},
+                                        Call::Intrinsic));
   stmt = AttrStmt::make(Expr("INFO"), TENSOR_MAP_INFO_FLAG, StringImm::make(map_info), stmt);
   return stmt;
 }
@@ -384,11 +388,13 @@ Stmt GpuIslEmitter::EmitReduceUpdate(const isl::ast_node_user &node) {
   reduce_info_.scalar_tensor_info_ = SCALAR_TENSOR_PREFIX;
   reduce_info_.scalar_tensor_info_ += strs[REDUCE_FLAG_REDUCE_INDEX];
   reduce_info_.reduce_stmt_index_ = strs[REDUCE_FLAG_REDUCE_INDEX];
+  reduce_info_.reduce_op_.clear();
   if (AkgSupportedReduceOp.count(strs[REDUCE_FLAG_TYPE_POS])) {
     reduce_info_.reduce_op_ = AKG_REDUCE_LIB_SPACE;
     reduce_info_.reduce_op_ += "::";
     reduce_info_.reduce_op_ += strs[REDUCE_FLAG_TYPE_POS];
   }
+  CHECK(!reduce_info_.reduce_op_.empty()) << "reduce op should not be empty!";
   std::string stmt_name = strs[REDUCE_FLAG_STMT_PREFIX_POS] + "_" + strs[REDUCE_FLAG_STMT_NUM_POS];
   std::string data_type = "";
   for (auto it : info_.analysis_result_.GetReduceWriteDtypeMap()) {
@@ -435,7 +441,6 @@ Stmt GpuIslEmitter::EmitReduceUpdate(const isl::ast_node_user &node) {
   stmt = AttrStmt::make(Expr("INFO"), TENSOR_INDEX_MODIFY_FLAG, tensor_name, stmt);
   stmt = AttrStmt::make(Expr("INFO"), REDUCE_LIB_TYPE_FLAG, info_.user_config_.GetReduceLibType(), stmt);
   return stmt;
-  return AttrStmt::make(Expr("INFO"), TENSOR_INDEX_MODIFY_FLAG, tensor_name, stmt);
 }
 
 std::string GpuIslEmitter::GetTheIndexOfPromotedTensor(std::string s) {
@@ -785,6 +790,51 @@ void GpuIslEmitter::MakePromotedTensorInfoForReduce() {
   reduce_info_.promoted_tensor_info_for_reduce_ = ret;
 }
 
+std::string GpuIslEmitter::MakePromotedTensorInitStmt(std::string init_value) {
+  std::string tensor_name = reduce_info_.promoted_tensor_name_for_reduce_;
+  std::string ret = "";
+  bool add_if = false;
+  if (reduce_info_.atomic_tensors_.find(tensor_name) == reduce_info_.atomic_tensors_.end()) {
+    if (reduce_info_.for_index_ != "") {
+      ret += "if (";
+      ret += reduce_info_.for_index_;
+      ret += " == 0) { ";
+      add_if = true;
+    }
+  }
+
+  ret += tensor_name;
+
+  int size = reduce_info_.promoted_tensor_indexs_for_reduce_[tensor_name].size();
+  if (size == 0) {
+    ret += DEFAULT_TENSOR_INDEX;
+  } else if (size == 1) {
+    ret += "[";
+    ret += reduce_info_.promoted_tensor_indexs_for_reduce_[tensor_name].at(0);
+    ret += "]";
+  } else {
+    ret += "[";
+    for (int i = 0; i < size - 1; ++i) {
+      ret += reduce_info_.promoted_tensor_indexs_for_reduce_[tensor_name].at(i);
+      for (int j = i + 1; j < size; ++j) {
+        ret += "*";
+        ret += "(";
+        ret += reduce_info_.promoted_tensor_shape_for_reduce_[tensor_name].at(j);
+        ret += ")";
+      }
+      ret += "+";
+    }
+    ret += reduce_info_.promoted_tensor_indexs_for_reduce_[tensor_name].at(size - 1);
+    ret += "]";
+  }
+
+  ret += " =";
+  ret += init_value;
+  ret += ";";
+  if (add_if) ret += " }";
+  return ret;
+}
+
 Stmt GpuIslEmitter::EmitAkgAtomicReturnInfo(Stmt s, std::string info) {
   return Evaluate::make(
     Call::make(Int(32), REDUCE, {StringImm::make(REDUCE_ATOMIC_FLAG), StringImm::make(info)}, Call::Intrinsic));
@@ -864,6 +914,9 @@ Stmt GpuIslEmitter::EmitBlock(const isl::ast_node_block &block_node) {
 Stmt GpuIslEmitter::EmitFor(const isl::ast_node_for &node) {
   isl::id isl_iter_id = node.get_iterator().as<isl::ast_expr_id>().get_id();
   VarExpr iter_expr(isl_iter_id.to_str());
+  std::stringstream ss;
+  ss << iter_expr;
+  reduce_info_.for_index_ = ss.str();
   PushIter(iter_expr.get());
 
   Expr init_expr = Interpret(node.get_init());
@@ -886,6 +939,9 @@ Stmt GpuIslEmitter::EmitFor(const isl::ast_node_for &node) {
     cond_expr = ModifyTheCondExpr(cond_expr, static_cast<int>(inc));
     Expr modify_iter = ModifyTheIterExpr(iter_expr, static_cast<int>(inc), original_init_expr);
     stride_modify_iter_map_[iter_expr.get()] = modify_iter;
+    std::stringstream ss;
+    ss << modify_iter;
+    reduce_info_.for_index_ = ss.str();
   }
 
   if (isl_cond.as<isl::ast_expr_op_le>()) {
@@ -896,6 +952,7 @@ Stmt GpuIslEmitter::EmitFor(const isl::ast_node_for &node) {
 
   if (!body_stmt.defined()) {
     PopIter(iter_expr.get());
+    reduce_info_.for_index_.clear();
     return Stmt();
   }
 
@@ -903,6 +960,7 @@ Stmt GpuIslEmitter::EmitFor(const isl::ast_node_for &node) {
     stride_modify_iter_map_.erase(iter_expr.get());
   }
   PopIter(iter_expr.get());
+  reduce_info_.for_index_.clear();
   return For::make(iter_expr, init_expr, cond_expr, ForType::Serial, DeviceAPI::None, body_stmt);
 }
 
@@ -1014,11 +1072,13 @@ Stmt GpuIslEmitter::EmitMark(const isl::ast_node_mark &node) {
   if (IsStartsWith(mark, REDUCE_ATOMIC_FLAG)) {
     std::vector<std::string> strs = common::Split(mark, "_");
     CHECK_EQ(strs.size(), REDUCE_ATOMIC_FLAG_SIZE) << "atomic mark format is not right!.";
+    reduce_info_.reduce_op_.clear();
     if (AkgSupportedReduceOp.count(strs[REDUCE_ATOMIC_FLAG_TYPE_POS])) {
       reduce_info_.reduce_op_ = AKG_REDUCE_LIB_SPACE;
       reduce_info_.reduce_op_ += "::";
       reduce_info_.reduce_op_ += strs[REDUCE_ATOMIC_FLAG_TYPE_POS];
     }
+    CHECK(!reduce_info_.reduce_op_.empty()) << "reduce op should not be empty!";
 
     if (strs[REDUCE_ATOMIC_FLAG_POS] == REDUCE_ATOMIC_FLAG) {
       reduce_info_.is_atomic = true;
