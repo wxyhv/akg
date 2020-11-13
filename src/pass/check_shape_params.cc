@@ -104,7 +104,6 @@ class CheckShapeParamsMutator : public IRMutator {
 
 void CheckExternBuffers(const Map<Tensor, Buffer> &extern_buffer) {
   for (auto buffer : extern_buffer) {
-    CHECK(buffer.first->shape.size() == buffer.second->shape.size()) << "dims of Tensor and Buffer must match";
     for (auto dim_size : buffer.first->shape) {
       if (dim_size.as<IntImm>() != nullptr && dim_size.as<IntImm>()->value <= 0) {
         CHECK(0) << "dim size must be positive, but found " << buffer.first;
