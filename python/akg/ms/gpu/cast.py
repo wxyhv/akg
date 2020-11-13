@@ -24,4 +24,6 @@ def Cast(x, dst_type):
         x = cast.cast(x, "float32")
     if x.dtype == "float16" and dst_type == "int32":
         x = topi.trunc(x)
+    if x.dtype == "float32" and dst_type == "uint8":
+        x = cast.cast(x, "int32")
     return cast.cast(x, dst_type)
