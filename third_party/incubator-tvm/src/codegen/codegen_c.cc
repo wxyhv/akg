@@ -173,14 +173,15 @@ std::string CodeGenC::GetBufferRef(
   if (alloc_storage_scope_.count(buffer)) {
     scope = alloc_storage_scope_.at(buffer);
   }
-  bool is_vol = volatile_buf_.count(buffer) != 0;
+  bool is_vol = IsVolatile(buffer);
   if (t.lanes() == 1) {
     if (!HandleTypeMatch(buffer, t) || is_vol) {
       os << "((";
       if (is_vol) {
         os << "volatile ";
       }
-      if (scope.length() != 0) {
+      // Scope may not be part of type.
+      if (!scope.empty() && IsScopePartOfType()) {
         PrintStorageScope(scope, os);
       }
       this->PrintBufferHeader(os);
@@ -218,7 +219,7 @@ std::string CodeGenC::GetBufferRef(
     os << "*)(";
     if (!HandleTypeMatch(buffer, t.element_of())) {
       os << '(';
-      if (scope.length() != 0) {
+      if (!scope.empty() && IsScopePartOfType()) {
         PrintStorageScope(scope, os);
       }
       os << ' ';
@@ -641,14 +642,14 @@ void CodeGenC::VisitExpr_(const Load* op, std::ostream& os) {  // NOLINT(*)
   // delcare type.
   if (op->type.lanes() == 1) {
     std::string ref = GetBufferRef(op->type, op->buffer_var.get(), op->index);
-    os << ref;
+    HandleVolatileLoads(ref, op, os);
   } else {
     CHECK(is_one(op->predicate))
         << "predicated load is not supported";
     Expr base;
     if (GetRamp1Base(op->index, op->type.lanes(), &base)) {
       std::string ref = GetVecLoad(op->type, op->buffer_var.get(), base);
-      os << ref;
+      HandleVolatileLoads(ref, op, os);
     } else {
       // The assignment below introduces side-effect, and the resulting value cannot
       // be reused across multiple expression, thus a new scope is needed

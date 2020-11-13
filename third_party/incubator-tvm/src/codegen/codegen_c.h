@@ -204,6 +204,33 @@ class CodeGenC :
   // print reference to a buffer as type t in index.
   virtual std::string GetBufferRef(
       Type t, const Variable* buffer, Expr index);
+
+  /*!
+   * \brief Handle volatile loads.
+   *
+   * This is to workaround a bug in CUDA cuda_fp16.h. Volatile accesses
+   * to shared memory are required for reductions. However, __half class
+   * does not implement volatile member functions. CUDA codegen will cast
+   * away volatile qualifier from CUDA __half types.
+   */
+  virtual void HandleVolatileLoads(const std::string& value, const Load* op,
+                                   std::ostream& os) {
+    // By default, do nothing but print the loaded value.
+    os << value;
+  }
+
+  /*!
+   * \brief Check if scope is part of type in the target language.
+   *
+   * **NOTE** In OpenCL, __local is part of type, so "__local int *"
+   * is legal. This is not the case for CUDA, where "__shared__"
+   * or "__constant__" is not part of type but a storage class (like
+   * C/C++ static).
+   */
+  virtual bool IsScopePartOfType() const {
+    return true;
+  }
+
   // Print buffer header
   virtual inline void PrintBufferHeader(std::ostream& os) { /*Do nothing*/ }
   /*!
@@ -229,6 +256,11 @@ class CodeGenC :
   std::unordered_map<const Variable*, Type> handle_data_type_;
   /*! \brief reserves common C keywords */
   void ReserveKeywordsAsUnique();
+
+  /*! \brief Check if buf_var is volatile or not. */
+  bool IsVolatile(const Variable* buf_var) const {
+    return volatile_buf_.count(buf_var) != 0;
+  }
 
  private:
   /*! \brief whether to print in SSA form */

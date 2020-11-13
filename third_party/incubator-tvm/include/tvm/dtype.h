@@ -81,6 +81,8 @@ class DataType {
   bool is_float() const {
     return code() == kDLFloat;
   }
+  /*! \return whether type is a float16 type. */
+  bool is_float16() const { return is_float() && bits() == 16; }
   /*! \return whether type is an int type. */
   bool is_int() const {
     return code() == kDLInt;
