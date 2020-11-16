@@ -277,4 +277,25 @@ TVM_HALF_OPERATOR(bool, >=)
 TVM_HALF_OPERATOR(bool, <=)
 )";
 
+static constexpr const char* _cuda_half_util = R"(
+// Pack two half value.
+static inline __device__ __host__ unsigned
+__pack_half2(const half x, const half y) {
+  unsigned v0 = *((unsigned short *)&x);
+  unsigned v1 = *((unsigned short *)&y);
+  return (v1 << 16) | v0;
+}
+static inline __device__ __host__ half hpow(half x, half y) {
+  float tmp_x = __half2float(x);
+  float tmp_y = __half2float(y);
+  float result = powf(tmp_x, tmp_y);
+  return __float2half(result);
+}
+static inline __device__ __host__ half htanh(half x) {
+  float tmp_x = __half2float(x);
+  float result = tanhf(tmp_x);
+  return __float2half(result);
+}
+)";
+
 #endif  // TVM_CODEGEN_LITERAL_CUDA_HALF_T_H_
