@@ -98,8 +98,7 @@ std::pair<isl::schedule_node, isl::schedule_node> MapInnerDimToThreads(const isl
                                                                        const bool is_promotion, MappingCfg *mapping_cfg,
                                                                        Mapping &mapping, bool is_y_reduce);
 isl::schedule_node CreateAndInsertMapFilter(const isl::schedule_node &node, const bool is_promotion,
-                                            isl::union_pw_aff_list upa_list, MappingCfg *mapping_cfg, Mapping &mapping,
-                                            std::vector<isl::id> reduce_init_ids);
+                                            isl::union_pw_aff_list upa_list, MappingCfg *mapping_cfg, Mapping &mapping);
 isl::schedule_node CheckMapSizeAndApplyTile(const isl::schedule_node &thread_root,
                                             const isl::union_pw_aff_list &aff_list, MappingCfg *mapping_cfg,
                                             bool is_y_reduce);

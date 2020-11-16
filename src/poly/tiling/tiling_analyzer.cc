@@ -1336,7 +1336,8 @@ int TilingAnalyzer::GetNumOfAxisInBand(int band_idx) const {
 }
 
 void TilingAnalyzer::AddTilingConstraints() {
-  TilingStrategyManager &strategy_manager = TilingStrategyManager::GetInstance();
+  auto strategy_manager = std::unique_ptr<TilingStrategyManager>(new (std::nothrow) TilingStrategyManager());
+  CHECK(strategy_manager) << "memory alloc fail.";
   std::vector<TilingStrategy *> actived_strategies;
 
   if (scop_info_.user_config_.GetTarget() == TARGET_CUDA) {
@@ -1348,8 +1349,8 @@ void TilingAnalyzer::AddTilingConstraints() {
       actived_strategies.push_back(&gpu_strategy);
     }
 
-    strategy_manager.SetStrategies(actived_strategies);
-    strategy_manager.ExecuteGpu();
+    strategy_manager->SetStrategies(actived_strategies);
+    strategy_manager->ExecuteGpu();
     return;
   }
 
@@ -1395,8 +1396,8 @@ void TilingAnalyzer::AddTilingConstraints() {
   DynamicBoundStrategy dyn_bound_strategy(this);
   actived_strategies.push_back(&dyn_bound_strategy);
 
-  strategy_manager.SetStrategies(actived_strategies);
-  strategy_manager.Execute();
+  strategy_manager->SetStrategies(actived_strategies);
+  strategy_manager->Execute();
 }
 
 bool TilingAnalyzer::Prepare() {

@@ -19,7 +19,9 @@ __inline__ __device__ void ParisAllReduce(ReduceOp op, T *output, T *shared_arra
     }
   }
   if (((int)threadIdx.x) == 0) {
-    output[0] = vec[0].x + vec[0].y + vec[0].z + vec[0].w;
+    if (BlockSizeReduce >= 4) output[0] = vec[0].x + vec[0].y + vec[0].z + vec[0].w;
+    if (BlockSizeReduce == 2) output[0] = vec[0].x + vec[0].y;
+    if (BlockSizeReduce == 1) output[0] = vec[0].x;
   }
 }
 
@@ -61,7 +63,7 @@ __inline__ __device__ void ParisReduce(
   T *output_array,     // the addr of output in global/shared memory, single value
   T *shared_array,     // the temp array in shared memory
   T acc,               // aggregated value in current thread
-  int sharedmem_x = 0  // shared memory size of x axis, especially used for reduce2D along y.
+  int unused = 0       // unused valiable only for aligning with akg_reduce lib
 ) {
   if (ReduceType == akg_reduce::ALL_REDUCE) {
     ParisAllReduce<T, ReduceOp, BlockSizeReduce>(op, output_array, shared_array, acc);
@@ -73,7 +75,7 @@ __inline__ __device__ void ParisReduce(
   }
 
   if (ReduceType == akg_reduce::REDUCE2D_Y) {
-    ParisReduceY<T, ReduceOp, BlockSizeReduce>(op, output_array, shared_array, acc, sharedmem_x);
+    ParisReduceY<T, ReduceOp, BlockSizeReduce>(op, output_array, shared_array, acc);
   }
 }
 

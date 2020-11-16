@@ -32,7 +32,6 @@
  *   in_reduce_area_
  *   is_GMWrite_
  *   tensor_name_mod_
- *   reduce_type_
  */
 
 #ifndef TVM_CODEGEN_CODEGEN_C_H_
@@ -193,7 +192,6 @@ class CodeGenC :
   bool in_reduce_area_{false};
   bool is_GMWrite_{false};
   std::map<std::string, std::string> tensor_name_mod_;
-  std::string reduce_type_;
   bool need_reduce_lib_{false};
   std::string reduce_lib_type_{"origin"};
 

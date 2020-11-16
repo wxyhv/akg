@@ -1081,24 +1081,21 @@ isl::schedule MakeScheduleTreeHelper(const NodeRef &s, ScopInfo &scop_info, cons
         if (scop_info_.user_config_.GetTarget() == TARGET_CUDA && scop_info_.user_config_.GetEnableAkgReduceLib()) {
           class ExtractReductionAttrs final : public IRVisitor {
            public:
-            ExtractReductionAttrs(const Stmt stmt, std::unordered_set<std::string> left_args, bool paser_reduce_var)
-                : extract_left_args(left_args), extract_paser_reduce_var(paser_reduce_var) {
+            ExtractReductionAttrs(const Stmt stmt, std::unordered_set<std::string> left_args)
+                : extract_left_args(left_args) {
               IRVisitor::Visit(stmt);
             }
             ~ExtractReductionAttrs() override = default;
 
             void Visit_(const Variable *op) final {
-              if (extract_paser_reduce_var) {
-                if (!extract_left_args.count(op->name_hint)) {
-                  extract_reduce_attrs.insert(op->name_hint);
-                }
+              if (!extract_left_args.count(op->name_hint)) {
+                extract_reduce_attrs.insert(op->name_hint);
               }
             }
 
            public:
             std::unordered_set<std::string> extract_reduce_attrs;
             std::unordered_set<std::string> extract_left_args;
-            bool extract_paser_reduce_var;
           };
 
           const auto pro = op->body.as<Provide>();
@@ -1117,10 +1114,12 @@ isl::schedule MakeScheduleTreeHelper(const NodeRef &s, ScopInfo &scop_info, cons
             }
           }
 
-          ExtractReductionAttrs extract_reduce_attr(op->body, left_args, true);
+          ExtractReductionAttrs extract_reduce_attr(op->body, left_args);
           scop_info_.analysis_result_.RecordReduceAttrs(extract_reduce_attr.extract_reduce_attrs);
           scop_info_.analysis_result_.RecordNotReduceAttrs(left_args);
           sch = MakeScheduleTreeHelper(op->body, scop_info_, set, outer, macro_stmt);
+          scop_info_.analysis_result_.ClearReduceAttrs();
+          scop_info_.analysis_result_.ClearNotReduceAttrs();
           left_args.clear();
         } else {
           sch = MakeScheduleTreeHelper(op->body, scop_info_, set, outer, macro_stmt);

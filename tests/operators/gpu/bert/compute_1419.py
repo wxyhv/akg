@@ -68,7 +68,7 @@ def compute_expect(param_0, param_1, param_2, param_3):
     return [red_632, add_1488]
 
 
-def compute__1419_auto(param_0, param_1, param_2, param_3):
+def compute_1419_auto(param_0, param_1, param_2, param_3):
     return compute_topi(param_0, param_1, param_2, param_3)
 
 @akg.schedule(schedule_injective)
@@ -94,7 +94,8 @@ def test_compute_1419(shape, dtype, multi_out=True, poly_sch=False):
     shape_list = [shape] * 4
     dtype_list = [dtype] * 4
     if poly_sch:
-        mod = utils.op_build(compute_1419_auto, shape_list, dtype_list, attrs={"target":"cuda"})
+        mod = utils.op_build(compute_1419_auto, shape_list, dtype_list,
+            attrs={"target":"cuda", "enable_akg_reduce_lib":True})
     else:    
         mod = utils.op_build(compute_1419_manual, shape_list, dtype_list)
     

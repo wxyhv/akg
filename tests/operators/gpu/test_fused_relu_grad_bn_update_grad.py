@@ -36,7 +36,7 @@ def gen_data(shape, out_shape, dtype, out_dtype, layout):
     data_sum = random_gaussian(out_shape, miu=1, sigma=0.1).astype(support_list[out_dtype])
     in_bn = random_gaussian(shape, miu=1, sigma=0.1).astype(support_list[dtype])
     in_active = random_gaussian(shape, miu=1, sigma=0.1).astype(support_list[dtype])
-    output = np.full(out_shape, np.nan, out_dtype)
+    output = np.full(out_shape, 0.0, out_dtype)
     expect = compute_expect(data_sum, in_bn, head, in_active, layout)
     return head, data_sum, in_bn, in_active, output, expect
 

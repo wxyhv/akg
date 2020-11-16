@@ -73,7 +73,8 @@ def test_compute_1486(shape_0, shape_1, dtype_0, dtype_1, multi_out=True, poly_s
     shape_list = [shape_0, shape_1]
     dtype_list = [dtype_0, dtype_1]
     if poly_sch:
-        mod = utils.op_build(compute_1486_auto, shape_list, dtype_list, attrs={"target":"cuda"})
+        mod = utils.op_build(compute_1486_auto, shape_list, dtype_list,
+            attrs={"target":"cuda", "enable_akg_reduce_lib":True})
     else:    
         mod = utils.op_build(compute_1486_manual, shape_list, dtype_list)
     

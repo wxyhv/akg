@@ -72,17 +72,31 @@ bool ReduceManager::IsOrderStatements(isl::union_set first_statements, isl::unio
 }
 
 isl::schedule_node ReduceManager::OrderStatements(const isl::schedule_node &node, isl::union_set before,
-                                                  isl::union_set after) {
+                                                  isl::union_set after, std::vector<isl::id> reduce_init_ids) {
   isl::union_set middle = CollectDomain(node);
   isl::schedule_node order_node = node;
   isl::union_set_list filter_list;
   size_t depth = (before.is_empty() && !after.is_empty()) ? 0 : 1;
   auto AddToFilterList = [this, &filter_list](const isl::set &s) -> void {
-    filter_list = filter_list.add(isl::union_set(s));
+    isl::union_set_list first_uset = isl::union_set_list(isl::union_set(s));
+    filter_list = filter_list.is_null() ? first_uset : filter_list.add(isl::union_set(s));
   };
+
+  isl::union_set del_init_before = before.empty(before.ctx());
+  before.foreach_set([reduce_init_ids, &del_init_before](const isl::set &s) -> void {
+    for (auto init_id : reduce_init_ids) {
+      if (s.get_tuple_name() == init_id.get_name()) {
+        return;
+      }
+    }
+    del_init_before = del_init_before.add_set(s);
+  });
+
   if (!before.is_empty() && after.is_empty()) {
     middle = middle.subtract(before);
-    filter_list = isl::union_set_list(before);
+    if (!del_init_before.is_empty()) {
+      filter_list = isl::union_set_list(del_init_before);
+    }
     middle.foreach_set(AddToFilterList);
   } else if (before.is_empty() && !after.is_empty()) {
     middle = middle.subtract(after);
@@ -90,11 +104,17 @@ isl::schedule_node ReduceManager::OrderStatements(const isl::schedule_node &node
     filter_list = filter_list.add(after);
   } else {
     middle = middle.subtract(before).subtract(after);
-    filter_list = isl::union_set_list(before);
+    if (!del_init_before.is_empty()) {
+      filter_list = isl::union_set_list(del_init_before);
+    }
     middle.foreach_set(AddToFilterList);
     filter_list = filter_list.add(after);
   }
 
+  if (filter_list.size() == 1) {
+    order_node = order_node.insert_filter(filter_list.at(0));
+    return order_node;
+  }
   order_node = order_node.insert_sequence(filter_list);
   order_node = order_node.insert_mark(INSERT_SYNC);
   order_node = order_node.child(0).child(depth);
@@ -104,7 +124,7 @@ isl::schedule_node ReduceManager::OrderStatements(const isl::schedule_node &node
 
 // Separate the reduce statement from other statements
 bool ReduceManager::SplitReduceStatements(isl::schedule_node &node, isl::union_set reduce_statements,
-                                          isl::union_map dependences) {
+                                          isl::union_map dependences, std::vector<isl::id> reduce_init_ids) {
   auto domain = CollectDomain(node);
   auto no_reduce_statements = domain.subtract(reduce_statements);
   if (no_reduce_statements.is_empty()) {
@@ -130,7 +150,7 @@ bool ReduceManager::SplitReduceStatements(isl::schedule_node &node, isl::union_s
   if (no_depend_reduce.is_empty() && depend_reduce.is_empty()) {
     return false;
   } else {
-    node = OrderStatements(node, no_depend_reduce, depend_reduce);
+    node = OrderStatements(node, no_depend_reduce, depend_reduce, reduce_init_ids);
   }
 
   return true;

@@ -22,18 +22,16 @@ namespace ir {
 namespace poly {
 
 isl::schedule GpuDmaAnalysis::Run(isl::schedule sch) {
+  auto original_setting = scop_info_.user_config_.GetPragmaSpeedUpTiling();
+  scop_info_.user_config_.SetPragmaSpeedUpTiling(true);
   scop_info_.analysis_result_.SetIsGpuDmaAnalysed(true);
-  bool is_speed_up = scop_info_.user_config_.GetPragmaSpeedUpTiling();
-  if (!is_speed_up) {
-    scop_info_.user_config_.SetPragmaSpeedUpTiling(true);
-  }
+
   schedule_ = sch;
   Analysis();
   RemoveInjectiveTensorFromMemFlows(sch);
+
+  scop_info_.user_config_.SetPragmaSpeedUpTiling(original_setting);
   scop_info_.analysis_result_.SetIsGpuDmaAnalysed(false);
-  if (!is_speed_up) {
-    scop_info_.user_config_.SetPragmaSpeedUpTiling(false);
-  }
   return schedule_;
 }
 
