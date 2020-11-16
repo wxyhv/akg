@@ -350,7 +350,7 @@ isl::schedule_node SharedMemoryManager::HoistClusters(const isl::schedule_node &
     }
 
     auto approximation_size = std::accumulate(box_sizes.begin(), box_sizes.end(), 1, std::multiplies<size_t>());
-    size_t byte = 4;
+    size_t byte = Bytes(id);
     size_t memory_requirement = approximation_size * byte;
     bool use_reuse_filter = true;
     if (InAtomicTensors(buffer_info.tensor_id.name()) || InReduceTensors(buffer_info.tensor_id.name())) {
@@ -512,6 +512,11 @@ bool SharedMemoryManager::InReduceTensors(std::string name) {
 }
 
 std::string SharedMemoryManager::AtomicMarker(std::string type) { return ATOMIC_MARKER + type; }
+
+size_t SharedMemoryManager::Bytes(const isl::id tensor_id) {
+  Type type = scop_info_.GetDtypeOf(tensor_id);
+  return static_cast<size_t>(type.bytes());
+}
 
 }  // namespace poly
 }  // namespace ir
