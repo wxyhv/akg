@@ -78,6 +78,8 @@ class SharedMemoryManager : public SchedulePass {
 
   std::set<std::string> AnalysisReduceTensors();
 
+  size_t Bytes(const isl::id tensor_id);
+
  private:
   ScopInfo &scop_info_;
   isl::schedule schedule_;
