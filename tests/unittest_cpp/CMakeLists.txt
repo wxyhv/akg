@@ -1,3 +1,4 @@
+add_compile_options(-std=c++11)
 include_directories(${GTEST_DIR}/googletest/include)
 include_directories(${UNITTEST_DIR}include)
 include_directories(${UNITTEST_DIR}src)
