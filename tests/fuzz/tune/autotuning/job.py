@@ -77,7 +77,7 @@ def launch_json(debug_mode: bool = True, save_res: bool = False, json_input_dir=
                             expect=expect, mod_output_param=output_para, timeout=180, repeat_times=1)
 
         # we can only get a valid tiling, or accurate get cycles
-        is_truly_profiling = utils.get_profiling_mode()
+        is_truly_profiling = utils.get_profiling_mode() or os.environ['RUNTIME_MODE'] == "gpu"
 
         # available device numbers, normally is 8 or 1
         available_device_numbers = utils.get_available_devices_num()

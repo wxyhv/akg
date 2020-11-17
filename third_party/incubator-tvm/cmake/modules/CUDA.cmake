@@ -17,6 +17,7 @@
 
 #
 # 2020.7.14 - Modify current directory of tvm.
+# 2020.11.18 - Include CUPTI path.
 #
 
 # CUDA Module
@@ -25,7 +26,9 @@ find_cuda(${USE_CUDA})
 if(CUDA_FOUND)
   # always set the includedir when cuda is available
   # avoid global retrigger of cmake
-	include_directories(${CUDA_INCLUDE_DIRS})
+  include_directories(${CUDA_INCLUDE_DIRS})
+  string(REGEX REPLACE "(.+)\\include.*" "\\1" CUPTI_ROOT_DIR ${CUDA_INCLUDE_DIRS})
+  include_directories("${CUPTI_ROOT_DIR}/extras/CUPTI/include")
 endif(CUDA_FOUND)
 
 if(USE_CUDA)

@@ -93,6 +93,7 @@ class KernelRunner:
             time_start_build = time.time()
             if self.op_type == "json":
                 if is_auto:
+                    attrs = {'target': "cuda"}
                     mod = composite.build(self.op_desc)
                 else:
                     tiling = []
@@ -104,6 +105,8 @@ class KernelRunner:
                         tiling_param.append(self._index_table[i] + element)
                     dim_info = ct_util.set_dims(tuple(tiling_param))
                     attrs = {'dim': dim_info}
+                    if os.environ['RUNTIME_MODE'] == "gpu":
+                        attrs['target'] = "cuda"
                     mod = composite.build(self.op_desc, attrs)
             else:
                 mod = compile_kernel(self.op_type, self.op_desc, self.input_shape, self._index_table,
@@ -190,35 +193,38 @@ class KernelRunner:
         # clean the profiling directory
         tune_device = int(os.environ['DEVICE_ID'])
         tune_num = int(os.environ['DEVICE_TOTAL_NUM'])
-        def exec_cmds_with_pipe(cmd_list):
-            cmd_num = len(cmd_list)
-            if cmd_num <= 1:
-                raise RuntimeError("length of cmd_list should be greater than 1.")
-            ps = []
-            for i, cmd in enumerate(cmd_list):
-                if i == 0:
-                    p = subprocess.Popen(cmd, stdout=subprocess.PIPE)
-                else:
-                    p = subprocess.Popen(cmd, stdin=ps[-1].stdout, stdout=subprocess.PIPE)
-                ps.append(p)
-            for p in ps:
-                p.wait()
-            return ps[-1].communicate()
-        public_path = "/var/log/npu/profiling"
-        jobs = []
-        for idx in range(tune_device, tune_num + tune_device):
-            cmd_list = [
-                ["find", public_path, "-iname", "*.log.%d" % idx, "-printf", "'%T+\t%p\n'"],
-                ["grep", "JOB"],
-                ["sort", "-r"],
-                ["head", "-n10"],
-                ["awk", "{print $2}"],
-                ["head", "-n1"],
-            ]
-            p = exec_cmds_with_pipe(cmd_list)
-            if p[0].decode('utf8').strip() != '':
-                job_file = p[0].decode('utf8').strip().split('/')[-2]
-                subprocess.run("rm -rf ./jobs/%s" % job_file, shell=True)
+        if os.environ['RUNTIME_MODE'] == "gpu":
+            subprocess.run("rm -rf cuda_meta_*", shell=True)
+        else:
+            def exec_cmds_with_pipe(cmd_list):
+                cmd_num = len(cmd_list)
+                if cmd_num <= 1:
+                    raise RuntimeError("length of cmd_list should be greater than 1.")
+                ps = []
+                for i, cmd in enumerate(cmd_list):
+                    if i == 0:
+                        p = subprocess.Popen(cmd, stdout=subprocess.PIPE)
+                    else:
+                        p = subprocess.Popen(cmd, stdin=ps[-1].stdout, stdout=subprocess.PIPE)
+                    ps.append(p)
+                for p in ps:
+                    p.wait()
+                return ps[-1].communicate()
+            public_path = "/var/log/npu/profiling"
+            jobs = []
+            for idx in range(tune_device, tune_num + tune_device):
+                cmd_list = [
+                    ["find", public_path, "-iname", "*.log.%d" % idx, "-printf", "'%T+\t%p\n'"],
+                    ["grep", "JOB"],
+                    ["sort", "-r"],
+                    ["head", "-n10"],
+                    ["awk", "{print $2}"],
+                    ["head", "-n1"],
+                ]
+                p = exec_cmds_with_pipe(cmd_list)
+                if p[0].decode('utf8').strip() != '':
+                    job_file = p[0].decode('utf8').strip().split('/')[-2]
+                    subprocess.run("rm -rf ./jobs/%s" % job_file, shell=True)
         end = time.time()
         logger.debug("run kernels time: %f", end - start)
         self.run_kernel_time += end - start

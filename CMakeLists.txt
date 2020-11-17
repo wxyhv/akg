@@ -209,6 +209,8 @@ file(
 if(USE_CUDA)
 include(${TVM_DIR}/cmake/util/FindCUDA.cmake)
 include(${TVM_DIR}/cmake/modules/CUDA.cmake)
+file(GLOB PROFILER_SRCS ${AKG_SOURCE_DIR}/src/profiler/*.cc)
+list(APPEND COMPILER_SRCS ${PROFILER_SRCS})
 endif()
 
 if(USE_LLVM)

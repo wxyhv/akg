@@ -39,7 +39,7 @@ class XgbCostModel:
             'alpha': 0,
 
             'objective': 'rank:pairwise',
-            'silent': 1
+            'verbosity': 0
         }
         self._sample_size = 0
         self.bst = None

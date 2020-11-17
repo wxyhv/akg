@@ -252,9 +252,9 @@ def allclose_nparray(data_expected, data_actual, rtol, atol=1e-08):
     if not np.allclose(data_expected, data_actual, rtol, atol):
         count_unequal_element(data_expected, data_actual, rtol, atol)
 
-def gpu_profiling(mod, *args, repeat_time=1):
+def gpu_profiling(mod, *args, repeat_time=1, device_id=0):
     """Do profiling on gpu for cuda op"""
-    ctx = tvm.context("cuda", 0)
+    ctx = tvm.context("cuda", device_id)
     ftimer = mod.time_evaluator(mod.entry_name, ctx, number=repeat_time)
     tcost = ftimer(*args).mean
     print("{}: exec={} sec/op".format(ctx, tcost))

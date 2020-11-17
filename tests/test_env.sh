@@ -59,6 +59,7 @@ if [ $# -eq 1 ]; then
             ;;
         "gpu")
             echo "Configuration setting in gpu successfully."
+            export LD_LIBRARY_PATH=/usr/local/cuda/extras/CUPTI/lib64:${LD_LIBRARY_PATH}
             ;;
 	"gpu_ci")
             pip_show_str=`pip show akg`
