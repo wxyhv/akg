@@ -28,11 +28,12 @@ bool IsTransform(const std::string &op_name) {
 }
 bool IsOtherOp(const std::string &op_name) {
   // if topi support more, add to this list
-  std::unordered_set<std::string> elems = {"Matmul", "BatchMatmul", "Conv", "Transpose"};
+  std::unordered_set<std::string> elems = {"Matmul", "BatchMatmul",   "Conv",        "Transpose", "Tile",
+                                           "Assign", "InplaceAssign", "EquivFormat", "TransData", "AddMinValue"};
   return elems.find(op_name) != elems.end();
 }
 bool IsElemwise(const std::string &op_name) {
-  return !IsReduce(op_name) || !IsTransform(op_name) || !IsOtherOp(op_name);
+  return !IsReduce(op_name) && !IsTransform(op_name) && !IsOtherOp(op_name);
 }
 bool EqualShape(const Array<Expr> &shape1, const Array<Expr> &shape2) {
   if (shape1.size() != shape2.size()) return false;
