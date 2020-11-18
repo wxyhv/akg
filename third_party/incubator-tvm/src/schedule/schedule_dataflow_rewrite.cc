@@ -23,10 +23,8 @@
 
 /*
  * 2019.12.30 - Add new conditions for compute op.
- * 2020.10.19 - Suffix of name of the repl_red_axis changed from ".v" to "_v".
  * 2020.10.27 - For the body of the factor_op in rfactor, perform the additional
  *              processing when the reduce axis is empty.
- * 2020.10.30 - Suffix of name of the factor_op changed from ".rf" to "_rf"
  */
 
 #include <tvm/schedule.h>
@@ -768,7 +766,7 @@ Array<Tensor> Schedule::rfactor(const Tensor& tensor,
       factor_axis >= 0 ? factor_axis : static_cast<int>(compute_op->axis.size() + 1) + factor_axis;
   CHECK_LE(factor_axis_pos, compute_op->axis.size());
   auto n = make_node<ComputeOpNode>();
-  n->name = compute_op->name + "_rf";
+  n->name = compute_op->name + ".rf";
   {
     // axis relacement.
     auto iv_node = make_node<IterVarNode>();
@@ -869,7 +867,7 @@ Array<Tensor> Schedule::rfactor(const Tensor& tensor,
   }
   // Replace the old reduction.
   IterVar repl_red_axis = reduce_axis(
-      dom_map.at(axis), axis->var->name_hint + "_v");
+      dom_map.at(axis), axis->var->name_hint + ".v");
   Array<Tensor> factor_tensors;
   Array<Tensor> old_tensors;
   int size = factor_op->num_outputs();

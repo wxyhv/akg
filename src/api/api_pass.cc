@@ -96,6 +96,7 @@ REGISTER_PASS(BypassL1);
 REGISTER_PASS(StrideKernelOp);
 REGISTER_PASS(AlignPartitionCCE);
 REGISTER_PASS(EmitInsnDebug);
+REGISTER_PASS(ReplaceSeparator);
 REGISTER_PASS(RewriteMultiValueFunc);
 REGISTER_PASS(RenameRealize);
 REGISTER_PASS(InjectSync);
