@@ -486,7 +486,7 @@ Stmt LowerStmt(Schedule sch, const Array<NodeRef> &in_args, const Array<NodeRef>
   if (polyhedral && global_attrs.GetBoolAttr(kEnableAutoInline, true)) {
     akg::schedule::AutoInline(sch, target_platform);
   }
-  if (target_platform->device_type == kDLGPU && polyhedral) {
+  if (target_platform->device_type == kDLGPU && polyhedral && global_attrs.GetBoolAttr(kEnableAutoFuse, true)) {
     akg::schedule::AutoFuse(sch);
   }
   auto new_sch = sch.normalize();
