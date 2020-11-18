@@ -97,6 +97,15 @@ class OpDescsParser {
   std::unordered_map<std::string, Tensor> tensor_map_;
 
  private:
+  struct TensorInfo {
+    std::string name_;
+    std::string format_;
+    Array<Expr> shape_;
+    Type dtype_;
+    bool has_value_{false};
+    picojson::value value_;
+  };
+
   static void ParseTensorValue(const picojson::value &tensor_value, const std::string &tensor_name,
                                const Array<Expr> &shape, const Type &type, Array<NodeRef> &input_output) {
     CHECK_EQ(shape.size(), 1) << "We should not make a expr for a not const tensor.";
@@ -111,20 +120,42 @@ class OpDescsParser {
     }
   }
 
-  void ParseTensor(const picojson::object &tensor_desc, Array<NodeRef> &input_output) {
-    std::string tensor_name;
-    Array<Expr> shape;
-    Type type;
+  void MakeTensors(const std::vector<TensorInfo> &tensor_info, Array<NodeRef> &tensors) {
+    for (const auto &info : tensor_info) {
+      if (info.has_value_) {
+        // In case when current tensor already has value information
+        ParseTensorValue(info.value_, info.name_, info.shape_, info.dtype_, tensors);
+        continue;
+      }
+      if (tensor_map_.count(info.name_) == 0) {
+        Tensor t = placeholder(info.shape_, info.dtype_, info.name_);
+        tensor_map_[info.name_] = t;
+        if (std::find(input_tensors_.begin(), input_tensors_.end(), info.name_) != input_tensors_.end()) {
+          input_funcs_.insert(t->op);
+        }
+        if (std::find(output_tensors_.begin(), output_tensors_.end(), info.name_) != output_tensors_.end()) {
+          output_funcs_.insert(t->op);
+        }
+      }
+      tensors.push_back(tensor_map_[info.name_]);
+    }
+  }
+
+  void ParseTensorInfo(const picojson::object &tensor_desc, std::vector<TensorInfo> &tensor_info) {
+    TensorInfo info;
     for (const auto &item : tensor_desc) {
       if (item.first == "tensor_name") {
         CHECK(item.second.is<std::string>());
-        tensor_name = item.second.get<std::string>();
+        info.name_ = item.second.get<std::string>();
+      } else if (item.first == "format") {
+        CHECK(item.second.is<std::string>());
+        info.format_ = item.second.get<std::string>();
       } else if (item.first == "shape") {
         CHECK(item.second.is<picojson::array>());
         const picojson::array &dims = item.second.get<picojson::array>();
         for (const auto &dim : dims) {
           CHECK(dim.is<int64_t>());
-          shape.push_back(Expr(static_cast<int>(dim.get<int64_t>())));
+          info.shape_.push_back(Expr(static_cast<int>(dim.get<int64_t>())));
         }
       } else if (item.first == "data_type") {
         CHECK(item.second.is<std::string>());
@@ -132,45 +163,53 @@ class OpDescsParser {
         if (type_mapping.find(dtype_str) == type_mapping.end()) {
           LOG(FATAL) << "Not support dtype str " << dtype_str;
         }
-        type = type_mapping[dtype_str];
+        info.dtype_ = type_mapping[dtype_str];
+      } else if (item.first == "value" && !item.second.is<picojson::null>()) {
+        info.has_value_ = true;
+        info.value_ = item.second;
       }
     }
 
-    for (const auto &item : tensor_desc) {
-      if (item.first == "value" && !item.second.is<picojson::null>()) {
-        picojson::value tensor_value = item.second;
-        ParseTensorValue(tensor_value, tensor_name, shape, type, input_output);
-        return;
-      }
-    }
-
-    if (tensor_map_.count(tensor_name) == 0) {
-      Tensor t = placeholder(shape, type, tensor_name);
-      tensor_map_[tensor_name] = t;
-      if (std::find(input_tensors_.begin(), input_tensors_.end(), tensor_name) != input_tensors_.end()) {
-        input_funcs_.insert(t->op);
-      }
-      if (std::find(output_tensors_.begin(), output_tensors_.end(), tensor_name) != output_tensors_.end()) {
-        output_funcs_.insert(t->op);
-      }
-    }
-    input_output.push_back(tensor_map_[tensor_name]);
+    tensor_info.emplace_back(info);
   }
 
-  void ParseInputTensors(const picojson::array &tensor_descs, Array<NodeRef> &input) {
+  void ParseInputTensors(const picojson::array &tensor_descs, Array<NodeRef> &tensors,
+                         Map<std::string, NodeRef> &attrs) {
+    std::vector<TensorInfo> tensor_info;
     for (const auto &tensor_desc_l0 : tensor_descs) {
       CHECK(tensor_desc_l0.is<picojson::array>());
       const picojson::array &tensor_desc_l1 = tensor_desc_l0.get<picojson::array>();
-      ParseTensors(tensor_desc_l1, input);
+      for (const auto &tensor_desc : tensor_desc_l1) {
+        CHECK(tensor_desc.is<picojson::object>());
+        const picojson::object &tensor_desc_info = tensor_desc.get<picojson::object>();
+        ParseTensorInfo(tensor_desc_info, tensor_info);
+      }
     }
+
+    // Gather data format information of input tensors
+    for (const auto &info : tensor_info) {
+      if (!info.format_.empty()) {
+        auto key = CreateDataFormatKey(info.name_);
+        auto format = StringImm::make(info.format_);
+        if (attrs.find(key) != attrs.end()) {
+          LOG(WARNING) << key << " already exists in attrs";
+        }
+        attrs.Set(key, format);
+      }
+    }
+
+    MakeTensors(tensor_info, tensors);
   }
 
-  void ParseTensors(const picojson::array &tensor_descs, Array<NodeRef> &tensors) {
+  void ParseOutputTensors(const picojson::array &tensor_descs, Array<NodeRef> &tensors) {
+    std::vector<TensorInfo> tensor_info;
     for (const auto &tensor_desc : tensor_descs) {
       CHECK(tensor_desc.is<picojson::object>());
       const picojson::object &tensor_desc_info = tensor_desc.get<picojson::object>();
-      ParseTensor(tensor_desc_info, tensors);
+      ParseTensorInfo(tensor_desc_info, tensor_info);
     }
+
+    MakeTensors(tensor_info, tensors);
   }
 
   void ParseOpDesc(const picojson::object &op_desc) {
@@ -191,12 +230,12 @@ class OpDescsParser {
     it = op_desc.find("input_desc");
     if (it != op_desc.end() && it->second.is<picojson::array>()) {
       const picojson::array &input_descs = it->second.get<picojson::array>();
-      ParseInputTensors(input_descs, op_desc_info.input_descs);
+      ParseInputTensors(input_descs, op_desc_info.input_descs, op_desc_info.attrs);
     }
     it = op_desc.find("output_desc");
     if (it != op_desc.end() && it->second.is<picojson::array>()) {
       const picojson::array &output_descs = it->second.get<picojson::array>();
-      ParseTensors(output_descs, op_desc_info.output_descs);
+      ParseOutputTensors(output_descs, op_desc_info.output_descs);
     }
     op_descs_.emplace_back(op_desc_info);
   }
@@ -264,6 +303,7 @@ Stmt MakeStmt(const std::vector<OpDesc> &op_descs) {
         input.push_back(Downcast<Expr>(item));
       }
     }
+
     Tensor output = Downcast<Tensor>(op_desc.output_descs[0]);
     auto op_name = op_desc.op_name;
     auto stmt =
@@ -379,7 +419,9 @@ class FusionMutator : public IRMutator {
 };
 
 Stmt Optimize(Stmt &s, BuildInfoOpt &opt, const FuncRefSet &input_funcs, const FuncRefSet &output_funcs) {
-  // fusion
+  // reshape optimize
+  s = ReshapeTensor(s);
+    // fusion
   s = FusionMutator().Mutate(s);
   // elemwise opt
   s = ElimTransformOp(s, input_funcs, output_funcs, opt);
