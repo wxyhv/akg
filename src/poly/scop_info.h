@@ -164,8 +164,11 @@ class UserConfig {
     ParseBoolAttr(attrs, "pragma_outerband_need_split", &outer_band_need_split_);
 
     ParseStringAttr(attrs, "dim", &b_dim_);
+    ParseStringAttr(attrs, "bind_elem_per_thread", &elem_per_thread_);
     ParseMappingCfgAttr(attrs, "bind_block", &block_cfg_);
     ParseMappingCfgAttr(attrs, "bind_thread", &thread_cfg_);
+    ParseIntAttr(attrs, "max_elem_per_thread", &max_elem_per_thread_);
+
     ParseCustomTilingAttr(attrs, "custom_tiling", &custom_tiling_);
     ParseBoolAttr(attrs, "pragma_analyze_reuse_buffer", &pragma_analyze_reuse_buffer_);
     ParseBoolAttr(attrs, "pragma_speedup_tiling", &pragma_speedup_tiling_);
@@ -239,6 +242,8 @@ class UserConfig {
   // getter for tiling config
   MappingCfg *GetBlockConfig() { return &block_cfg_; }
   MappingCfg *GetThreadConfig() { return &thread_cfg_; }
+  void SetMaxElemPerThread(int max_elem_per_thread) { max_elem_per_thread_ = max_elem_per_thread; }
+  int GetMaxElemPerThread() const { return max_elem_per_thread_; }
   void SetBlockConfig(const std::string &block_cfg) {
     this->block_cfg_.type = BLOCKS;
     this->block_cfg_.BindFromStr(block_cfg);
@@ -249,6 +254,7 @@ class UserConfig {
   }
   std::vector<NodeRef> GetCustomTiling() { return custom_tiling_; }
   std::string GetBDim() const { return b_dim_; }
+  std::string GetElemPerThread() const { return elem_per_thread_; }
   void SetDefaultDim(std::string b_dim) { b_dim_ = b_dim; }
   void SetPragmaSpeedUpTiling(bool pragma_speedup_tiling) { pragma_speedup_tiling_ = pragma_speedup_tiling; }
   bool GetPragmaSpeedUpTiling() const { return pragma_speedup_tiling_; }
@@ -467,6 +473,8 @@ class UserConfig {
   std::string b_dim_;
   MappingCfg block_cfg_;
   MappingCfg thread_cfg_;
+  int max_elem_per_thread_{1024};
+  std::string elem_per_thread_;
   std::vector<NodeRef> custom_tiling_;
   bool pragma_analyze_reuse_buffer_{true};
   bool pragma_speedup_tiling_{false};
@@ -608,21 +616,6 @@ class AnalysisResult {
   AccessMap &GetAccessMap() { return accesses_; }
   StatementMap &GetStatementMap() { return statements_; }
   StatementMap GetStatementMap() const { return statements_; }
-  StatementMap GetReduceStatementMap() const { return reduce_statements_; }
-  std::unordered_map<isl::id, std::string, isl::IslIdIslHash> GetReduceStatementWriteTensorMap() const {
-    return reduce_statements_write_tensor_;
-  }
-  void ClearReduceAttrs() { reduce_attrs_.clear(); }
-  void ClearNotReduceAttrs() { not_reduce_attrs_.clear(); }
-  std::string GetReduceDirection() const { return reduce_direction_; }
-  bool IsPureReduceSum(const Add *add, const std::string &prov_func_name);
-  std::string GetReduceOpType(isl::id reduce_stmt);
-  void RecordReduceWriteDataType(isl::id reduce_stmt);
-  void RecordReduceInitValue(isl::id reduce_stmt);
-  void RecordReduceInitIds(isl::id reduce_init_id) { reduce_init_ids_.push_back(reduce_init_id); }
-  std::vector<isl::id> GetReduceInitIds() const { return reduce_init_ids_; }
-  std::unordered_map<isl::id, Expr, isl::IslIdIslHash> GetReduceInitValueMap() { return reduce_init_value_map_; }
-  std::unordered_map<isl::id, Type, isl::IslIdIslHash> GetReduceWriteDtypeMap() { return reduce_write_dtype_map_; }
   StmtOpInfoMap &GetStmtOpInfoMap() { return stmt_op_Info_; }
   StmtOpInfoMap GetStmtOpInfoMap() const { return stmt_op_Info_; }
   OperatorDomainMap &GetOperatorDomainMap() { return domains_; }
@@ -677,6 +670,25 @@ class AnalysisResult {
   }
   void DumpBufferDefInfos(std::ostream &out);
   std::unordered_set<std::string> ExtractWithStmtId() const;
+
+  // Akg Reduce utils
+  StatementMap GetReduceStatementMap() const { return reduce_statements_; }
+  std::unordered_map<isl::id, std::string, isl::IslIdIslHash> GetReduceStatementWriteTensorMap() const {
+    return reduce_statements_write_tensor_;
+  }
+  void ClearReduceAttrs() { reduce_attrs_.clear(); }
+  void ClearNotReduceAttrs() { not_reduce_attrs_.clear(); }
+  std::string GetReduceDirection() const { return reduce_direction_; }
+  bool IsPureReduceSum(const Add *add, const std::string &prov_func_name);
+  isl::union_map GetReduceWriteStmt(const isl::schedule_node_band &band);
+  void MarkReduceOutTensor(const isl::schedule_node_band &band);
+  std::string GetReduceOpType(isl::id reduce_stmt);
+  void RecordReduceWriteDataType(isl::id reduce_stmt);
+  void RecordReduceInitValue(isl::id reduce_stmt);
+  void RecordReduceInitIds(isl::id reduce_init_id) { reduce_init_ids_.push_back(reduce_init_id); }
+  std::vector<isl::id> GetReduceInitIds() const { return reduce_init_ids_; }
+  std::unordered_map<isl::id, Expr, isl::IslIdIslHash> GetReduceInitValueMap() { return reduce_init_value_map_; }
+  std::unordered_map<isl::id, Type, isl::IslIdIslHash> GetReduceWriteDtypeMap() { return reduce_write_dtype_map_; }
 
  public:
   std::vector<std::pair<std::string, STMT_OP_TYPE>> stmt_type_;

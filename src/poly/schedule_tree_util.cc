@@ -232,14 +232,11 @@ std::vector<isl::schedule_node> BandsSplitAfterDepth(const std::vector<isl::sche
 std::pair<isl::schedule_node, isl::schedule_node> MapInnerDimToThreads(const isl::schedule_node &node,
                                                                        const bool is_promotion, MappingCfg *mapping_cfg,
                                                                        Mapping &mapping, bool is_y_reduce) {
-  CHECK(mapping_cfg != nullptr) << "threadconfig is null";
+  CHECK(mapping_cfg != nullptr) << "thread config is null";
   isl::schedule_node_band band_node = node.as<isl::schedule_node_band>();
   size_t n_thread_map = std::min(static_cast<size_t>(band_node.n_member()), mapping_cfg->bound);
   CHECK_LE(n_thread_map, mapping_cfg->MaxDim()) << "mapping to too many threads.";
-
   auto partial_schedule = band_node.get_partial_schedule();
-  auto upa_list = partial_schedule.get_union_pw_aff_list().reverse();
-
   if (is_promotion) {
     // we need to to get range of promoted band from extension node so that we can correctly fix stride
     auto parent = node;
@@ -249,15 +246,33 @@ std::pair<isl::schedule_node, isl::schedule_node> MapInnerDimToThreads(const isl
     if (parent.isa<isl::schedule_node_extension>()) {
       auto extension = parent.as<isl::schedule_node_extension>();
       partial_schedule = partial_schedule.intersect_domain(extension.get_extension().range());
-      upa_list = partial_schedule.get_union_pw_aff_list().reverse();
     }
   }
 
+  auto upa_list = partial_schedule.get_union_pw_aff_list().reverse();
+  // append prefix to partial schedule for tiling
+  auto add_prefix_schedule = partial_schedule;
+  size_t max_distance_to_filter = 2;
+  size_t i = 0;
+  auto filter = node;
+  while (i < max_distance_to_filter && filter.has_parent()) {
+    filter = filter.parent();
+    if (filter.isa<isl::schedule_node_filter>()) {
+      break;
+    }
+    ++i;
+  }
+  if (filter.isa<isl::schedule_node_filter>()) {
+    add_prefix_schedule = add_prefix_schedule.intersect_domain(filter.as<isl::schedule_node_filter>().get_filter());
+  }
+  auto prefix_upa_list = add_prefix_schedule.get_union_pw_aff_list().reverse();
+
   if (is_y_reduce) {
     upa_list = upa_list.reverse();
+    prefix_upa_list = prefix_upa_list.reverse();
   }
 
-  isl::schedule_node fix_node = CheckMapSizeAndApplyTile(node, upa_list, mapping_cfg, is_y_reduce);
+  isl::schedule_node fix_node = CheckMapSizeAndApplyTile(node, prefix_upa_list, mapping_cfg, is_y_reduce);
   bool tiled = !fix_node.is_equal(node);
 
   // drop un-mapped aff after tiling

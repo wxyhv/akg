@@ -42,18 +42,6 @@ isl::union_set ReduceManager::GetReduceStatements(isl::union_set domain, isl::un
   return reduce_statements;
 }
 
-isl::multi_union_pw_aff ReduceManager::GetCoincidentMemberRange(const isl::schedule_node &node, size_t first,
-                                                                size_t num) {
-  isl::schedule_node_band band_node = node.as<isl::schedule_node_band>();
-  auto partial_schedule = band_node.get_partial_schedule();
-  auto upa_list = partial_schedule.get_union_pw_aff_list();
-  isl::space space = partial_schedule.get_space().params().add_unnamed_tuple_ui(num);
-  size_t end = first + num;
-  CHECK_LE(end, band_node.n_member());
-  upa_list = upa_list.drop(end, band_node.n_member() - end).drop(0, first);
-  return isl::multi_union_pw_aff(space, upa_list);
-}
-
 // Determine whether the first statement can be ranked before the second statement
 bool ReduceManager::IsOrderStatements(isl::union_set first_statements, isl::union_set second_statements,
                                       isl::union_map dependences) {

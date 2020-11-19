@@ -146,12 +146,22 @@ isl::schedule_node SharedMemoryManager::MapCopiesToThreads(isl::schedule_node &r
         Mapping mapping;
         auto after_map_pair = MapInnerDimToThreads(band_node, true, thread_cfg, mapping, false);
         band_node = after_map_pair.first;
-        if (atomic_type != "" && band_node.isa<isl::schedule_node_mark>() && band_node.has_children() &&
-            band_node.child(0).isa<isl::schedule_node_filter>()) {
-          band_node =
-            band_node.child(0).child(0).insert_mark(isl::id(band_node.ctx(), AtomicMarker("_" + atomic_type)));
-          band_node = band_node.parent().parent();
+        auto InsertAtomicMarker = [atomic_type, this](isl::schedule_node atomic_node) -> isl::schedule_node {
+          if (atomic_type != "" && atomic_node.has_children() &&
+              atomic_node.child(0).isa<isl::schedule_node_filter>()) {
+            atomic_node =
+              atomic_node.child(0).child(0).insert_mark(isl::id(atomic_node.ctx(), AtomicMarker("_" + atomic_type)));
+            atomic_node = atomic_node.parent().parent();
+          }
+          return atomic_node;
+        };
+        if (band_node.isa<isl::schedule_node_mark>()) {
+          band_node = InsertAtomicMarker(band_node);
+        } else if (band_node.has_children() && band_node.child(0).isa<isl::schedule_node_mark>()) {
+          band_node = InsertAtomicMarker(band_node.child(0));
+          band_node = band_node.parent();
         }
+
         if (has_split) {
           band_node = band_node.parent();
         }

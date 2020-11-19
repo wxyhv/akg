@@ -66,7 +66,23 @@ constexpr auto GM_WRITE_FLAG = "GMWriteFlag";
 
 constexpr auto MEM_TYPE_SHARED = "shared";
 constexpr auto MEM_TYPE_LOCAL = "local";
-const std::map<std::string, std::string> init_value_adapter{{"0f", "0.0f"}, {"0h", "0"}};
+const std::map<std::string, std::string> normal_data_type_adapter{{"float32", "float"},
+                                                                  {"float16", "half"},
+                                                                  {"float64", "double"},
+                                                                  {"uint8", "unsigned char"},
+                                                                  {"uint16", "unsigned short"},
+                                                                  {"uint32", "unsigned int"},
+                                                                  {"uint64", "unsigned long long"},
+                                                                  {"int8", "signed char"},
+                                                                  {"int16", "short"},
+                                                                  {"int32", "int"},
+                                                                  {"int64", "long long"},
+
+                                                                  {"uint8x4", "uint"},
+                                                                  {"uint8x8", "uint2"},
+                                                                  {"uint8x16", "uint4"},
+                                                                  {"uint64x2", "longlong"}};
+const std::map<std::string, std::string> unique_data_type_adapter{{"bool", "signed char"}};
 
 struct ReduceEmitInfo {
   // output tensor info
@@ -85,6 +101,7 @@ struct ReduceEmitInfo {
   // tensor info used for reduce emit
   // This tensor may be output promoted tensor and temporary promoted tensor
   std::string promoted_tensor_name_for_reduce_;
+  std::map<std::string, Stmt> reduce_stmt_;
   std::map<std::string, std::vector<std::string>> promoted_tensor_indexs_for_reduce_;
   std::map<std::string, std::vector<std::string>> promoted_tensor_shape_for_reduce_;
   std::string promoted_tensor_info_for_reduce_;
@@ -100,7 +117,7 @@ struct ReduceEmitInfo {
   std::string reduce_data_type_;
 
   // add for init stmt emit
-  std::string for_index_{""};
+  std::vector<std::string> for_indexs_;
 };
 
 class GpuIslEmitter : public IslEmitter {
@@ -163,6 +180,9 @@ class GpuIslEmitter : public IslEmitter {
   Stmt EmitAkgAtomicReturnInfo(Stmt s, std::string info);
   std::string GetTheIndexOfPromotedTensor(std::string s);
 
+  // used for "for iter" unique name
+  VarExpr AllocUniqueIterName(const VarExpr v);
+
   std::set<Tensor> realized_;
 
   std::unordered_map<const Variable *, Expr> stride_modify_iter_map_;
@@ -175,6 +195,10 @@ class GpuIslEmitter : public IslEmitter {
   bool in_reduce_area_{false};
   struct ReduceEmitInfo reduce_info_;
   bool is_sync_before_{false};
+
+  // add for "for iter" unique name
+  std::unordered_map<std::string, int> for_iter_name_map_;
+  std::unordered_map<const Variable *, const Variable *> iter_map_ssa_;
 };
 
 class AddAttrCheck : public air::ir::IRVisitor {
@@ -210,7 +234,7 @@ class AkgReduceAddTensorIndex : public air::ir::IRMutator {
   ~AkgReduceAddTensorIndex() override = default;
 
   Stmt Mutate_(const AttrStmt *op, const Stmt &s) override {
-    if (op->attr_key == "tensorIndexModify") {
+    if (op->attr_key == TENSOR_INDEX_MODIFY_FLAG) {
       std::string tensor_name = op->value.as<StringImm>()->value;
 
       CHECK(op->body.as<Evaluate>());

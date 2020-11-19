@@ -5,40 +5,132 @@ namespace paris_reduce {
 
 template <typename T, typename ReduceOp, size_t BlockSizeReduce>
 __inline__ __device__ void ParisAllReduce(ReduceOp op, T *output, T *shared_array, T acc) {
-  shared_array[threadIdx.x] = acc;
-  float4 *vec = ((float4 *)shared_array);
-  int index;
-  for (int delta = blockDim.x / 8; delta > 0; delta /= 2) {
+  if (BlockSizeReduce > 32) {
+    shared_array[threadIdx.x] = acc;
     __syncthreads();
-    if (threadIdx.x < delta) {
-      index = threadIdx.x + delta;
-      vec[threadIdx.x].x += vec[index].x;
-      vec[threadIdx.x].y += vec[index].y;
-      vec[threadIdx.x].z += vec[index].z;
-      vec[threadIdx.x].w += vec[index].w;
+    
+    if (threadIdx.x < BlockSizeReduce / 2) {
+      acc += shared_array[threadIdx.x + BlockSizeReduce / 2];
+      shared_array[threadIdx.x] = acc;
+    } 
+    for (int delta = BlockSizeReduce / 4; delta > 16; delta /= 2) {
+      __syncthreads();
+      if (threadIdx.x <delta) {
+        acc += shared_array[threadIdx.x + delta];
+        shared_array[threadIdx.x] = acc;
+      }
     }
   }
-  if (((int)threadIdx.x) == 0) {
-    if (BlockSizeReduce >= 4) output[0] = vec[0].x + vec[0].y + vec[0].z + vec[0].w;
-    if (BlockSizeReduce == 2) output[0] = vec[0].x + vec[0].y;
-    if (BlockSizeReduce == 1) output[0] = vec[0].x;
+
+  if (BlockSizeReduce > 32) {
+    if (threadIdx.x < 32) {
+      acc += __shfl_down_sync(0xFFFFFFFF, acc , 16);
+      acc += __shfl_down_sync(0xFFFFFFFF, acc , 8);
+      acc += __shfl_down_sync(0xFFFFFFFF, acc , 4);
+      acc += __shfl_down_sync(0xFFFFFFFF, acc , 2);
+      acc += __shfl_down_sync(0xFFFFFFFF, acc , 1);
+    }
   }
+
+  if (BlockSizeReduce == 32) {
+    acc += __shfl_down_sync(0xFFFFFFFF, acc , 16);
+    acc += __shfl_down_sync(0xFFFFFFFF, acc , 8);
+    acc += __shfl_down_sync(0xFFFFFFFF, acc , 4);
+    acc += __shfl_down_sync(0xFFFFFFFF, acc , 2);
+    acc += __shfl_down_sync(0xFFFFFFFF, acc , 1);
+  }
+
+  if (BlockSizeReduce == 16) {
+    acc += __shfl_down_sync(0xFFFFFFFF, acc , 8);
+    acc += __shfl_down_sync(0xFFFFFFFF, acc , 4);
+    acc += __shfl_down_sync(0xFFFFFFFF, acc , 2);
+    acc += __shfl_down_sync(0xFFFFFFFF, acc , 1);
+  }
+
+  if (BlockSizeReduce == 8) {
+    acc += __shfl_down_sync(0xFFFFFFFF, acc , 4);
+    acc += __shfl_down_sync(0xFFFFFFFF, acc , 2);
+    acc += __shfl_down_sync(0xFFFFFFFF, acc , 1);
+  }
+  
+  if (BlockSizeReduce == 4) {
+    acc += __shfl_down_sync(0xFFFFFFFF, acc , 2);
+    acc += __shfl_down_sync(0xFFFFFFFF, acc , 1);
+  }
+
+  if (BlockSizeReduce == 2) {
+    acc += __shfl_down_sync(0xFFFFFFFF, acc , 1);
+  }
+
+  if (((int)threadIdx.x) == 0) {
+    output[0] = acc;
+  }
+
 }
 
 template <typename T, typename ReduceOp, size_t BlockSizeReduce>
 __inline__ __device__ void ParisReduceX(ReduceOp op, T *output, T *shared_array, T acc) {
-  shared_array[threadIdx.x * blockDim.y + threadIdx.y] = acc;
-  for (int delta = blockDim.x / 2; delta > 0; delta /= 2) {
+
+  if (BlockSizeReduce > 32) {
+    shared_array[threadIdx.x + threadIdx.y * BlockSizeReduce] = acc;
     __syncthreads();
-    if (threadIdx.x < delta) {
-      shared_array[threadIdx.x * blockDim.y + threadIdx.y] +=
-        shared_array[(threadIdx.x + delta) * blockDim.y + threadIdx.y];
+    if (threadIdx.x < BlockSizeReduce / 2) {
+      acc += shared_array[(threadIdx.x +BlockSizeReduce / 2) + threadIdx.y * BlockSizeReduce];
+      shared_array[threadIdx.x + threadIdx.y * BlockSizeReduce] = acc;
+    }
+    for (int delta = BlockSizeReduce / 4; delta > 16; delta /= 2) {
+      __syncthreads();
+      if (threadIdx.x <delta) {
+        acc += shared_array[(threadIdx.x + delta) + threadIdx.y * BlockSizeReduce];
+        shared_array[threadIdx.x + threadIdx.y * BlockSizeReduce] = acc;
+      }
     }
   }
 
-  if (threadIdx.x == 0) {
-    output[0] = shared_array[threadIdx.y];
+  if (BlockSizeReduce > 32) {
+    if (threadIdx.x < 32) {
+      acc += __shfl_down_sync(0xFFFFFFFF, acc , 16);
+      acc += __shfl_down_sync(0xFFFFFFFF, acc , 8);
+      acc += __shfl_down_sync(0xFFFFFFFF, acc , 4);
+      acc += __shfl_down_sync(0xFFFFFFFF, acc , 2);
+      acc += __shfl_down_sync(0xFFFFFFFF, acc , 1);
+    }
   }
+
+  if (BlockSizeReduce == 32) {
+    acc += __shfl_down_sync(0xFFFFFFFF, acc , 16);
+    acc += __shfl_down_sync(0xFFFFFFFF, acc , 8);
+    acc += __shfl_down_sync(0xFFFFFFFF, acc , 4);
+    acc += __shfl_down_sync(0xFFFFFFFF, acc , 2);
+    acc += __shfl_down_sync(0xFFFFFFFF, acc , 1);
+  }
+
+  if (BlockSizeReduce == 16) {
+    acc += __shfl_down_sync(0xFFFFFFFF, acc , 8);
+    acc += __shfl_down_sync(0xFFFFFFFF, acc , 4);
+    acc += __shfl_down_sync(0xFFFFFFFF, acc , 2);
+    acc += __shfl_down_sync(0xFFFFFFFF, acc , 1);
+  }
+
+  if (BlockSizeReduce == 8) {
+    acc += __shfl_down_sync(0xFFFFFFFF, acc , 4);
+    acc += __shfl_down_sync(0xFFFFFFFF, acc , 2);
+    acc += __shfl_down_sync(0xFFFFFFFF, acc , 1);
+  }
+  
+  if (BlockSizeReduce == 4) {
+    acc += __shfl_down_sync(0xFFFFFFFF, acc , 2);
+    acc += __shfl_down_sync(0xFFFFFFFF, acc , 1);
+  }
+
+  if (BlockSizeReduce == 2) {
+    acc += __shfl_down_sync(0xFFFFFFFF, acc , 1);
+  }
+
+  if (((int)threadIdx.x) == 0) {
+    output[0] = acc;
+  }
+
 }
 
 template <typename T, typename ReduceOp, size_t BlockSizeReduce>
@@ -53,7 +145,7 @@ __inline__ __device__ void ParisReduceY(ReduceOp op, T *output, T *shared_array,
   }
 
   if (threadIdx.y == 0) {
-    output[0] = shared_array[threadIdx.x * blockDim.y];
+    output[0] = shared_array[threadIdx.x * BlockSizeReduce];
   }
 }
 

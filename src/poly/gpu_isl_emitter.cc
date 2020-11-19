@@ -22,109 +22,17 @@
 namespace akg {
 namespace ir {
 namespace poly {
-void GetDataTypeStr(Type t, std::ostream &os) {
-  int lanes = t.lanes();
-  if (t.is_handle()) {
-    CHECK_EQ(lanes, 1) << "do not yet support vector types";
-    os << "void*";
-    return;
+std::string GetDataTypeStr(Type t) {
+  std::stringstream ss;
+  ss << t;
+  if (normal_data_type_adapter.find(ss.str()) != normal_data_type_adapter.end()) {
+    return normal_data_type_adapter.at(ss.str());
   }
-  bool fail = false;
-  if (t.is_float()) {
-    switch (t.bits()) {
-      case 16:
-        if (lanes == 1) {
-          os << "half";
-        } else if (lanes <= 8) {
-          CHECK_EQ(lanes % 2, 0) << "only support even lane for half type";
-          os << "float" << lanes / 2;
-        } else {
-          fail = true;
-        }
-        break;
-      case 32:
-        os << "float";
-        break;
-      case 64:
-        os << "double";
-        break;
-      default:
-        fail = true;
-        break;
-    }
-    if (!fail && (lanes == 1 || t.bits() == 16)) return;
-    if (!fail && (lanes >= 2 && lanes <= 4)) {
-      os << lanes;
-      return;
-    }
-  } else if (t == Bool()) {
-    os << "signed char";
-    return;
-  } else if (t.is_uint() || t.is_int()) {
-    if (t.is_uint()) {
-      if (t.lanes() != 1) {
-        os << "u";
-      } else {
-        os << "unsigned ";
-      }
-    }
-    switch (t.bits()) {
-      case 8: {
-        if (t.lanes() == 4) {
-          os << "int";
-          return;
-        } else if (t.lanes() == 8) {
-          os << "int2";
-          return;
-        } else if (t.lanes() == 16) {
-          os << "int4";
-          return;
-        } else if (!t.is_uint() && t.lanes() == 1) {
-          os << "signed char";
-          break;
-        } else {
-          os << "char";
-          break;
-        }
-      }
-      case 16:
-        os << "short";
-        break;
-      case 32:
-        os << "int";
-        break;
-      case 64: {
-        if (sizeof(long) != 8) {
-          if (t.lanes() == 1) {
-            os << "long long";
-            break;
-          } else if (t.lanes() == 2) {
-            os << "longlong";
-            break;
-          } else {
-            LOG(FATAL) << "Cannot convert type " << t << " to CUDA type on a L32 platform";
-          }
-        } else {
-          os << "long";
-          break;
-        }
-      }
-      case 1:
-        os << "int";
-        break;
-      default:
-        fail = true;
-        break;
-    }
-    if (!fail && lanes == 1) {
-      return;
-    }
-    if (!fail && (lanes >= 2 && lanes <= 4)) {
-      os << lanes;
-      return;
-    }
+  if (unique_data_type_adapter.find(ss.str()) != unique_data_type_adapter.end()) {
+    return unique_data_type_adapter.at(ss.str());
   }
-  LOG(FATAL) << "Cannot convert type " << t << " to CUDA type";
+  CHECK(false) << "unsupported data type!";
+  return "";
 }
 
 Expr GpuIslEmitter::EmitLoad(const isl::ast_expr &expr, const Type type) {
@@ -266,9 +174,7 @@ Stmt GpuIslEmitter::EmitWriteAtomic(const isl::ast_node_user &node) {
   reduce_info_.atomic_tensors_.insert(reduce_info_.output_promoted_tensor_name_for_atomic_);
 
   Type type = info_.GetDtypeOf(lhs);
-  std::stringstream ss;
-  GetDataTypeStr(type, ss);
-  reduce_info_.output_tensor_data_type_ = ss.str();
+  reduce_info_.output_tensor_data_type_ = GetDataTypeStr(type);
   CHECK(!reduce_info_.output_tensor_data_type_.empty()) << "output tensor type should not be empty!";
 
   if (auto op = lhs.as<isl::ast_expr_op>()) {
@@ -330,8 +236,8 @@ Stmt GpuIslEmitter::EmitReduceInit(const isl::ast_node_user &node) {
     }
   }
 
-  if (init_value_adapter.find(init_value) != init_value_adapter.end()) {
-    init_value = init_value_adapter.at(init_value);
+  if (IsEndsWith(init_value, "h") || IsEndsWith(init_value, "f")) {
+    init_value.pop_back();
   }
 
   std::string flag = "bool";
@@ -399,9 +305,7 @@ Stmt GpuIslEmitter::EmitReduceUpdate(const isl::ast_node_user &node) {
   std::string data_type = "";
   for (auto it : info_.analysis_result_.GetReduceWriteDtypeMap()) {
     if (it.first.name() == stmt_name) {
-      std::stringstream ss;
-      GetDataTypeStr(it.second, ss);
-      data_type = ss.str();
+      data_type = GetDataTypeStr(it.second);
       break;
     }
   }
@@ -489,6 +393,7 @@ Stmt GpuIslEmitter::EmitReduceArea(const isl::ast_node_user &node) {
   }
 
   Stmt stmt = EmitUserStmtContent(stmt_node);
+  reduce_info_.reduce_stmt_[reduce_info_.promoted_tensor_name_for_reduce_] = stmt;
   std::stringstream ss;
   ss << stmt;
   std::string stmt_str = ss.str();
@@ -794,10 +699,44 @@ std::string GpuIslEmitter::MakePromotedTensorInitStmt(std::string init_value) {
   std::string tensor_name = reduce_info_.promoted_tensor_name_for_reduce_;
   std::string ret = "";
   bool add_if = false;
+  class CheckTheIterScop final : public IRVisitor {
+   public:
+    CheckTheIterScop() {}
+    ~CheckTheIterScop() override = default;
+    void Visit_(const Provide *op) final {
+      auto arr = op->args;
+      for (size_t i = 0; i < arr.size(); i++) {
+        Visit(arr[i]);
+      }
+    }
+    void Visit_(const Variable *op) final {
+      if (op->name_hint == iter_) {
+        is_global_ = false;
+        return;
+      }
+    }
+
+    bool Run(Stmt stmt, std::string iter) {
+      iter_ = iter;
+      IRVisitor::Visit(stmt);
+      return is_global_;
+    }
+
+   public:
+    bool is_global_{true};
+    std::string iter_{""};
+  };
+
   if (reduce_info_.atomic_tensors_.find(tensor_name) == reduce_info_.atomic_tensors_.end()) {
-    if (reduce_info_.for_index_ != "") {
+    Stmt stmt = reduce_info_.reduce_stmt_[tensor_name];
+    int size = reduce_info_.for_indexs_.size();
+    for (int i = size - 1; i >= 0; --i) {
+      std::string iter = reduce_info_.for_indexs_[i];
+      if (!CheckTheIterScop().Run(stmt, iter)) {
+        continue;
+      }
       ret += "if (";
-      ret += reduce_info_.for_index_;
+      ret += iter;
       ret += " == 0) { ";
       add_if = true;
     }
@@ -914,9 +853,13 @@ Stmt GpuIslEmitter::EmitBlock(const isl::ast_node_block &block_node) {
 Stmt GpuIslEmitter::EmitFor(const isl::ast_node_for &node) {
   isl::id isl_iter_id = node.get_iterator().as<isl::ast_expr_id>().get_id();
   VarExpr iter_expr(isl_iter_id.to_str());
+  VarExpr iter_expr_new = AllocUniqueIterName(iter_expr);
+  if (iter_expr.get() != iter_expr_new.get()) {
+    iter_map_ssa_[iter_expr.get()] = iter_expr_new.get();
+  }
   std::stringstream ss;
-  ss << iter_expr;
-  reduce_info_.for_index_ = ss.str();
+  ss << iter_expr_new;
+  reduce_info_.for_indexs_.push_back(ss.str());
   PushIter(iter_expr.get());
 
   Expr init_expr = Interpret(node.get_init());
@@ -937,11 +880,12 @@ Stmt GpuIslEmitter::EmitFor(const isl::ast_node_for &node) {
     Expr original_init_expr = init_expr;
     init_expr = ModifyTheInitExpr(init_expr);
     cond_expr = ModifyTheCondExpr(cond_expr, static_cast<int>(inc));
-    Expr modify_iter = ModifyTheIterExpr(iter_expr, static_cast<int>(inc), original_init_expr);
-    stride_modify_iter_map_[iter_expr.get()] = modify_iter;
+    Expr modify_iter = ModifyTheIterExpr(iter_expr_new, static_cast<int>(inc), original_init_expr);
+    stride_modify_iter_map_[iter_expr_new.get()] = modify_iter;
     std::stringstream ss;
     ss << modify_iter;
-    reduce_info_.for_index_ = ss.str();
+    reduce_info_.for_indexs_.pop_back();
+    reduce_info_.for_indexs_.push_back(ss.str());
   }
 
   if (isl_cond.as<isl::ast_expr_op_le>()) {
@@ -952,16 +896,16 @@ Stmt GpuIslEmitter::EmitFor(const isl::ast_node_for &node) {
 
   if (!body_stmt.defined()) {
     PopIter(iter_expr.get());
-    reduce_info_.for_index_.clear();
+    reduce_info_.for_indexs_.pop_back();
     return Stmt();
   }
 
   if (need_to_modify_inc_) {
-    stride_modify_iter_map_.erase(iter_expr.get());
+    stride_modify_iter_map_.erase(iter_expr_new.get());
   }
   PopIter(iter_expr.get());
-  reduce_info_.for_index_.clear();
-  return For::make(iter_expr, init_expr, cond_expr, ForType::Serial, DeviceAPI::None, body_stmt);
+  reduce_info_.for_indexs_.pop_back();
+  return For::make(iter_expr_new, init_expr, cond_expr, ForType::Serial, DeviceAPI::None, body_stmt);
 }
 
 Stmt GpuIslEmitter::EmitIf(const isl::ast_node_if &node) {
@@ -1159,6 +1103,13 @@ Expr GpuIslEmitter::Interpret(const isl::ast_expr &e) {
     // If this variable is defined by loop index, we need sharing it.
     const Variable *var = GetIterByName(id_expr.get_id().get_name());
     if (var) {
+      if (iter_map_ssa_.find(var) != iter_map_ssa_.end()) {
+        if (stride_modify_iter_map_.find(iter_map_ssa_.at(var)) != stride_modify_iter_map_.end()) {
+          return stride_modify_iter_map_[iter_map_ssa_.at(var)];
+        }
+        return VarExpr(GetObjPtr(iter_map_ssa_.at(var)));
+      }
+
       if (stride_modify_iter_map_.find(var) != stride_modify_iter_map_.end()) {
         return stride_modify_iter_map_[var];
       }
@@ -1185,6 +1136,18 @@ Stmt GpuIslEmitter::EmitAccessNodeFromPromoteAcsProvide(isl::id var, const Node 
   Tensor t = info_.FindTensor(var);
   Stmt s = Provide::make(t->op, 0, provide->value, args);
   return s;
+}
+
+VarExpr GpuIslEmitter::AllocUniqueIterName(const VarExpr v) {
+  std::string ret = v->name_hint;
+  if (for_iter_name_map_.find(ret) != for_iter_name_map_.end()) {
+    ret += std::to_string(for_iter_name_map_[ret]);
+    for_iter_name_map_[v->name_hint]++;
+    return Variable::make(v.type(), ret);
+  } else {
+    for_iter_name_map_[v->name_hint] = 1;
+    return v;
+  }
 }
 
 }  // namespace poly

@@ -18,7 +18,7 @@ from __future__ import absolute_import
 import akg.topi as topi
 from .elem import elem
 
-def elem_red(lhs, rhs, axis=None, keepdims=False, multi_out=False, poly_sch=False):
+def special_elem_red(lhs, rhs, axis=None, keepdims=False, multi_out=False, poly_sch=False):
     in_dtype = lhs.dtype
     if poly_sch==False and in_dtype == 'float16':
         lhs = topi.cast(lhs, 'float32')
@@ -26,10 +26,10 @@ def elem_red(lhs, rhs, axis=None, keepdims=False, multi_out=False, poly_sch=Fals
     output = elem(lhs, rhs)
     output_red = topi.sum(output, axis=axis, keepdims=keepdims)
     if multi_out:
-        output_red1 = topi.max(output, axis=axis, keepdims=keepdims)
-        outputs = [output_red, output_red1]
+        # output_red1 = topi.max(output, axis=axis, keepdims=keepdims)
+        outputs = [output_red, output]
     else:
-        outputs = output_red
+        outputs = elem(output_red, output_red)
     if poly_sch==True:
         return outputs
     if in_dtype == 'float16':
@@ -39,25 +39,25 @@ def elem_red(lhs, rhs, axis=None, keepdims=False, multi_out=False, poly_sch=Fals
             outputs = topi.cast(outputs, 'float16')
     return outputs
 
-def elem_red_input_hrz(lhs, rhs, axis=None, keepdims=False, multi_out=False, poly_sch=False):
+def special_elem_red_input_hrz(lhs, rhs, axis=None, keepdims=False, multi_out=False, poly_sch=False):
     input1 = elem(lhs, lhs)
     input2 = elem(rhs, rhs)
-    output = elem_red(input1, input2, axis=axis, keepdims=keepdims, multi_out=multi_out)
+    output = special_elem_red(input1, input2, axis=axis, keepdims=keepdims, multi_out=multi_out)
     return output
 
-def elem_red_output_hrz(lhs, rhs, axis=None, keepdims=False, multi_out=False, poly_sch=False):
+def special_elem_red_output_hrz(lhs, rhs, axis=None, keepdims=False, multi_out=False, poly_sch=False):
     single_input = elem(lhs, rhs)
-    output1 = elem_red(single_input, lhs, axis=axis, keepdims=keepdims, multi_out=multi_out)
-    output2 = elem_red(single_input, rhs, axis=axis, keepdims=keepdims, multi_out=multi_out)
+    output1 = special_elem_red(single_input, lhs, axis=axis, keepdims=keepdims, multi_out=multi_out)
+    output2 = special_elem_red(single_input, rhs, axis=axis, keepdims=keepdims, multi_out=multi_out)
     if isinstance(output1, list) and isinstance(output2, list):
         output = output1 + output2
     else:
         output = [output1, output2]
     return output
 
-def elem_red_diamond(lhs, rhs, axis=None, keepdims=False, multi_out=False, poly_sch=False):
+def special_elem_red_diamond(lhs, rhs, axis=None, keepdims=False, multi_out=False, poly_sch=False):
     single_input = elem(lhs, rhs)
     inter1 = elem(single_input, lhs)
     inter2 = elem(single_input, rhs)
-    output = elem_red(inter1, inter2, axis=axis, keepdims=keepdims, multi_out=multi_out)
+    output = special_elem_red(inter1, inter2, axis=axis, keepdims=keepdims, multi_out=multi_out)
     return output

@@ -80,7 +80,7 @@ void CustomTilingStrategy::AddDavinciConstraint() {
               axis->l0_constraints.tile_extent_ = CastToExpr(items[1]);
             }
           }
-        } else if (items[0] == "MOD") {
+        } else if (items[0] == AT_MOD) {
           axis->TileRestrainMod(CastToExpr(items[1]), lv);
         } else if (items[0] == "FORBIDISO") {
           axis->forbid_iso = true;
@@ -104,18 +104,18 @@ void ConflictTreeRangeStrategy::AddDavinciConstraint() {
       return;
     }
     // When axis has conflict ranges, it is likely a padded axis;
-    // When padded axis has "MOD" attr, it is likely a transformed axis;
+    // When padded axis has MOD attr, it is likely a transformed axis;
     // It is not safe to apply min tile(1) to padded-and-transformed axis
     // as poly may generate wrong index.
-    if (!axis->HasAttr("MOD")) {
+    if (!axis->HasAttr(AT_MOD)) {
       axis->InsertL1CandFactor(CastIntToExpr(MIN_TILE));
     }
-    if (axis->HasAttr("MODSHIFT")) {
+    if (axis->HasAttr(AT_MODSHIFT)) {
       const_extent = (const_extent - axis->range_min);
-      axis->RemoveAttr("MODSHIFT");
+      axis->RemoveAttr(AT_MODSHIFT);
     }
-    if (axis->HasAttr("SHIFT")) {
-      axis->RemoveAttr("SHIFT");
+    if (axis->HasAttr(AT_SHIFT)) {
+      axis->RemoveAttr(AT_SHIFT);
     }
     axis->range_min = MIN_TILE;
     axis->InsertL1CandFactor(CastInt64ToExpr(const_extent));
@@ -170,33 +170,10 @@ void ModStrategy::AddDavinciConstraint() {
   }
 }
 
-void CastStrategy::AddDavinciConstraint() {
-  auto interested_info = GetInterestedInfo(interested_attr_key);
-  for (auto it : interested_info) {
-    TileAxis *axis = it.first;
-    for (const auto &attr : it.second) {
-      std::vector<std::string> src_dst = akg::common::Split(attr.attr_value, "->");
-      CHECK_EQ(src_dst.size(), 2U);
-
-      std::vector<std::string> src_list = akg::common::Split(src_dst[0], ",");
-      CHECK_GE(src_list.size(), 1U);
-      for (const auto &src : src_list) {
-        std::vector<std::string> src_info = akg::common::Split(src, ":");
-        CHECK_EQ(src_info.size(), 2U);
-        CHECK_NE(src_info[1], "");
-        axis->data_size[src_info[0]] = static_cast<int>(std::strtol(src_info[1].c_str(), nullptr, 10));
-      }
-
-      std::vector<std::string> dst_info = akg::common::Split(src_dst[1], ":");
-      CHECK_EQ(dst_info.size(), 2U);
-      CHECK_NE(dst_info[1], "");
-      axis->data_size[dst_info[0]] = static_cast<int>(std::strtol(dst_info[1].c_str(), nullptr, 10));
-    }
-  }
-}
+void CastStrategy::AddDavinciConstraint() { MarkDataSize(); }
 
 void ReduceStrategy::AddDavinciConstraint() {
-  for (auto axis : analyzer_->GetAxesOfAttr("REDUCE_DST_LAST")) {
+  for (auto axis : analyzer_->GetAxesOfAttr(AT_REDUCE_DST_LAST)) {
     axis->l1_constraints.tile_min_ = CastInt64ToExpr(GetMaxAlignBytes(axis->data_size));
   }
 }
@@ -205,29 +182,29 @@ void VectorizedStrategy::AddDavinciConstraint() {
   if (analyzer_->op_type_ != VECTOR_OP) {
     return;
   }
-  for (auto axis : analyzer_->GetAxesOfAttr("VECTORIZED")) {
-    if (axis->HasAttr("DYNAMIC_BOUND") || axis->range_extent.as<IntImm>() == nullptr) {
+  for (auto axis : analyzer_->GetAxesOfAttr(AT_VECTORIZED)) {
+    if (axis->HasAttr(AT_DYNAMIC_BOUND) || axis->range_extent.as<IntImm>() == nullptr) {
       continue;
     }
     int64_t min_byte = -1;
     for (const auto &it : axis->data_size) {
-      if (it.second == 0) {
+      if (it.second.empty()) {
         continue;
       }
-      if (min_byte == -1 || min_byte > it.second) {
-        min_byte = it.second;
+      int min_elem = *min_element(it.second.begin(), it.second.end());
+      if (min_byte == -1 || min_byte > min_elem) {
+        min_byte = min_elem;
       }
     }
-    min_byte = min_byte == -1 ? 1 : min_byte;
-    CHECK_GT(min_byte, 0);
+    min_byte = min_byte <= 0 ? 1 : min_byte;
     axis->l1_constraints.tile_mod_ = CanonicalSimplify(CastIntToExpr(VECTORIZE_BYTE / min_byte));
   }
 }
 
 void DmaAlignStrategy::AddDavinciConstraint() {
-  for (auto axis : analyzer_->GetAxesContainsAttr("ALIGN")) {
+  for (auto axis : analyzer_->GetAxesContainsAttr(AT_ALIGN)) {
     for (const auto &attr : axis->attrs) {
-      if ((attr.attr_key.find("ALIGN") == std::string::npos) || (attr.attr_key.find("DMA") == std::string::npos)) {
+      if ((attr.attr_key.find(AT_ALIGN) == std::string::npos) || (attr.attr_key.find(AT_DMA) == std::string::npos)) {
         continue;
       }
       auto align_size = GetMaxAlignBytes(axis->data_size);
@@ -253,7 +230,7 @@ void DmaAlignStrategy::AddDavinciConstraint() {
 }
 
 void TensorOfTensorStrategy::AddDavinciConstraint() {
-  for (auto axis : analyzer_->GetAxesOfAttr("TOT")) {
+  for (auto axis : analyzer_->GetAxesOfAttr(AT_TOT)) {
     if (!axis->HasAttr("ALIGN:DMA")) continue;
     axis->TileRestrainToSingleValue(CastIntToExpr(MIN_TILE), LEVEL1);
   }
@@ -428,8 +405,6 @@ void GemmStrategy::AddDavinciConstraint() {
   }
 }
 
-void GpuStrategy::AddDavinciConstraint() {}
-
 // Adjust max core for element-wise and inner-most reduction operations to balance core number and granularity.
 int MulticoreStrategy::GetProposalCoreNum() {
   int max_core = cand_.GetCoreNumConf();
@@ -440,8 +415,8 @@ int MulticoreStrategy::GetProposalCoreNum() {
       return 0;
     }
 
-    if ((axis->HasAttr("TRANSFORM")) || (axis->HasAttr("TRANSPOSE")) ||
-        (axis->HasAttr("REDUCE_AXIS") && !axis->HasAttr("REDUCE_SRC_LAST"))) {
+    if ((axis->HasAttr(AT_TRANSFORM)) || (axis->HasAttr(AT_TRANSPOSE)) ||
+        (axis->HasAttr(AT_REDUCE_AXIS) && !axis->HasAttr(AT_REDUCE_SRC_LAST))) {
       return max_core;
     }
 
@@ -470,7 +445,7 @@ std::pair<int, int> MulticoreStrategy::GetProposalRangeForFullMulticore(TileAxis
   bool is_last_level = false;
   for (auto other_axis : this->cand_.GetTileAxis()) {
     if (other_axis == multicore_axis) break;
-    if (other_axis->index != multicore_axis->index || other_axis->HasAttr("REDUCE_AXIS")) continue;
+    if (other_axis->index != multicore_axis->index || other_axis->HasAttr(AT_REDUCE_AXIS)) continue;
     int64_t l1_val = TileVarId::UNDEFINE;
     std::tie(l1_val, std::ignore) = cand_.GetConstTileVal(other_axis);
     if (l1_val == TileVarId::VAR) return proposal_range;
@@ -516,7 +491,7 @@ int64_t MulticoreStrategy::AdjustTilingAccordingToMulticoreConstraint(TileAxis *
   auto origin_factor = tiling_factor;
   std::stringstream ss;
 
-  if ((!multicore_axis->mc_sup) || (multicore_axis->HasAttr("REDUCE_AXIS") || (max_factor_for_full_cores <= 0))) {
+  if ((!multicore_axis->mc_sup) || (multicore_axis->HasAttr(AT_REDUCE_AXIS) || (max_factor_for_full_cores <= 0))) {
     logger_.AppendLine(DO_TILING, "This axis is not suitable for multicore, return.");
     return origin_factor;
   }
@@ -572,7 +547,7 @@ int64_t MulticoreStrategy::AdjustTilingAccordingToMulticoreConstraint(TileAxis *
     valid = valid && tiling_factor % multicore_axis->l1_constraints.tile_mod_.as<IntImm>()->value == 0;
   } else {
     auto weak_constraint = multicore_axis->l1_constraints.tile_mod_.as<IntImm>()->value % tiling_factor == 0;
-    valid = valid && multicore_axis->HasAttr("VECTORIZED") && weak_constraint;
+    valid = valid && multicore_axis->HasAttr(AT_VECTORIZED) && weak_constraint;
   }
   ss << "--> Adjust tiling factor " << origin_factor << " to " << tiling_factor << " if valid(" << valid
      << ") and efficient(" << efficient << ") according to proposal range (" << min_factor_for_enough_data << ", "
@@ -636,7 +611,7 @@ std::vector<double> TilingPriorityScorer::ComputeTileDependency(std::vector<Tile
   std::vector<double> scores;
   scores.reserve(tile_axes.size());
   for (auto axis : tile_axes) {
-    scores.emplace_back((axis->dim_axis + 1) * axis->HasAttr("REDUCE_AXIS"));
+    scores.emplace_back((axis->dim_axis + 1) * axis->HasAttr(AT_REDUCE_AXIS));
   }
   return scores;
 }
@@ -681,6 +656,12 @@ std::vector<double> TilingPriorityScorer::ComputeVectorization(std::vector<TileA
   }
   return scores;
 }
+
+// constraint not used in cce
+
+void GpuStrategy::AddDavinciConstraint() {}
+
+void GpuDmaAnalysisStrategy::AddDavinciConstraint() {}
 
 }  // namespace poly
 }  // namespace ir

@@ -83,7 +83,7 @@ class SpaceVisitor : public IRVisitor {
   int loop_count_ = 0;
   size_t band_count_ = 0;
   std::unordered_set<std::string> local_buf_;
-  std::unordered_map<std::string, int> op_pipe_map_ = {{"DMA2", PIPE_MTE2}, {"DMA3", PIPE_MTE3}, {"REDUCE", PIPE_V}};
+  std::unordered_map<std::string, int> op_pipe_map_ = {{AT_DMA2, PIPE_MTE2}, {AT_DMA3, PIPE_MTE3}, {AT_REDUCE, PIPE_V}};
 
   void AnalyzeProvide(const Provide *op) {
     if (cur_loop_ == nullptr) return;
@@ -123,7 +123,7 @@ class SpaceVisitor : public IRVisitor {
         basic_op_type = "SP_CALL";
       }
     }
-    if (src_length > 2 && basic_op_type != "SP_CALL") {
+    if (analyzer_->scop_info_.user_config_.GetTarget() == TARGET_CCE && src_length > 2 && basic_op_type != "SP_CALL") {
       LOG(WARNING) << "Detect provide has " << src_tensor.size() << " source tensors.";
       LOG(WARNING) << "After ToThreeAddress pass, number of ops in src should be less than 2.";
     }
@@ -152,7 +152,7 @@ class SpaceVisitor : public IRVisitor {
     for (auto it : op_pipe_map_) {
       if (basic_op_type.find(it.first) != std::string::npos) pipe.insert(it.second);
     }
-    if (basic_op_type.find("ELEMWISE") != std::string::npos && pipe.empty()) {
+    if (basic_op_type.find(AT_ELEMWISE) != std::string::npos && pipe.empty()) {
       pipe.insert(PIPE_V);
     }
     return pipe;
@@ -210,13 +210,13 @@ class SpaceVisitor : public IRVisitor {
       if (dst_vars_size < src_vars_size) {
         if (d.loops.size() < s.loops.size() && d.name != s.name) {
           // A[i,0] = B[i,j]
-          return type + "REDUCE";
+          return type + AT_REDUCE;
         } else {
           return type + "UNKNOWN";
         }
       } else if (dst_vars_size > src_vars_size) {
         // A[i,j] = B[i,0]
-        return type + "BROADCAST";
+        return type + AT_BROADCAST;
       } else {
         // Index size is the same.
         while (!dst_vars.empty() && !src_vars.empty()) {
@@ -233,16 +233,16 @@ class SpaceVisitor : public IRVisitor {
             if (!IsNum(n)) src_pure_name.emplace_back(n);
           if (dst_pure_name.size() == src_pure_name.size()) {
             for (size_t j = 0; j < dst_pure_name.size(); ++j) {
-              if (dst_pure_name[j] != src_pure_name[j]) return type + "TRANSPOSE";
+              if (dst_pure_name[j] != src_pure_name[j]) return type + AT_TRANSPOSE;
             }
           }
         }
         if (d.loops.size() == s.loops.size()) {
           // A[i,j] = B[i,j]
-          return type + "ELEMWISE";
+          return type + AT_ELEMWISE;
         } else {
           // A[0,i] = B[i,i]
-          return type + "TRANSFORM";
+          return type + AT_TRANSFORM;
         }
       }
       return type;
@@ -283,6 +283,7 @@ void SpaceAnalyzer::AnalyzeSpecialAxes() {
   IdentifyDmaUnderCondition();
   IdentifyAlignAxes();
   IdentifyReduceAxes();
+  IdentifyPostFusionReduceTensors();
   IdentifySharedAxes();
   IdentifyCastAxes();
   IdentifyModAxes();
@@ -293,18 +294,18 @@ void SpaceAnalyzer::AnalyzeSpecialAxes() {
 }
 
 void SpaceAnalyzer::IdentifyInsnType() {
-  std::unordered_set<std::string> care_types = {"ELEMWISE", "BROADCAST", "DMA", "TRANSFORM"};
+  std::unordered_set<std::string> care_types = {AT_ELEMWISE, AT_BROADCAST, AT_DMA, AT_TRANSFORM};
   for (auto it : provides_ana_) {
     std::vector<ProvideEntry> pes = it.second;
     for (auto pe : pes) {
       if (analyzer_->scop_info_.user_config_.GetTarget() == TARGET_CUDA &&
-          pe.basic_op_type.find("TRANSPOSE") != std::string::npos &&
-          pe.basic_op_type.find("ELEMWISE") != std::string::npos) {
+          pe.basic_op_type.find(AT_TRANSPOSE) != std::string::npos &&
+          pe.basic_op_type.find(AT_ELEMWISE) != std::string::npos) {
         MarkGemmAxes(pe);
       }
       for (auto ct : care_types) {
         if (pe.basic_op_type.find(ct) == std::string::npos) continue;
-        if (ct == "BROADCAST") {
+        if (ct == AT_BROADCAST) {
           MarkBroadcastAxes(pe);
         }
         analyzer_->RootAxis()->MarkWithAttr(AttrInfo{pe.basic_op_type, pe.dst.name});
@@ -364,7 +365,7 @@ void SpaceAnalyzer::MarkGemmAxes(const ProvideEntry &pe) {
   }
 
   // construct relationship between loop indices and loop type(b/m/n/k) and mark axis with corresponding attribute
-  std::string attr_key = analyzer_->op_type_ == CONV_OP ? "CONV" : "GEMM";
+  std::string attr_key = analyzer_->op_type_ == CONV_OP ? AT_CONV : AT_GEMM;
   auto loop_indices_map = ExtractLoopIndicesFromMatrices({mx_c, mx_a, mx_b});
   auto FindAxisAndMark = [this, &loop_indices_map, &attr_key](Band loops) {
     for (const auto &loop : loops) {
@@ -419,14 +420,15 @@ void SpaceAnalyzer::MarkBroadcastAxes(const ProvideEntry &pe) {
   }
 
   for (auto axis : broadcasted) {
-    axis->MarkWithAttr(AttrInfo{"OP_TYPE", "BROADCAST"});
+    axis->MarkWithAttr(AttrInfo{AT_OP_TYPE, AT_BROADCAST});
   }
 }
 
 void SpaceAnalyzer::IdentifyVectorizedAxes() {
-  if (provides_ana_.empty()) return;
-  std::string attr_key = "VECTORIZED";
-  std::unordered_set<std::string> unsupported_insn = {"REDUCE", "TRANSFORM", "TRANSPOSE"};
+  if (provides_ana_.empty()) {
+    return;
+  }
+  std::unordered_set<std::string> unsupported_insn = {AT_REDUCE, AT_TRANSFORM, AT_TRANSPOSE};
   std::unordered_map<std::string, const For *> mark_dst_axes;
   for (auto it : provides_ana_) {
     std::vector<ProvideEntry> pes = it.second;
@@ -466,12 +468,11 @@ void SpaceAnalyzer::IdentifyVectorizedAxes() {
 
   for (auto la : mark_dst_axes) {
     TileAxis *last_axis = analyzer_->Axis(la.second);
-    if (last_axis != nullptr) last_axis->MarkWithAttr(AttrInfo{attr_key, la.first});
+    if (last_axis != nullptr) last_axis->MarkWithAttr(AttrInfo{AT_VECTORIZED, la.first});
   }
 }
 
 void SpaceAnalyzer::IdentifyDmaUnderCondition() {
-  std::string attr_key = "TOT";
   for (auto it : provides_ana_) {
     std::vector<ProvideEntry> pes = it.second;
     for (auto pe : pes) {
@@ -491,14 +492,15 @@ void SpaceAnalyzer::IdentifyDmaUnderCondition() {
       air::ir::PostOrderVisit(pe.cond->condition, DetectToT);
       if (!contain_tot) continue;
       TileAxis *tot_axis = analyzer_->Axis(GetBufferInnerAxis(pe.dst));
-      if (tot_axis != nullptr) tot_axis->MarkWithAttr(AttrInfo{attr_key, ""});
+      if (tot_axis != nullptr) tot_axis->MarkWithAttr(AttrInfo{AT_TOT, ""});
     }
   }
 }
 
 void SpaceAnalyzer::IdentifyAlignAxes() {
-  if (provides_ana_.empty()) return;
-  std::string attr_key = "ALIGN";
+  if (provides_ana_.empty()) {
+    return;
+  }
 
   std::unordered_map<const For *, std::pair<std::string, std::string>> align_axes_attrs;
   for (auto it : provides_ana_) {
@@ -506,14 +508,14 @@ void SpaceAnalyzer::IdentifyAlignAxes() {
     for (auto pe : pes) {
       std::vector<Tensor> src_tensors = pe.src;
       Tensor dst_tensor = pe.dst;
-      if (pe.basic_op_type.find("TRANSPOSE") != std::string::npos) {
+      if (pe.basic_op_type.find(AT_TRANSPOSE) != std::string::npos) {
         const For *dst_last = GetBufferInnerAxis(dst_tensor);
         if (dst_last != nullptr) {
           align_axes_attrs[dst_last] = std::make_pair(dst_tensor.name, pe.basic_op_type);
         } else {
-          analyzer_->RootAxis()->MarkWithAttr(AttrInfo{"TRANSFORM", dst_tensor.name});
+          analyzer_->RootAxis()->MarkWithAttr(AttrInfo{AT_TRANSFORM, dst_tensor.name});
         }
-      } else if (pe.basic_op_type.find("DMA") != std::string::npos) {
+      } else if (pe.basic_op_type.find(AT_DMA) != std::string::npos) {
         const For *dst_last = GetBufferInnerAxis(dst_tensor);
         if (dst_last != nullptr) {
           align_axes_attrs[dst_last] = std::make_pair(dst_tensor.name, pe.basic_op_type);
@@ -525,7 +527,7 @@ void SpaceAnalyzer::IdentifyAlignAxes() {
           if (last_names.size() == 1U) {
             if (last_names[0] != "" &&
                 static_cast<int64_t>(std::strtol(last_names[0].c_str(), nullptr, 10)) < ALIGN_BYTES)
-              analyzer_->RootAxis()->MarkWithAttr(AttrInfo{"TRANSFORM", dst_tensor.name});
+              analyzer_->RootAxis()->MarkWithAttr(AttrInfo{AT_TRANSFORM, dst_tensor.name});
           }
         }
         for (auto t : src_tensors) {
@@ -551,7 +553,7 @@ void SpaceAnalyzer::IdentifyAlignAxes() {
           if (src_last == nullptr) return;
           if (const auto i = src_last->extent.as<IntImm>()) gm_block = i->value;
         };
-        if (pe.basic_op_type.find("REDUCE") != std::string::npos) {
+        if (pe.basic_op_type.find(AT_REDUCE) != std::string::npos) {
           const For *dst_last = GetBufferInnerAxis(dst_tensor);
           int64_t ub_block = 1;
           if (dst_last != nullptr) {
@@ -565,7 +567,7 @@ void SpaceAnalyzer::IdentifyAlignAxes() {
               align_axes_attrs[src_last] = std::make_pair(src_name, pe.basic_op_type);
             }
           }
-        } else if (pe.basic_op_type.find("BROADCAST") != std::string::npos) {
+        } else if (pe.basic_op_type.find(AT_BROADCAST) != std::string::npos) {
           const For *dst_last = GetBufferInnerAxis(dst_tensor);
           int64_t ub_block = 1;
           if (dst_last == nullptr) continue;
@@ -582,7 +584,8 @@ void SpaceAnalyzer::IdentifyAlignAxes() {
   for (auto ai : align_axes_attrs) {
     TileAxis *align_axis = analyzer_->Axis(ai.first);
     std::string basic_op_type = ai.second.second;
-    std::string key = attr_key + ":" + basic_op_type;
+    std::string key = AT_ALIGN;
+    key = key + ":" + basic_op_type;
     if (align_axis != nullptr) align_axis->MarkWithAttr(AttrInfo{key, ai.second.first});
   }
 }
@@ -595,7 +598,9 @@ const For *SpaceAnalyzer::GetBufferInnerAxis(Tensor t, int offset) {
 }
 
 void SpaceAnalyzer::IdentifyReduceAxes() {
-  if (provides_ana_.empty()) return;
+  if (provides_ana_.empty()) {
+    return;
+  }
   TileAxis *root = analyzer_->RootAxis();
 
   auto MarkAttr = [this](const For *loop, const std::string &key, const std::string &value) {
@@ -605,25 +610,25 @@ void SpaceAnalyzer::IdentifyReduceAxes() {
   for (auto &it : provides_ana_) {
     std::vector<ProvideEntry> pes = it.second;
     for (auto pe : pes) {
-      if ((pe.basic_op_type.find("REDUCE") == std::string::npos)) continue;
+      if ((pe.basic_op_type.find(AT_REDUCE) == std::string::npos)) continue;
       const For *dst_last = GetBufferInnerAxis(pe.dst);
       if (dst_last == nullptr) {
         // Reduce op like A[i, 0] = A[i, 0] op B[i, j], we need to mark axis `i` as dst last for dma align.
         for (auto offset = 0; offset < static_cast<int>(pe.dst.var_names.size()); ++offset) {
           dst_last = GetBufferInnerAxis(pe.dst, offset + 1);
           if (dst_last == nullptr) continue;
-          MarkAttr(dst_last, "REDUCE_DST_LAST", pe.dst.name);
+          MarkAttr(dst_last, AT_REDUCE_DST_LAST, pe.dst.name);
           break;
         }
       } else {
-        MarkAttr(dst_last, "REDUCE_DST_LAST", pe.dst.name);
+        MarkAttr(dst_last, AT_REDUCE_DST_LAST, pe.dst.name);
       }
       for (Tensor src : pe.src) {
         if (src.name == pe.dst.name) continue;
         const For *src_last = GetBufferInnerAxis(src);
-        MarkAttr(src_last, "REDUCE_SRC_LAST", src.name);
+        MarkAttr(src_last, AT_REDUCE_SRC_LAST, src.name);
         std::string flow = src.name + "->" + pe.dst.name;
-        root->MarkWithAttr(AttrInfo{"REDUCE_FLOW", flow});
+        root->MarkWithAttr(AttrInfo{AT_REDUCE_FLOW, flow});
         std::unordered_set<const For *> src_axes;
         for (auto &lit : src.loops) {
           for (const For *l : lit.second) src_axes.insert(l);
@@ -635,8 +640,31 @@ void SpaceAnalyzer::IdentifyReduceAxes() {
           }
         }
         for (auto l : src_axes) {
-          MarkAttr(l, "REDUCE_AXIS", pe.dst.name);
+          MarkAttr(l, AT_REDUCE_AXIS, pe.dst.name);
         }
+      }
+    }
+  }
+}
+
+void SpaceAnalyzer::IdentifyPostFusionReduceTensors() {
+  if (provides_ana_.empty()) {
+    return;
+  }
+  auto reduce_out_tensors = analyzer_->scop_info_.analysis_result_.GetReduceOutTensors();
+  if (reduce_out_tensors.empty()) {
+    return;
+  }
+
+  TileAxis *root = analyzer_->RootAxis();
+  for (auto &it : provides_ana_) {
+    std::vector<ProvideEntry> pes = it.second;
+    for (auto pe : pes) {
+      for (auto src : pe.src) {
+        if (src.name == pe.dst.name || reduce_out_tensors.find(src.name) == reduce_out_tensors.end()) {
+          continue;
+        }
+        root->MarkWithAttr(AttrInfo{AT_POST_FUSION_REDUCE_TENSOR, src.name});
       }
     }
   }
@@ -666,7 +694,7 @@ void SpaceAnalyzer::IdentifySharedAxes() const {
       if (offset == nullptr) continue;
       if (extent == nullptr) {
         shift_time += 1;
-        type = "DYNAMIC_SHIFT";
+        type = AT_DYNAMIC_SHIFT;
         if (pre_off != -1 && pre_off != 0 && offset->value != 0) {  // first time record offset
           bound = air::ir::gcd(offset->value, pre_off);
         }
@@ -679,15 +707,15 @@ void SpaceAnalyzer::IdentifySharedAxes() const {
           if (extent->value == pre_ext) {
             if (pre_off == 0) {
               if (offset->value + 1 == pre_ext) {
-                type = type.empty() ? "SHIFT" : type;
+                type = type.empty() ? AT_SHIFT : type;
                 shift_time += 1;
               } else if (offset->value == pre_ext) {
-                type = type.empty() ? "MODSHIFT" : type;
+                type = type.empty() ? AT_MODSHIFT : type;
                 shift_time += 1;
               }
-            } else if (type == "MODSHIFT" && offset->value == pre_ext) {
+            } else if (type == AT_MODSHIFT && offset->value == pre_ext) {
               shift_time += 1;
-            } else if (type == "SHIFT" && ((offset->value + 1 + shift_time) == pre_ext * (shift_time + 1))) {
+            } else if (type == AT_SHIFT && ((offset->value + 1 + shift_time) == pre_ext * (shift_time + 1))) {
               shift_time += 1;
             }
           }
@@ -700,15 +728,16 @@ void SpaceAnalyzer::IdentifySharedAxes() const {
       a->MarkWithAttr(AttrInfo{type, std::to_string(shift_time)});
     }
     if (bound != 1) {
-      a->MarkWithAttr(AttrInfo{"DYNAMIC_BOUND", std::to_string(bound)});
+      a->MarkWithAttr(AttrInfo{AT_DYNAMIC_BOUND, std::to_string(bound)});
     }
   };
   analyzer_->ForEachAxisTopDown(DetectShift);
 }
 
 void SpaceAnalyzer::IdentifyModAxes() {
-  if (provides_ana_.empty()) return;
-  std::string attr_key = "MOD";
+  if (provides_ana_.empty()) {
+    return;
+  }
   auto GetModValue = [](const Expr &arg) -> int {
     int64_t res = -1;
     if (const auto fm = arg.as<FloorMod>()) {
@@ -722,7 +751,7 @@ void SpaceAnalyzer::IdentifyModAxes() {
     }
     return res;
   };
-  auto Process = [this, GetModValue, attr_key](Tensor t) {
+  auto Process = [this, GetModValue](Tensor t) {
     for (size_t a = 0; a < t.args.size(); ++a) {
       std::vector<Expr> constraints;
       constraints = FindModConstraint(t.args[a], constraints);
@@ -739,7 +768,7 @@ void SpaceAnalyzer::IdentifyModAxes() {
           if (axis == nullptr) {
             continue;
           }
-          axis->MarkWithAttr(AttrInfo{attr_key, std::to_string(mod)});
+          axis->MarkWithAttr(AttrInfo{AT_MOD, std::to_string(mod)});
         }
       }
     }
@@ -777,8 +806,9 @@ std::vector<Expr> SpaceAnalyzer::FindModConstraint(const Expr &arg, std::vector<
 }
 
 void SpaceAnalyzer::IdentifyCastAxes() {
-  if (provides_ana_.empty()) return;
-  std::string attr_key = "CAST";
+  if (provides_ana_.empty()) {
+    return;
+  }
   for (auto it : provides_ana_) {
     std::vector<ProvideEntry> pes = it.second;
     for (auto pe : pes) {
@@ -796,13 +826,13 @@ void SpaceAnalyzer::IdentifyCastAxes() {
       attr_value += "->";
       attr_value += dst.name + ":" + std::to_string(dst.type_byte);
       if (dst.loops.empty()) {
-        analyzer_->RootAxis()->MarkWithAttr(AttrInfo{attr_key, attr_value});
+        analyzer_->RootAxis()->MarkWithAttr(AttrInfo{AT_CAST, attr_value});
       }
       for (auto it1 : dst.loops) {
         std::vector<const For *> loops = it1.second;
         for (auto loop : loops) {
           TileAxis *axis = analyzer_->Axis(loop);
-          if (axis != nullptr) axis->MarkWithAttr(AttrInfo{attr_key, attr_value});
+          if (axis != nullptr) axis->MarkWithAttr(AttrInfo{AT_CAST, attr_value});
         }
       }
     }
@@ -825,7 +855,7 @@ void SpaceAnalyzer::IdentifyCustomTiling() {
       CHECK(mode) << "Custom tiling mode must be set as string";
       if (mode->value == "COMMON") {
         if (ctn->mem_ratio != -1) {
-          analyzer_->RootAxis()->MarkWithAttr(AttrInfo{"MEM_RATIO", std::to_string(ctn->mem_ratio)});
+          analyzer_->RootAxis()->MarkWithAttr(AttrInfo{AT_MEM_RATIO, std::to_string(ctn->mem_ratio)});
         }
       } else {
         std::string attr_value = "";

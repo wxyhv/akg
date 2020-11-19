@@ -28,10 +28,12 @@ from tensorio import compare_tensor
 
 logging.getLogger().setLevel(logging.INFO)
 
+
 def print_usage():
     logging.info("\nUsage:")
     logging.info("1. To run single file :")
-    logging.info("  python test_composite_json.py [-c, -a/--auto] -f <filename>.")
+    logging.info(
+        "  python test_composite_json.py [-c, -a/--auto] -f <filename>.")
     logging.info("2. To run files in a directory, default to be ./json_dir :")
     logging.info("  python test_composite_json.py -d [-a or --auto]")
     logging.info("3. To run ci files :")
@@ -50,8 +52,10 @@ def print_usage():
 
 def get_result(desc, poly, attrs=None):
     input_for_mod, expect, output_indexes = gen_json_data(desc)
-
     if attrs:
+        reduce_lib_key = "enable_akg_reduce_lib"
+        if reduce_lib_key not in attrs.keys():
+            attrs[reduce_lib_key] = poly
         mod = composite.build(desc, attrs, poly=poly)
     else:
         mod = composite.build(desc, poly=poly)
@@ -74,20 +78,20 @@ def get_result(desc, poly, attrs=None):
         gpu_profiling(mod, *inputs, *expect, repeat_time=400)
     return flag
 
+
 @pytest.mark.skip
 def test_single_file(input_file, use_custom, poly=False):
     with open(input_file, 'r') as f:
         desc = f.read()
+        attrs = {}
         if use_custom:
-            attrs = {}
             attrs["dim"] = custom_tiling.set_dims(((4, 1), (4, 1)))
-            flag = get_result(desc, poly, attrs)
-        else:
-            flag = get_result(desc, poly)
+        flag = get_result(desc, poly, attrs)
         if flag:
             logging.info("Run Pass!")
         else:
             logging.info("Precision Error")
+
 
 @pytest.mark.level0
 @pytest.mark.platform_gpu
@@ -104,26 +108,27 @@ def test_json_dir(poly=False):
         with open(json_dir + input_file, 'r') as f:
             if input_file == "dims.json":
                 continue
-            logging.info("Begin run No.%d file:%s"%(idx, input_file))
+            logging.info("Begin run No.%d file:%s" % (idx, input_file))
             idx = idx + 1
             desc = f.read()
+            attrs = {}
             if input_file in dims_dict:
                 dim_info = dims_dict[input_file]
                 attrs = {'dim': dim_info}
-                flag = get_result(desc, poly, attrs)
-            else:
-                flag = get_result(desc, poly)
+            flag = get_result(desc, poly, attrs)
             if not flag:
                 logging.info("----------Error Json name is----------")
                 logging.info(input_file)
                 raise ValueError("Precision Error")
     logging.info("All Json files run PASS!")
 
+
 def get_op_cycles_info(desc, cycle_info_file, old_op_cycles=100000000):
     with open(cycle_info_file, 'r') as f:
         op_cycles = int(f.read())
     diff = old_op_cycles - op_cycles
     return op_cycles, diff
+
 
 @pytest.mark.level0
 @pytest.mark.platform_gpu
@@ -153,7 +158,8 @@ def test_ci(profile=False, poly=False):
                 logging.info("Composite Json {} pass!".format(fi))
             else:
                 old_op_cycles = old_dict[fi]
-                op_cycles, diff = get_op_cycles_info(desc, cycle_info_file, old_op_cycles)
+                op_cycles, diff = get_op_cycles_info(
+                    desc, cycle_info_file, old_op_cycles)
                 logging.info("~~~~~~~~~~~cycle diff is~~~~~~~~~~~")
                 logging.info(diff)
                 if diff > 500:
@@ -175,7 +181,9 @@ def test_ci(profile=False, poly=False):
             with open(base_json_file, 'w', encoding='utf-8') as f:
                 json.dump(old_dict, f, indent=4)
         else:
-            logging.info("No significant performance improvement. Do not need to update Baseline!")
+            logging.info(
+                "No significant performance improvement. Do not need to update Baseline!")
+
 
 def main(argv):
     import getopt
@@ -211,6 +219,7 @@ def main(argv):
         test_ci(use_profiling, poly)
     else:
         print_usage()
+
 
 if __name__ == "__main__":
     main(sys.argv[1:])

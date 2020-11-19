@@ -75,6 +75,7 @@ class SpaceAnalyzer {
   void IdentifyReduceAxes();
   void IdentifyCastAxes();
   void IdentifyModAxes();
+  void IdentifyPostFusionReduceTensors();
 
   // customized cases
   void IdentifyDynamicShape();

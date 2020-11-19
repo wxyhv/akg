@@ -415,6 +415,8 @@ void CodeGenCUDA::VisitStmt_(const AttrStmt* op) {
     fragment_layouts[buffer] = layout_str->value;
   } else if (op->attr_key == "GMWriteFlag") {
     is_GMWrite_ = true;
+  } else if (op->attr_key == "reduceLibType") {
+    reduce_lib_type_ = op->value.as<StringImm>()->value;
   } else if (op->attr_key == "tensorMapInfo") {
     std::string name = op->value.as<StringImm>()->value;
     std::string::size_type n = name.find("|");

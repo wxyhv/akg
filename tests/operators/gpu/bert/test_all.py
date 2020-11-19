@@ -23,37 +23,64 @@ from compute_1420 import test_compute_1420
 from compute_1425 import test_compute_1425
 from compute_1461 import test_compute_1461
 from compute_1486 import test_compute_1486
+from layernorm import test_compute_layernorm
+from softmax import test_compute_softmax
+
 
 def compute_631(poly_sch):
     test_compute_631((640,), (640, 768), (640,), (640, 768), (640, 768), (640, 768), (640, 768),
-        (640,), (640,), (768,), 'float32', poly_sch=poly_sch)
+                     (640,), (640,), (768,), 'float32', poly_sch=poly_sch)
+
+
+def compute_631(poly_sch):
+    test_compute_631((640,), (640, 768), (640,), (640, 768), (640, 768), (640, 768), (640, 768),
+                     (640,), (640,), (768,), 'float32', poly_sch=poly_sch)
+
 
 def compute_791(poly_sch):
     test_compute_791((4096,), (4096, 768), (4096,), (4096, 768), (4096, 768), (4096,), (4096,),
-    (768,), 'float32', poly_sch=poly_sch)
+                     (768,), 'float32', poly_sch=poly_sch)
+
 
 def compute_1070(poly_sch):
-    test_compute_1070((32, 12, 128, 128), (32, 12, 128), (32, 12, 128, 128), (32, 12, 128, 128), 
-    'float32', poly_sch=poly_sch)
+    test_compute_1070((32, 12, 128, 128), (32, 12, 128), (32, 12, 128, 128), (32, 12, 128, 128),
+                      'float32', poly_sch=poly_sch)
+
 
 def compute_1088(poly_sch):
     test_compute_1088((32, 2), (32, ), 'float32', poly_sch=poly_sch)
 
+
 def compute_1419(poly_sch):
     test_compute_1419((4096, 3072), 'float32', poly_sch=poly_sch)
 
+
 def compute_1420(poly_sch):
     test_compute_1420((4096, 768), (4096,), (4096, 768), (4096,), (4096,), (4096,),
-    (32, 128, 768),  (768,), 'float32', poly_sch=poly_sch)
+                      (32, 128, 768),  (768,), 'float32', poly_sch=poly_sch)
+
 
 def compute_1425(poly_sch):
-    test_compute_1425((640, 21128), (640,), (640,), (640, 21128), (640,), 'float32', poly_sch=poly_sch)
+    test_compute_1425((640, 21128), (640,), (640,),
+                      (640, 21128), (640,), 'float32', poly_sch=poly_sch)
+
 
 def compute_1461(poly_sch):
     test_compute_1461((32, 12, 128, 128), 'float32', poly_sch=poly_sch)
 
+
 def compute_1486(poly_sch):
-    test_compute_1486((32, 12, 128, 128), (32, 128), 'float32', 'int32', poly_sch=poly_sch)
+    test_compute_1486((32, 12, 128, 128), (32, 128),
+                      'float32', 'int32', poly_sch=poly_sch)
+
+
+def compute_layernorm(poly_sch):
+    test_compute_layernorm((4096, 768), (768, ), (768, ), 'float32')
+
+
+def comput_softmax(poly_sch):
+    test_compute_softmax((32, 12, 128, 128), 'float32')
+
 
 class Logger(object):
     def __init__(self, filename, stream):
@@ -66,6 +93,7 @@ class Logger(object):
 
     def flush(self):
         pass
+
 
 def usage(op_map):
     print("Usage:")
@@ -88,9 +116,9 @@ if __name__ == '__main__':
     import traceback
     from datetime import datetime
 
-    op_map = {"631":compute_631, "791":compute_791, "1070":compute_1070, "1088":compute_1088,
-        "1419":compute_1419, "1420":compute_1420, "1425":compute_1425, "1461": compute_1461,
-        "1486":compute_1486}
+    op_map = {"631": compute_631, "791": compute_791, "1070": compute_1070, "1088": compute_1088,
+              "1419": compute_1419, "1420": compute_1420, "1425": compute_1425, "1461": compute_1461,
+              "1486": compute_1486, "layernorm": compute_layernorm, "softmax": comput_softmax}
 
     all_f = list(op_map.values())
     op_map["all"] = all_f
@@ -118,7 +146,9 @@ if __name__ == '__main__':
                 run_op_list += f
 
     now = datetime.now()
-    filename = "opstest_" + '-'.join(list(map(str, [now.month, now.day, now.hour, now.minute]))) + ".log"
+    filename = "opstest_" + \
+        '-'.join(list(map(str, [now.month, now.day,
+                                now.hour, now.minute]))) + ".log"
     sys.stdout = Logger(filename, sys.stdout)
     sys.stderr = Logger(filename, sys.stderr)
 
@@ -131,9 +161,11 @@ if __name__ == '__main__':
                 op(poly_sch=False)
             except:
                 if op.__name__ in fail_op_list:
-                    fail_op_list[op.__name__].extend(["using manual schedule:", traceback.format_exc()])
+                    fail_op_list[op.__name__].extend(
+                        ["using manual schedule:", traceback.format_exc()])
                 else:
-                    fail_op_list[op.__name__] = ["using manual schedule:", traceback.format_exc()]
+                    fail_op_list[op.__name__] = [
+                        "using manual schedule:", traceback.format_exc()]
 
         if schedule_method in ["both", "auto"]:
             try:
@@ -141,14 +173,16 @@ if __name__ == '__main__':
                 op(poly_sch=True)
             except:
                 if op.__name__ in fail_op_list:
-                    fail_op_list[op.__name__].extend(["using auto schedule:", traceback.format_exc()])
+                    fail_op_list[op.__name__].extend(
+                        ["using auto schedule:", traceback.format_exc()])
                 else:
-                    fail_op_list[op.__name__] = ["using auto schedule:", traceback.format_exc()]
+                    fail_op_list[op.__name__] = [
+                        "using auto schedule:", traceback.format_exc()]
 
     if len(fail_op_list) == 0:
         print("All test pass!")
     else:
         for op, error_info in fail_op_list.items():
-            print("Run op %s error"%op)
+            print("Run op %s error" % op)
             for e in error_info:
                 print(e)

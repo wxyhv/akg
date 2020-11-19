@@ -455,10 +455,6 @@ size_t MappingOuterBand::MapThreadHelper(isl::schedule_node &thread_root) {
     return 0;
   }
 
-  if (is_reduce) {
-    MarkReduceOutTensor(band_node);
-  }
-
   // Step 2. Split band node according to mapping config and coincidence of band node.
   if (n_thread_map > thread_cfg->bound) {
     thread_root = band_node.split(n_thread_map - thread_cfg->bound);
@@ -490,6 +486,15 @@ size_t MappingOuterBand::MapThreadHelper(isl::schedule_node &thread_root) {
   int end_node_depth = thread_root.get_tree_depth() - start_node_depth;
 
   if (is_reduce) {
+    // Split the reduce axis and non-reduce axis of the outer band.
+    if (thread_root.ancestor(2) && !GetMarkerName(thread_root.ancestor(2), REDUCE_MARKER).empty() && n_thread_map > 1) {
+      thread_root = thread_root.ancestor(2).del();
+      band_node = thread_root.as<isl::schedule_node_band>();
+      thread_root = band_node.split(n_thread_map - 1).child(0);
+      thread_root = thread_root.insert_mark(reduce_marker_name);
+      thread_root = thread_root.child(0);
+    }
+    // Add the filter that initializes and calls the akg_reduce library for the reduce statement.
     thread_root = InsertReduceExtension(thread_root);
     end_node_depth = thread_root.get_tree_depth() - start_node_depth;
     ++end_node_depth;
@@ -529,8 +534,6 @@ isl::schedule MappingOuterBand::DetectAndMarkReduce(const isl::schedule &sch) {
       return node;
     }
 
-    auto n_coincident = CountConsecutiveCoincident(band_node);
-
     auto band_node_domain = band_node.get_partial_schedule().domain();
     StatementMap all_statements = scop_info_.analysis_result_.GetStatementMap();
     isl::union_map reduce_statement_map = isl::union_map::empty(node.ctx());
@@ -550,12 +553,6 @@ isl::schedule MappingOuterBand::DetectAndMarkReduce(const isl::schedule &sch) {
     if (reduce_statements.n_set() < 1) {
       return node;
     }
-
-    auto prefix = ShortScheduleMupa(band_node.root(), band_node.parent());
-    prefix = prefix.range_product(reduce_manager.GetCoincidentMemberRange(band_node, 0, n_coincident));
-    isl::union_map reduce_domain = reduce_statement_map.intersect_domain(reduce_statements);
-    isl::union_map prefix_umap = isl::union_map::from(prefix);
-    isl::union_map prefix_reduce = reduce_domain.apply_domain(prefix_umap);
 
     isl::union_map dependences = pass_info_.dependences_;
     auto node_bak = node;
@@ -689,11 +686,6 @@ isl::schedule MappingOuterBand::DoBlockMapping(const isl::schedule &sch) {
   return final_schedule;
 }
 
-isl::union_map MappingOuterBand::GetReduceWriteStmt(const isl::schedule_node_band &band) {
-  auto band_domain = band.get_domain();
-  auto write_domain = scop_info_.analysis_result_.GetWrites().domain_factor_domain();
-  return write_domain.intersect_domain(band_domain);
-}
 
 bool MappingOuterBand::NeedAtomicAdd(const isl::schedule_node_band &band, size_t n_block_map) {
   if (!scop_info_.user_config_.GetEnableAkgReduceLib()) {
@@ -708,7 +700,7 @@ bool MappingOuterBand::NeedAtomicAdd(const isl::schedule_node_band &band, size_t
   auto block_cfg = scop_info_.user_config_.GetBlockConfig();
   CHECK(block_cfg != nullptr) << "block config is null";
   while (non_coin_start_idx < block_cfg->bound) {
-    if (block_cfg->GetAt(non_coin_start_idx).second > 1) {
+    if (block_cfg->GetAt(block_cfg->bound - non_coin_start_idx - 1).second > 1) {
       return true;
     }
     ++non_coin_start_idx;
@@ -717,7 +709,7 @@ bool MappingOuterBand::NeedAtomicAdd(const isl::schedule_node_band &band, size_t
 }
 
 void MappingOuterBand::MarkAtomicAddTensor(const isl::schedule_node_band &band) {
-  auto target_stmt = GetReduceWriteStmt(band);
+  auto target_stmt = scop_info_.analysis_result_.GetReduceWriteStmt(band);
   auto tensor = target_stmt.range();
   std::unordered_set<isl::id, isl::IslIdIslHash> stmt_ids;
   target_stmt.foreach_map(
@@ -732,13 +724,6 @@ void MappingOuterBand::MarkAtomicAddTensor(const isl::schedule_node_band &band) 
       scop_info_.analysis_result_.RecordAtomicTensors(AtomicInfo{s.get_tuple_name(), type});
     }
   });
-}
-
-void MappingOuterBand::MarkReduceOutTensor(const isl::schedule_node_band &band) {
-  auto target_stmt = GetReduceWriteStmt(band);
-  auto tensor = target_stmt.range();
-  tensor.foreach_set(
-    [this](const isl::set &s) -> void { scop_info_.analysis_result_.RecordReduceOutTensors(s.get_tuple_name()); });
 }
 
 isl::schedule MappingOuterBand::Run(isl::schedule sch) {

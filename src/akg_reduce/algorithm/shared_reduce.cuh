@@ -68,8 +68,9 @@ __device__ __forceinline__ void WarpReduce(volatile T *shared_buf,  // shared me
 
   if (threadIdx.x < reduce_align_upper) {
     shared_buf[tid] = op(static_cast<T>(shared_buf[tid]), static_cast<T>(shared_buf[tid + reduce_align]));
-    reduce_align = reduce_align >> 1;
   }
+  reduce_align = reduce_align >> 1;
+
   if (threadIdx.x < reduce_align) {
     while (reduce_align >= 1) {
       shared_buf[tid] = op(static_cast<T>(shared_buf[tid]), static_cast<T>(shared_buf[tid + reduce_align]));

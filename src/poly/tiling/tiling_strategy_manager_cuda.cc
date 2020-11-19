@@ -23,16 +23,22 @@ namespace akg {
 namespace ir {
 namespace poly {
 
+void GpuDmaAnalysisStrategy::AddGpuConstraint() {
+  analyzer_->ForEachAxisTopDown(
+    [](TileAxis *axis) { axis->TileRestrainToSingleValue(CastIntToExpr(MIN_TILE), TileLevel::LEVEL1); });
+}
+
+void CastStrategy::AddGpuConstraint() { MarkDataSize(); }
+
 void ReduceStrategy::AddGpuConstraint() {
   // TODO: compare XLA's reduction tiling/mapping strategy with current strategy
-  auto reduce_axes = analyzer_->GetAxesOfAttr("REDUCE_AXIS");
+  reduce_axes_ = analyzer_->GetAxesOfAttr(AT_REDUCE_AXIS);
   size_t depth = 0;
-  bool has_transpose = false;
-  analyzer_->ForEachAxisTopDown([this, &depth, &reduce_axes, &has_transpose](TileAxis *axis) {
-    if (!has_transpose) {
+  analyzer_->ForEachAxisTopDown([this, &depth](TileAxis *axis) {
+    if (!has_transpose_) {
       for (const auto &attr : axis->attrs) {
-        if (attr.attr_key.find("TRANSPOSE") != std::string::npos) {
-          has_transpose = true;
+        if (attr.attr_key.find(AT_TRANSPOSE) != std::string::npos) {
+          has_transpose_ = true;
           break;
         }
       }
@@ -42,36 +48,28 @@ void ReduceStrategy::AddGpuConstraint() {
       return;
     }
     ++depth;
-
     if (axis->mc_sup) {
+      injective_axes_.emplace_back(axis);
       return;
     }
-    bool already_added = false;
-    for (const auto &ra : reduce_axes) {
-      if (ra == axis) {
-        already_added = true;
-        break;
-      }
+    if (std::count(reduce_axes_.begin(), reduce_axes_.end(), axis)) {
+      return;
     }
-    if (!already_added) {
-      reduce_axes.emplace_back(axis);
-    }
+    reduce_axes_.emplace_back(axis);
   });
-  bool all_reduce = reduce_axes.size() == depth;
+  all_reduce_ = reduce_axes_.size() == depth;
   if (analyzer_->scop_info_.user_config_.GetEnableAkgReduceLib()) {
-    bool disable_atomic = !analyzer_->GetAxesOfAttr("CAST").empty();
-    if (disable_atomic) {
-      for (auto axis : reduce_axes) {
-        axis->block_constraints.map_extent_ = MIN_TILE;
-      }
-    }
-    if (!all_reduce) {
-      DealWith4DFusedReduce(reduce_axes);
-    }
-  } else if (all_reduce || has_transpose) {
-    auto extent = all_reduce ? MIN_TILE : warp_sizes_;
+    AkgReduceLibStrategyOnGpu();
+  } else {
+    SimpleStrategyOnGpu();
+  }
+}
+
+void ReduceStrategy::SimpleStrategyOnGpu() {
+  if (all_reduce_ || has_transpose_) {
+    auto extent = all_reduce_ ? MIN_TILE : warp_sizes_;
     bool is_tuning = analyzer_->scop_info_.user_config_.GetIsTuning();
-    for (auto axis : reduce_axes) {
+    for (auto axis : reduce_axes_) {
       axis->block_constraints.map_extent_ = MIN_TILE;
       axis->thread_constraints.map_extent_ = MIN_TILE;
       if (!is_tuning) {
@@ -81,24 +79,168 @@ void ReduceStrategy::AddGpuConstraint() {
   }
 }
 
-void ReduceStrategy::DealWith4DFusedReduce(const std::vector<akg::ir::poly::TileAxis *> &reduce_axes) {
-  auto mod_axes = analyzer_->GetAxesOfAttr("MOD");
+void ReduceStrategy::AkgReduceLibStrategyOnGpu() {
+  // disable atomic-add for bitwise-reduction
+  for (auto it : analyzer_->scop_info_.analysis_result_.GetReduceStatementMap()) {
+    if (analyzer_->scop_info_.analysis_result_.GetReduceOpType(it.first) == AKG_REDUCE_AND ||
+        analyzer_->scop_info_.analysis_result_.GetReduceOpType(it.first) == AKG_REDUCE_OR) {
+      analyzer_->ForEachAxisTopDown([](TileAxis *axis) { axis->block_constraints.map_extent_ = MIN_TILE; });
+      break;
+    }
+  }
 
+  // disable atomic-add for post reduce tensors
+  DealWithPostReduceTensors();
+
+  bool square_thread = analyzer_->scop_info_.analysis_result_.GetReduceDirection() == Y_DIRECTION;
+  int64_t total_reduce_size = 1;
+  int64_t total_injective_size = 1;
+  int64_t injective_threads = 1;
+  int64_t reduce_threads = 1;
+  int64_t possible_blocks = 1;
+
+  if (!all_reduce_) {
+    DealWith4DFusedReduce();
+  }
+  bool use_local = UseRegisterMem();
+
+  for (auto axis : reduce_axes_) {
+    CHECK(axis->range_extent.as<IntImm>());
+    total_reduce_size *= axis->range_extent.as<IntImm>()->value;
+    if (axis->block_constraints.map_extent_ == 0) {
+      possible_blocks *= axis->range_extent.as<IntImm>()->value;
+    } else {
+      possible_blocks *= axis->block_constraints.map_extent_;
+    }
+    if (axis->thread_constraints.map_min_ == axis->thread_constraints.map_extent_ &&
+        axis->thread_constraints.map_extent_ != 0) {
+      reduce_threads *= axis->thread_constraints.map_min_;
+    }
+  }
+  for (auto axis : injective_axes_) {
+    CHECK(axis->range_extent.as<IntImm>());
+    total_injective_size *= axis->range_extent.as<IntImm>()->value;
+    if (axis->block_constraints.map_extent_ == 0) {
+      possible_blocks *= axis->range_extent.as<IntImm>()->value;
+    } else {
+      possible_blocks *= axis->block_constraints.map_extent_;
+    }
+    if (axis->thread_constraints.map_min_ == axis->thread_constraints.map_extent_ &&
+        axis->thread_constraints.map_extent_ != 0) {
+      injective_threads *= axis->thread_constraints.map_min_;
+    }
+  }
+  bool is_special_4d = reduce_threads != 1 || injective_threads != 1;
+  if (is_special_4d) {
+    return;
+  }
+
+  int64_t min_blocks = square_thread ? 32 : 512;
+  int64_t min_elem_per_thread = use_local ? 2 : 8;
+
+  if (total_injective_size * total_reduce_size / min_blocks / max_num_threads_ < min_elem_per_thread) {
+    square_thread = true;
+    min_blocks = 32;
+  }
+
+  std::pair<int64_t, int64_t> tx_range{1, max_num_threads_};
+  std::pair<int64_t, int64_t> ty_range{1, max_num_threads_};
+  if (square_thread) {
+    tx_range.first = std::min(warp_sizes_, total_injective_size);
+    ty_range.first = std::min<int64_t>(8, total_reduce_size);
+    tx_range.second = std::min<int64_t>(tx_range.second, ceil(static_cast<float>(tx_range.second) / ty_range.first));
+    tx_range.second = std::min(tx_range.second, total_injective_size);
+  } else {
+    tx_range.first = std::min(warp_sizes_, total_reduce_size);
+    ty_range.first = std::min<int64_t>(8, total_injective_size);
+    tx_range.second = std::min<int64_t>(tx_range.second, ceil(static_cast<float>(tx_range.second) / ty_range.first));
+    tx_range.second = std::min(tx_range.second, total_reduce_size);
+  }
+  ty_range.second =
+    std::min(ty_range.second, static_cast<int64_t>(ceil(static_cast<float>(ty_range.second) / tx_range.second)));
+
+  possible_blocks = ceil(static_cast<float>(possible_blocks) / tx_range.second / ty_range.second);
+  int proposal = use_local ? 8 : 32;
+  auto default_elem_per_thread = possible_blocks > 1
+                                   ? std::max(std::min<int>(proposal, (possible_blocks / min_blocks + 1) / 2 * 2), 1)
+                                   : SpItemPerThread::FULL;
+  std::stringstream ss;
+  ss << "total_injective_size " << total_injective_size << " total_reduce_size " << total_reduce_size;
+  analyzer_->logger_.AppendLog(GPU_MAPPING, ss);
+
+  ss << "injective_threads " << injective_threads << " reduce_threads " << reduce_threads;
+  analyzer_->logger_.AppendLog(GPU_MAPPING, ss);
+
+  ss << "possible_blocks " << possible_blocks << " default_elem_per_thread " << default_elem_per_thread;
+  analyzer_->logger_.AppendLog(GPU_MAPPING, ss);
+
+  ss << "tx_range " << tx_range.first << " , " << tx_range.second;
+  analyzer_->logger_.AppendLog(GPU_MAPPING, ss);
+
+  ss << "ty_range " << ty_range.first << " , " << ty_range.second;
+  analyzer_->logger_.AppendLog(GPU_MAPPING, ss);
+
+  if (square_thread) {
+    reduce_threads = ty_range.second;
+    injective_threads = tx_range.second;
+  } else {
+    reduce_threads = tx_range.second;
+    injective_threads = ty_range.second;
+  }
+
+  for (auto axis : injective_axes_) {
+    axis->thread_constraints.map_min_ = injective_threads;
+    axis->thread_constraints.map_extent_ = injective_threads;
+    axis->thread_constraints.item_process_ = MIN_TILE;
+  }
+  for (auto axis : reduce_axes_) {
+    if (use_local) {
+      for (const auto &attr : axis->attrs) {
+        if (attr.attr_key != AT_MOD) {
+          continue;
+        }
+        CHECK_NE(attr.attr_value, "");
+        auto mod_value = static_cast<int>(std::strtol(attr.attr_value.c_str(), nullptr, 10));
+        axis->TileRestrainMod(CastInt64ToExpr(mod_value), TileLevel::LEVEL1);
+      }
+    }
+    auto tile_mod = axis->l1_constraints.tile_mod_.as<IntImm>()->value;
+    while (tile_mod > reduce_threads && tile_mod % reduce_threads != 0) {
+      --reduce_threads;
+    }
+    axis->thread_constraints.map_extent_ = reduce_threads;
+    axis->thread_constraints.item_process_ = default_elem_per_thread;
+  }
+}
+
+bool ReduceStrategy::UseRegisterMem() {
+  for (auto &it : analyzer_->buf_info_) {
+    auto buf = it.second.get();
+    CHECK(buf);
+    if (buf->scope == TilingMemScope::MEM_SCOPE_LOCAL) {
+      return true;
+    }
+  }
+  return false;
+}
+
+void ReduceStrategy::DealWith4DFusedReduce() {
+  auto mod_axes = analyzer_->GetAxesOfAttr(AT_MOD);
   for (auto axis : mod_axes) {
-    if (std::count(reduce_axes.begin(), reduce_axes.end(), axis)) {
+    if (axis->HasAttr(AT_REDUCE_AXIS) || axis->mc_sup == 0) {
       continue;
     }
     int last_mod_value = -1;
     size_t num_mod_axis = 0;
     for (const auto &attr : axis->attrs) {
-      if (attr.attr_key != "MOD") {
+      if (attr.attr_key != AT_MOD) {
         continue;
       }
       CHECK_NE(attr.attr_value, "");
       last_mod_value = static_cast<int>(std::strtol(attr.attr_value.c_str(), nullptr, 10));
       ++num_mod_axis;
     }
-    if (num_mod_axis < 2) {
+    if (num_mod_axis < 1) {
       continue;
     }
     axis->TileRestrainToSingleValue(CastIntToExpr(last_mod_value), TileLevel::LEVEL1);
@@ -108,8 +250,34 @@ void ReduceStrategy::DealWith4DFusedReduce(const std::vector<akg::ir::poly::Tile
                    << ". If fusing more than two axes together, footprint box calculated by isl may not be correct.";
       continue;
     }
-    axis->thread_constraints.map_min_ = last_mod_value;
     axis->thread_constraints.map_extent_ = last_mod_value;
+  }
+}
+
+void ReduceStrategy::DealWithPostReduceTensors() {
+  std::unordered_set<std::string> post_reduce_tensors;
+  auto root = analyzer_->RootAxis();
+  for (const auto &attr : root->attrs) {
+    if (attr.attr_key != AT_POST_FUSION_REDUCE_TENSOR) {
+      continue;
+    }
+    auto tensor_name = attr.attr_value;
+    post_reduce_tensors.insert(tensor_name);
+  }
+
+  for (const auto axis : reduce_axes_) {
+    for (const auto &attr : axis->attrs) {
+      if (attr.attr_key != AT_REDUCE_AXIS) {
+        continue;
+      }
+      auto red_tensor_name = attr.attr_value;
+      if (post_reduce_tensors.find(red_tensor_name) == post_reduce_tensors.end()) {
+        continue;
+      }
+      axis->block_constraints.map_min_ = MIN_TILE;
+      axis->block_constraints.map_extent_ = MIN_TILE;
+      axis->thread_constraints.item_process_ = SpItemPerThread::FULL;
+    }
   }
 }
 
@@ -124,13 +292,14 @@ void GpuStrategy::AddGpuConstraint() {
 }
 
 void GpuStrategy::InitMappingLimit() {
+  max_num_threads_ = analyzer_->scop_info_.user_config_.GetMaxElemPerThread();
   DetermineTemplate();
   std::stringstream ss;
-  ss << "Use template " << template_;
+  ss << "Use template " << template_map_[template_];
   analyzer_->logger_.AppendLog(GPU_MAPPING, ss);
   auto thread_config = analyzer_->scop_info_.user_config_.GetThreadConfig();
   if (thread_config == nullptr || thread_config->bound == 0) {
-    if (template_ <= Template::REDUCTION || template_ == Template::BITWISE_REDUCTION) {
+    if (template_ == Template::REDUCTION || template_ == Template::BITWISE_REDUCTION) {
       thread_limit_ = {max_num_threads_, max_num_threads_};
     } else if (template_ == Template::ALL_REDUCE) {
       if (analyzer_->scop_info_.user_config_.GetEnableAkgReduceLib()) {
@@ -138,10 +307,18 @@ void GpuStrategy::InitMappingLimit() {
       } else {
         thread_limit_ = {1};
       }
-    } else if (template_ == Template::TRANSPOSE) {
+    } else if (template_ == Template::TRANSPOSE_OP) {
+      analyzer_->ForEachAxisTopDown([this](TileAxis *axis) {
+        axis->thread_constraints.item_process_ =
+          std::max(axis->thread_constraints.item_process_, min_elem_for_io_bound_);
+      });
+      thread_limit_ = {max_num_threads_, max_num_threads_};
+    } else if (template_ == Template::MATMUL) {
       // This is a naive tiling strategy used in gpu when thread and block configs are already set.
       // This strategy will tile up to three inner-most axes to 32 (for thread binding).
       thread_limit_ = {32, 8};
+    } else {
+      thread_limit_ = {max_num_threads_, max_num_threads_, max_num_threads_};
     }
     AdjustThreadMappingLimit();
   } else {
@@ -160,18 +337,25 @@ void GpuStrategy::InitMappingLimit() {
       } else {
         block_limit_ = {1};
       }
-    } else if (template_ == Template::TRANSPOSE) {
-      block_limit_ = {max_num_blocks_, max_num_blocks_};
     } else if (template_ == Template::BITWISE_REDUCTION) {
       if (analyzer_->scop_info_.user_config_.GetEnableAkgReduceLib()) {
         block_limit_ = {1};
       } else {
         block_limit_ = {max_num_blocks_, max_num_blocks_, max_num_blocks_};
       }
+    } else {
+      block_limit_ = {max_num_blocks_, max_num_blocks_, max_num_blocks_};
     }
   } else {
     for (int i = block_config->bound - 1; i >= 0; --i) {
       block_limit_.emplace_back(block_config->GetAt(i).second);
+    }
+  }
+
+  std::vector<std::string> elem_cfg = common::Split(analyzer_->scop_info_.user_config_.GetElemPerThread(), " ");
+  for (size_t i = 0; i < max_dim_; ++i) {
+    if (i < elem_cfg.size() && !elem_cfg[i].empty()) {
+      elem_per_thread_[i] = static_cast<int64_t>(std::strtol(elem_cfg[i].c_str(), nullptr, 10));
     }
   }
 }
@@ -215,36 +399,40 @@ void GpuStrategy::InnerThreadOuterBlock() {
     int64_t rest_threads = std::min(max_num_threads_ / activated_threads, thread_limit_[thread_cfg_.size()]);
     ss << "axis " << axis->index << "_" << axis->dim_axis << " shape = " << shape
        << ", rest_threads = " << rest_threads;
-    auto SkipMapping = [this, &axis, &shape, &ss]() {
+    auto SkipMapping = [this, &axis, &shape, &ss, &inner_dim, &thread_dim]() {
+      auto tile = inner_dim < thread_dim ? elem_per_thread_[inner_dim] : 1;
+      tile = tile == SpItemPerThread::AUTO ? std::min(axis->thread_constraints.item_process_, max_elem_per_thread_)
+                                           : tile == SpItemPerThread::FULL ? std::min(shape, max_elem_per_thread_) : 1;
       if (axis->block_constraints.map_extent_ > 1) {
-        pending_axes_.push_back(std::make_pair(axis, shape));
+        tile =
+          std::max(tile, std::max<int64_t>(ceil(static_cast<float>(shape) / axis->block_constraints.map_extent_), 1));
+        pending_axes_.push_back(std::make_pair(axis, std::max<int64_t>(ceil(static_cast<float>(shape) / tile), 1)));
         ss << ", map to block.";
+      } else {
+        tile = std::min(tile, shape);
       }
+      axis->TileRestrainLower(tile, TileLevel::LEVEL1);
+      ss << ", tile = " << tile;
       analyzer_->logger_.AppendLog(GPU_MAPPING, ss);
     };
-
-    if (axis->thread_constraints.map_extent_ <= 1) {
-      ss << ", thread mapping is not allowed.";
-      SkipMapping();
-      continue;
-    }
+    rest_threads = std::min(rest_threads, axis->thread_constraints.map_extent_);
 
     if (rest_threads <= 1 || thread_cfg_.size() >= thread_dim || inner_dim >= max_dim_) {
       ss << ", no thread/dim rests";
-      // finish mapping threads, tile rest to minimum for block mapping
-      axis->TileRestrainToSingleValue(CastIntToExpr(MIN_TILE), TileLevel::LEVEL1);
       SkipMapping();
       continue;
     }
-
-    ++inner_dim;
-    auto use = GetThreadSize(rest_threads, shape);
+    auto item = elem_per_thread_[inner_dim] == SpItemPerThread::AUTO ? axis->thread_constraints.item_process_
+                                                                     : elem_per_thread_[inner_dim];
+    item = std::min(item, max_elem_per_thread_);
+    auto use = GetThreadSize(rest_threads, inner_dim, shape, item);
     activated_threads *= use;
     ss << ", use = " << use << ", actived threads = " << activated_threads;
-    analyzer_->logger_.AppendLog(GPU_MAPPING, ss);
     thread_cfg_.emplace_back(use);
-    pending_axes_.push_back(std::make_pair(axis, std::max<int64_t>(ceil(static_cast<float>(shape) / use), 1)));
-    axis->TileRestrainToSingleValue(CastIntToExpr(use), TileLevel::LEVEL1);
+    auto tile = TileAfterThreadMapping(axis, inner_dim, use, item);
+    pending_axes_.push_back(std::make_pair(axis, std::max<int64_t>(ceil(static_cast<float>(shape) / tile), 1)));
+    analyzer_->logger_.AppendLog(GPU_MAPPING, ss);
+    ++inner_dim;
   }
 
   std::vector<size_t> indexing;
@@ -306,15 +494,15 @@ void GpuStrategy::InnerThreadOuterBlock() {
     auto use = (rest_blocks > 0 && shape > 0) ? TilingAnalyzer::FindDivisibleTilingFactor(rest_blocks, shape) : 1;
     activated_blocks *= use;
     ss << ", use = " << use << ", actived blocks = " << activated_blocks;
-    analyzer_->logger_.AppendLog(GPU_MAPPING, ss);
     block_cfg_[pending_axes_.size() - 1 - i] = use;
     if (analyzer_->scop_info_.user_config_.GetEnableAkgReduceLib() || axis->mc_sup) {
       ++block_count_;
     }
+    CHECK(axis->range_extent.as<IntImm>());
     auto extent = axis->range_extent.as<IntImm>()->value;
-    auto inner_extent = axis->l1_constraints.tile_extent_.as<IntImm>()->value;
-    axis->l1_constraints.tile_extent_ =
-      std::min(inner_extent, std::max<int64_t>(ceil(static_cast<float>(extent) / use), 1));
+    axis->TileRestrainUpper(std::max<int64_t>(ceil(static_cast<float>(extent) / use), 1), TileLevel::LEVEL1);
+    ss << ", tile range = [" << axis->l1_constraints.tile_min_ << ", " << axis->l1_constraints.tile_extent_ << "]";
+    analyzer_->logger_.AppendLog(GPU_MAPPING, ss);
   }
 }
 
@@ -359,15 +547,47 @@ void GpuStrategy::SetMappingConfig() {
   analyzer_->logger_.AppendLog(GPU_MAPPING, ss);
 }
 
-int64_t GpuStrategy::GetThreadSize(const int64_t rest_threads, const int64_t shape) {
+int64_t GpuStrategy::GetThreadSize(const int64_t rest_threads, size_t inner_dim, const int64_t shape,
+                                   const int64_t item) {
   // TODO: how to set best thread size according to current rest_thread and shape
   //       is not sure and profiling test is needed.
 
   // Current experience is that let mapped threads divisible by warp_size to increase performance.
-  if (shape > rest_threads) {
+  int64_t thread_extent = item == SpItemPerThread::FULL ? rest_threads : ceil(static_cast<float>(shape) / item);
+  if (thread_extent > rest_threads) {
     return rest_threads;
   }
-  return std::min(rest_threads, (shape - 1 + warp_sizes_) / warp_sizes_ * warp_sizes_);
+  auto proposal = inner_dim == 0 ? ((thread_extent - 1 + warp_sizes_) / warp_sizes_ * warp_sizes_) : thread_extent;
+  return std::min(rest_threads, proposal);
+}
+
+int64_t GpuStrategy::TileAfterThreadMapping(TileAxis *axis, size_t inner_dim, int64_t thread_size, const int64_t item) {
+  std::stringstream ss;
+  auto shape = axis->range_extent.as<IntImm>()->value;
+  auto tile_min = axis->l1_constraints.tile_min_.as<IntImm>()->value;
+  auto tile_mod = axis->l1_constraints.tile_mod_.as<IntImm>()->value;
+  auto tile_extent = axis->l1_constraints.tile_extent_.as<IntImm>()->value;
+  if (tile_min == tile_extent && tile_extent != MIN_TILE) {
+    ss << "tile extent is already determined = " << tile_extent;
+    analyzer_->logger_.AppendLog(GPU_MAPPING, ss);
+    return tile_extent;
+  }
+
+  auto tile = item == SpItemPerThread::FULL ? std::min(shape, thread_size * max_elem_per_thread_)
+                                            : std::min(shape, thread_size * item);
+
+  while (tile > tile_mod && tile % tile_mod != 0 && tile > thread_size) {
+    --tile;
+  }
+  if (analyzer_->scop_info_.user_config_.GetEnableAkgReduceLib()) {
+    while (shape % tile != 0 && tile > thread_size) {
+      --tile;
+    }
+  }
+  ss << "axis " << axis->index << "_" << axis->dim_axis << " elem_per_thread = " << item << ", tile = " << tile;
+  analyzer_->logger_.AppendLog(GPU_MAPPING, ss);
+  axis->TileRestrainToSingleValue(CastInt64ToExpr(tile), TileLevel::LEVEL1);
+  return tile;
 }
 
 void GpuStrategy::DetermineTemplate() {
@@ -378,7 +598,7 @@ void GpuStrategy::DetermineTemplate() {
       return;
     }
   }
-  auto reduce_axes = analyzer_->GetAxesOfAttr("REDUCE_AXIS");
+  auto reduce_axes_ = analyzer_->GetAxesOfAttr(AT_REDUCE_AXIS);
   size_t depth = 0;
   analyzer_->ForEachAxisTopDown([this, &depth](TileAxis *axis) {
     if (axis == analyzer_->RootAxis()) {
@@ -386,7 +606,7 @@ void GpuStrategy::DetermineTemplate() {
     }
     ++depth;
   });
-  if (reduce_axes.size() == depth) {
+  if (reduce_axes_.size() == depth) {
     template_ = Template::ALL_REDUCE;
     return;
   }
@@ -398,11 +618,11 @@ void GpuStrategy::DetermineTemplate() {
     for (const auto &attr : axis->attrs) {
       for (const auto &e : excluded_attr_) {
         if (attr.attr_key.find(e) != std::string::npos) {
-          if (e == "REDUCE" && template_ < Template::REDUCTION) {
+          if (e == AT_REDUCE_AXIS && template_ < Template::REDUCTION) {
             template_ = Template::REDUCTION;
           }
-          if (e == "TRANSPOSE" && template_ < Template::TRANSPOSE) {
-            template_ = Template::TRANSPOSE;
+          if (e == AT_TRANSPOSE && template_ < Template::TRANSPOSE_OP) {
+            template_ = analyzer_->GetAxesOfAttr(AT_GEMM).empty() ? Template::TRANSPOSE_OP : Template::MATMUL;
           }
         }
       }
@@ -465,8 +685,6 @@ bool GpuStrategy::IsElemWiseAxis(TileAxis *axis) {
 // No constraint found in cuda
 
 void ModStrategy::AddGpuConstraint() {}
-
-void CastStrategy::AddGpuConstraint() {}
 
 void CustomTilingStrategy::AddGpuConstraint() {}
 
