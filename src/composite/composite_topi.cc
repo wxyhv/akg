@@ -797,4 +797,27 @@ TVM_REGISTER_GLOBAL("TransData").set_body([](TVMArgs args, TVMRetValue *rv) {
     LOG(FATAL) << "TransData for src_format " << src_format << "and dst_format" << dst_format << " is not supported";
   }
 });
+
+TVM_REGISTER_GLOBAL("Broadcast").set_body([](TVMArgs args, TVMRetValue *rv) {
+  CHECK_EQ(args.size(), 2);
+  auto inputs = args[0].operator Array<NodeRef>();
+  CHECK_EQ(inputs.size(), 1);
+  auto attrs = args[1].operator OpAttr();
+  auto shape_v = Downcast<Array<Integer>>(attrs["shape"]);
+  Array<Expr> shape;
+  for (size_t i = 0; i < shape_v.size(); ++i) {
+    shape.push_back(shape_v[i]);
+  }
+  if (inputs[0]->IsInstance<ExprNode>()) {
+    auto val = Downcast<Expr>(inputs[0]);
+    auto fcompute = [&](const Array<Var> &indices) {
+      return val;
+    };
+    *rv = compute(shape, fcompute, "broadcast");
+  } else {
+    auto val = Downcast<Tensor>(inputs[0]);
+    *rv = topi::broadcast_to(val, shape);
+  }
+});
+
 }  // namespace akg
