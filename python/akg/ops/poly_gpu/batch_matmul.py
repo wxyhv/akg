@@ -14,14 +14,14 @@
 
 """batch matmul"""
 import akg
-from akg.topi.cuda.injective_single_kernel import schedule_injective
+from akg.topi.cuda import schedule_batch_matmul
 from akg.ops.math_gpu import batch_matmul
 
-@akg.schedule(schedule_injective)
-def batch_matmul_manual(x, y, bias=None):
+@akg.schedule(schedule_batch_matmul)
+def batch_matmul_manual(x, y, layout1="NHDT", layout2="NHDT", layout_out="NHDT"):
     """BatchMatmul with manual schedule."""
-    return batch_matmul.batch_matmul(x, y, bias)
+    return batch_matmul.batch_matmul(x, y, layout1, layout2, layout_out)
 
-def batch_matmul_auto(x, y, bias=None):
+def batch_matmul_auto(x, y, layout1="NHDT", layout2="NHDT", layout_out="NHDT"):
     """BatchMatmul with auto poly."""
-    return batch_matmul.batch_matmul(x, y, bias)
+    return batch_matmul.batch_matmul(x, y, layout1, layout2, layout_out)
