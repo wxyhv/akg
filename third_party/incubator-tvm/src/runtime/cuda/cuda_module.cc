@@ -243,7 +243,7 @@ class CUDAWrappedFunc {
         wl.block_dim(2),
         0, strm, void_args, 0);
 #endif
-    
+
     if (result != CUDA_SUCCESS && result != CUDA_ERROR_DEINITIALIZED) {
       const char *msg;
       cuGetErrorName(result, &msg);

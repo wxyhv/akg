@@ -27,6 +27,7 @@ import random
 import subprocess
 import re
 import logging
+import tvm
 from timeit import default_timer as timer
 from threading import Thread
 from functools import reduce
@@ -462,7 +463,11 @@ def mod_launch(mod, args, outputs=(-1,), tuning=False, device_id=0, expect=None)
         mod_args = [akg.tvm.nd.array(a, ctx) for a in args]
         mod(*mod_args)
         out_list = [mod_args[len(args) + i if i < 0 else i].asnumpy() for i in outputs]
-        return out_list[0] if len(out_list) == 1 else tuple(out_list)
+        if not tuning:
+            return out_list[0] if len(out_list) == 1 else tuple(out_list)
+        else:
+            cycles = get_gpu_cycles(mod, *mod_args, device_id=device_id, save_log=True)
+            return out_list[0] if len(out_list) == 1 else tuple(out_list), {'run_time': cycles}
 
     stat_info = {}
     profiling_mode = get_profiling_mode()
@@ -902,6 +907,15 @@ def get_device_id():
         logging.error(e)
         return 0
 
+def get_gpu_cycles(mod, *mod_args, device_id=0, save_log=False):
+    "get gpu profiling cycles."
+    func = tvm.get_global_func('GPUProfilerInit')
+    func("")
+    from akg.utils.result_analysis import gpu_profiling
+    gpu_profiling(mod, *mod_args, repeat_time=400, device_id=device_id)
+    func = tvm.get_global_func('GPUProfilerStop')
+    a = func()
+    return int(a)
 
 class TestUtils:
     """Class for getting cycle and core num."""

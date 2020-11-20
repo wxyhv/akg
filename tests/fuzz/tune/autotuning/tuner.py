@@ -18,6 +18,7 @@ import time
 import json
 import os
 import numpy as np
+from multiprocessing import Process
 from .xgb_cost_model import XgbCostModel
 from .sa_model_optimizer import SimulatedAnnealingOptimizer
 from .space import ConfigSpace
@@ -230,6 +231,12 @@ class ModelBasedTuner(Tuner):
         super(ModelBasedTuner, self).info()
         print('model run time:', self.__model_run_time, 'secs')
 
+    def model_res(self):
+        self.__cost_model.fit(self._xs, self._ys, self.__plan_size)
+        best_configs = self.__model_optimizer.find_best(
+            self.__cost_model, self.__plan_size, self._visited)
+        self._trials = best_configs
+
     def tune(self, least_try_times: int, output_file: str = None):
         early_stopping = least_try_times
         self.__least_try_times = least_try_times
@@ -290,11 +297,9 @@ class ModelBasedTuner(Tuner):
 
             # if we have enough new training samples
             if len(self._xs) >= self.__plan_size * (self.__train_ct + 1):
-                self.__cost_model.fit(self._xs, self._ys, self.__plan_size)
-                best_configs = self.__model_optimizer.find_best(
-                    self.__cost_model, self.__plan_size, self._visited)
-
-                self._trials = best_configs
+                p = Process(target=self.model_res)
+                p.start()
+                p.join()
                 self._trial_pt = 0
                 self.__train_ct += 1
 
