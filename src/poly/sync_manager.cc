@@ -24,7 +24,9 @@ namespace poly {
 
 isl::id SyncManager::MakeUniqueId(SyncLevel level) {
   if (level == SyncLevel::WARP) {
-    return GetWarpSyncId();
+    // For now, tvm codegen does not support warp sync.
+    // So, used shared sync instead of warp sync.
+    return GetSyncId();
   } else {
     return GetSyncId();
   }

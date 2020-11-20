@@ -327,7 +327,7 @@ class TilingGenerator {
     // dim.l0_val  -> corresponding tile variable
     // dim.prgama  -> shift time (IntImm)
     auto Convert = [this](TileAxis *axis) {
-      std::vector<std::string> bound_value = axis->GetAttrValue("DYNAMIC_BOUND");
+      std::vector<std::string> bound_value = axis->GetAttrValue(AT_DYNAMIC_BOUND);
       if (!bound_value.empty()) {
         CHECK_EQ(bound_value.size(), 1U);
         CHECK_NE(bound_value[0], "");
@@ -340,7 +340,7 @@ class TilingGenerator {
           bound_info.l0_tiling_size = d.l1_tiling_size;
           bound_info.l0_var = d.l1_var;
         }
-        std::vector<std::string> shift_value = axis->GetAttrValue("DYNAMIC_SHIFT");
+        std::vector<std::string> shift_value = axis->GetAttrValue(AT_DYNAMIC_SHIFT);
         CHECK_EQ(shift_value.size(), 1U) << "Empty shift_time for dynamic bound " << bound;
         CHECK_NE(shift_value[0], "");
         auto shift = static_cast<int>(std::strtol(shift_value[0].c_str(), nullptr, 10));

@@ -74,35 +74,42 @@ double TilingSolver::GetNewAllocRatioWhenRewriteFail(int64_t memory_bits) {
 }
 
 void TilingSolver::CollectMemoryLimit() {
-  // Init memory allocation percentage.
-  percentage_ = ALLOCATION_PERCENTAGE;
-  for (auto attr : analyzer_.RootAxis()->attrs) {
-    if (attr.attr_key != "MEM_RATIO") continue;
-    CHECK_NE(attr.attr_value, "");
-    percentage_ = std::strtod(attr.attr_value.c_str(), nullptr);
-    break;
-  }
+  if (analyzer_.scop_info_.user_config_.GetTarget() == TARGET_CCE) {
+    // Init memory allocation percentage.
+    percentage_ = ALLOCATION_PERCENTAGE;
+    for (auto attr : analyzer_.RootAxis()->attrs) {
+      if (attr.attr_key != AT_MEM_RATIO) continue;
+      CHECK_NE(attr.attr_value, "");
+      percentage_ = std::strtod(attr.attr_value.c_str(), nullptr);
+      break;
+    }
 
-  // Handle previous error info if storage flatten fails and adjust allocation percentage.
-  auto error_info = global_attrs.GetStringAttr(kErrorInfo, "");
-  if (!error_info.empty() && error_info.find("storage_flatten") != std::string::npos) {
-    std::stringstream ss;
-    ss << "Get Error Info! -> " << global_attrs.GetStringAttr(kErrorInfo, "");
-    percentage_ = percentage_ * GetNewAllocRatioWhenFlattenFail(error_info);
-    ss << "Adjust memory allocation to " << percentage_ << " of memory size and retry tiling.";
-    global_attrs.Set(kErrorInfo, StringImm::make(""));
-    analyzer_.logger_.AppendLog(MICRO_TUNING, ss);
-  }
+    // Handle previous error info if storage flatten fails and adjust allocation percentage.
+    auto error_info = global_attrs.GetStringAttr(kErrorInfo, "");
+    if (!error_info.empty() && error_info.find("storage_flatten") != std::string::npos) {
+      std::stringstream ss;
+      ss << "Get Error Info! -> " << global_attrs.GetStringAttr(kErrorInfo, "");
+      percentage_ = percentage_ * GetNewAllocRatioWhenFlattenFail(error_info);
+      ss << "Adjust memory allocation to " << percentage_ << " of memory size and retry tiling.";
+      global_attrs.Set(kErrorInfo, StringImm::make(""));
+      analyzer_.logger_.AppendLog(MICRO_TUNING, ss);
+    }
 
-  // Init memory limit for each scope and reduce ratio of local.UB if storage rewrite fails previously.
-  DavinciInfo &d_info = DavinciInfo::GetInstance();
-  auto error_scope = global_attrs.GetStringAttr(kErrorScope, "");
-  for (auto i = 0; i < MEM_SCOPE_BULK; ++i) {
-    this->mem_limit_[i] = d_info.GetMemoryLimitInScope(i) * percentage_;
-    if (i == TilingMemScope::MEM_SCOPE_UB && error_scope == "local.UB") {
-      this->mem_limit_[i] =
-        std::max(static_cast<int>(this->mem_limit_[i] * GetNewAllocRatioWhenRewriteFail(this->mem_limit_[i])), 1);
-      global_attrs.Set(kErrorScope, StringImm::make(""));
+    // Init memory limit for each scope and reduce ratio of local.UB if storage rewrite fails previously.
+    DavinciInfo &d_info = DavinciInfo::GetInstance();
+    auto error_scope = global_attrs.GetStringAttr(kErrorScope, "");
+    for (auto i = 0; i < MEM_SCOPE_BULK; ++i) {
+      this->mem_limit_[i] = d_info.GetMemoryLimitInScope(i) * percentage_;
+      if (i == TilingMemScope::MEM_SCOPE_UB && error_scope == "local.UB") {
+        this->mem_limit_[i] =
+          std::max(static_cast<int>(this->mem_limit_[i] * GetNewAllocRatioWhenRewriteFail(this->mem_limit_[i])), 1);
+        global_attrs.Set(kErrorScope, StringImm::make(""));
+      }
+    }
+  } else {
+    GpuInfo &gpu_info = GpuInfo::GetInstance();
+    for (auto i = 0; i < MEM_SCOPE_BULK; ++i) {
+      this->mem_limit_[i] = gpu_info.GetMemoryLimitInScope(i);
     }
   }
 }
@@ -427,7 +434,7 @@ Expr InequalitySolver::DetermineTileForDynamic(TileAxis *axis, const Expr &mem_c
   } else {
     bool need_adjust_mem =
       ((analyzer_.arith_ana_.CanProve(cons.tile_mod_ > 1)) &&
-       (analyzer_.arith_ana_.CanProve(new_mem_constraint % cons.tile_mod_ != 0)) && (!axis->HasAttr("DYNAMIC_SHIFT")));
+       (analyzer_.arith_ana_.CanProve(new_mem_constraint % cons.tile_mod_ != 0)) && (!axis->HasAttr(AT_DYNAMIC_SHIFT)));
 
     // Reduce memory limit so that mem_constraint % tile_mod == 0.
     if (need_adjust_mem) {
@@ -536,7 +543,7 @@ int64_t InequalitySolver::DetermineTileForStatic(TileAxis *axis, const Expr &mem
 
       auto mod_value = cons.tile_mod_.as<IntImm>() ? cons.tile_mod_.as<IntImm>()->value : 1;
       bool is_unaligned = (static_shape >= mod_value && final_factor % mod_value != 0);
-      bool need_to_align = (final_factor > mod_value || !axis->HasAttr("VECTORIZED"));
+      bool need_to_align = (final_factor > mod_value || !axis->HasAttr(AT_VECTORIZED));
       if (is_unaligned && need_to_align) {
         final_factor = std::max(static_cast<int>(final_factor / mod_value * mod_value), 1);
         ss << "--> Mod value " << mod_value << " --> Align to mod " << final_factor;
@@ -580,7 +587,7 @@ void InequalitySolver::CalculateMemoryInBuffer(const TilingAnalyzer::BufferEntry
   std::stringstream ss;
   bool this_band_buf = (buf->scope == MEM_SCOPE_GM);
   Expr buf_shape = CastInt64ToExpr(buf->size * buf->expand_size);
-  bool is_l0_buf = buf->scope > MEM_SCOPE_L1;
+  bool is_l0_buf = buf->scope == MEM_SCOPE_L1;
 
   if (buf->scope != MEM_SCOPE_GM) {
     for (auto &axis : *(buf->tile_axis)) {
@@ -597,7 +604,9 @@ void InequalitySolver::CalculateMemoryInBuffer(const TilingAnalyzer::BufferEntry
       if (analyzer_.arith_ana_.CanProve(tile_var > axis->range_extent)) tile_var = axis->range_extent;
 
       // Make tile var align to 32 Bytes.
-      tile_var = EstimateAlignment(buf, axis, tile_var);
+      if (analyzer_.scop_info_.user_config_.GetTarget() == TARGET_CCE) {
+        tile_var = EstimateAlignment(buf, axis, tile_var);
+      }
 
       buf_shape *= tile_var;
     }
@@ -646,7 +655,7 @@ Expr InequalitySolver::EstimateAlignment(const TilingAnalyzer::BufferEntry *buf,
   auto GetAlignType = [axis, buf]() -> std::string {
     std::string align_type;
     for (const auto &attr : axis->attrs) {
-      if (attr.attr_key.find("ALIGN") == std::string::npos) continue;
+      if (attr.attr_key.find(AT_ALIGN) == std::string::npos) continue;
       std::string local_name = attr.attr_value + "_local_UB";
       if (buf->name.find(local_name) != std::string::npos) {
         std::vector<std::string> res = akg::common::Split(attr.attr_key, ":");
@@ -659,7 +668,7 @@ Expr InequalitySolver::EstimateAlignment(const TilingAnalyzer::BufferEntry *buf,
 
   std::string align_type = GetAlignType();
   Expr block_size = CastInt64ToExpr(GetAlignBytes(buf->align_size));
-  if (align_type.find("TRANSPOSE") != std::string::npos) {
+  if (align_type.find(AT_TRANSPOSE) != std::string::npos) {
     return CanonicalSimplify(tile * block_size);
   } else if (!align_type.empty() || axis == buf->tile_axis.get()->back()) {
     return CanonicalSimplify(floordiv((tile - 1 + block_size), block_size) * block_size);
@@ -731,7 +740,8 @@ void InequalitySolver::UpdateMemInfoWithBufReuse() {
 }
 
 Array<Expr> InequalitySolver::CollectMemoryConstraints() {
-  std::unordered_map<int, std::string> memory_map = {{1, "UB"}, {2, "L1"}, {3, "L0A"}, {4, "L0B"}, {5, "L0C"}};
+  std::unordered_map<int, std::string> memory_map = {{1, "UB"},  {2, "L1"},     {3, "L0A"},  {4, "L0B"},
+                                                     {5, "L0C"}, {6, "SHARED"}, {7, "LOCAL"}};
   auto mem_info = tiling_mem_info_.get();
   Array<Expr> memory_constraints;
   for (int i = 1; i < MEM_SCOPE_BULK; ++i) {
@@ -846,9 +856,9 @@ TileCandidate *TraverseSolver::Solve() {
         }
       }
 
-      std::vector<TileAxis *> ko_axes = this->analyzer_.GetAxesOfAttr(AttrInfo{"GEMM", "ko"});
-      std::vector<TileAxis *> mo_axes = this->analyzer_.GetAxesOfAttr(AttrInfo{"GEMM", "mo"});
-      std::vector<TileAxis *> no_axes = this->analyzer_.GetAxesOfAttr(AttrInfo{"GEMM", "no"});
+      std::vector<TileAxis *> ko_axes = this->analyzer_.GetAxesOfAttr(AttrInfo{AT_GEMM, "ko"});
+      std::vector<TileAxis *> mo_axes = this->analyzer_.GetAxesOfAttr(AttrInfo{AT_GEMM, "mo"});
+      std::vector<TileAxis *> no_axes = this->analyzer_.GetAxesOfAttr(AttrInfo{AT_GEMM, "no"});
 
       auto MakeL1L0Consistency = [this](const std::vector<TileAxis *> &axes) {
         if (axes.size() == 1U) {
@@ -887,7 +897,7 @@ bool TraverseSolver::IsTilable(TileInfo *info) {
 
   if (level == LEVEL1) {
     bool use_tile_min = (info->axis->forbid_iso && const_extent % cons.tile_mod_.as<IntImm>()->value != 0) ||
-                        (cons.tile_min_.as<IntImm>()->value == MIN_TILE) || (axis->HasAttr("VECTORIZED")) ||
+                        (cons.tile_min_.as<IntImm>()->value == MIN_TILE) || (axis->HasAttr(AT_VECTORIZED)) ||
                         (cons.tile_min_.as<IntImm>()->value > cons.tile_mod_.as<IntImm>()->value);
     if (use_tile_min) {
       min_tile = cons.tile_min_.as<IntImm>()->value;
@@ -958,9 +968,9 @@ bool TraverseSolver::MemoryVerify(TileLevel level, int band, int64_t *deviation)
   bool L0C_valid = (expanded_size[MEM_SCOPE_L0C] <= mem_limit_[MEM_SCOPE_L0C]);
   bool cut_reduce = analyzer_.scop_info_.cube_info_.IsConvBackpropFilter();
 
-  std::vector<TileAxis *> batch_axes = analyzer_.GetAxesOfAttr(AttrInfo{"CONV", "N"});
-  std::vector<TileAxis *> h_axes = analyzer_.GetAxesOfAttr(AttrInfo{"CONV", "H"});
-  std::vector<TileAxis *> w_axes = analyzer_.GetAxesOfAttr(AttrInfo{"CONV", "W"});
+  std::vector<TileAxis *> batch_axes = analyzer_.GetAxesOfAttr(AttrInfo{AT_CONV, "N"});
+  std::vector<TileAxis *> h_axes = analyzer_.GetAxesOfAttr(AttrInfo{AT_CONV, "H"});
+  std::vector<TileAxis *> w_axes = analyzer_.GetAxesOfAttr(AttrInfo{AT_CONV, "W"});
 
   if (cut_reduce) {
     cut_reduce = ((batch_axes.size() == 1U && batch_axes[0]->GetConstExtent() > 1) ||
@@ -993,7 +1003,9 @@ bool TraverseSolver::DoTiling(const TileInfo *info) {
     analyzer_.scop_info_.user_config_.GetPragmaAllowTailTiling() ? 1 : GetMaxAlignBytes(axis->data_size);
 
   TileAxis::Constraint cons = axis->GetConstConstraint(info->level);
-  CHECK_GT(cons.tile_extent_.as<IntImm>()->value, 0) << "Static shape's L1 max factor should be positive integer";
+  if (cons.tile_extent_.as<IntImm>()->value < 0) {
+    analyzer_.logger_.LogFatalAndSaveLog("Static shape's L1 max factor should be positive integer");
+  }
   int64_t init = info->min_tile;
   int64_t dst = info->level == LEVEL1 ? cons.tile_extent_.as<IntImm>()->value : this->cand_.GetConstTileVal(axis).first;
 
@@ -1078,12 +1090,12 @@ void TraverseSolver::AppendConvPragma() {
   Expr c_cut = CastIntToExpr(16);
   Expr kh_cut = CastIntToExpr(1);
   Expr kw_cut = CastIntToExpr(1);
-  std::vector<TileAxis *> c_axes = analyzer_.GetAxesOfAttr(AttrInfo{"CONV", "C1"});
+  std::vector<TileAxis *> c_axes = analyzer_.GetAxesOfAttr(AttrInfo{AT_CONV, "C1"});
   if (c_axes.size() == 1U) {
     c_cut *= cand_.GetTileVal(c_axes[0]).first;
     no *= cand_.GetTileVal(c_axes[0]).first;
   } else {
-    c_axes = analyzer_.GetAxesOfAttr(AttrInfo{"CONV", "C1_in_out"});
+    c_axes = analyzer_.GetAxesOfAttr(AttrInfo{AT_CONV, "C1_in_out"});
     if (c_axes.size() == 1U) {
       c_cut *= cand_.GetTileVal(c_axes[0]).first;
       no *= cand_.GetTileVal(c_axes[0]).first;
@@ -1091,27 +1103,27 @@ void TraverseSolver::AppendConvPragma() {
     }
   }
   Expr tile_out_h = 1;
-  std::vector<TileAxis *> h_axes = analyzer_.GetAxesOfAttr(AttrInfo{"CONV", "H"});
+  std::vector<TileAxis *> h_axes = analyzer_.GetAxesOfAttr(AttrInfo{AT_CONV, "H"});
   if (h_axes.size() == 1U) {
     tile_out_h *= cand_.GetTileVal(h_axes[0]).first;
     M *= cand_.GetTileVal(h_axes[0]).first;
   }
   Expr tile_out_w = 1;
-  std::vector<TileAxis *> w_axes = analyzer_.GetAxesOfAttr(AttrInfo{"CONV", "W"});
+  std::vector<TileAxis *> w_axes = analyzer_.GetAxesOfAttr(AttrInfo{AT_CONV, "W"});
   if (w_axes.size() == 1U) {
     tile_out_w *= cand_.GetTileVal(w_axes[0]).first;
     M *= cand_.GetTileVal(w_axes[0]).first;
   }
-  std::vector<TileAxis *> kc_axes = analyzer_.GetAxesOfAttr(AttrInfo{"CONV", "C1_in"});
+  std::vector<TileAxis *> kc_axes = analyzer_.GetAxesOfAttr(AttrInfo{AT_CONV, "C1_in"});
   if (kc_axes.size() == 1U) {
     ko *= cand_.GetTileVal(kc_axes[0]).first;
   }
-  std::vector<TileAxis *> kh_axes = analyzer_.GetAxesOfAttr(AttrInfo{"CONV", "kh"});
+  std::vector<TileAxis *> kh_axes = analyzer_.GetAxesOfAttr(AttrInfo{AT_CONV, "kh"});
   if (kh_axes.size() == 1U) {
     ko *= cand_.GetTileVal(kh_axes[0]).first;
     kh_cut *= cand_.GetTileVal(kh_axes[0]).first;
   }
-  std::vector<TileAxis *> kw_axes = analyzer_.GetAxesOfAttr(AttrInfo{"CONV", "kw"});
+  std::vector<TileAxis *> kw_axes = analyzer_.GetAxesOfAttr(AttrInfo{AT_CONV, "kw"});
   if (kw_axes.size() == 1U) {
     ko *= cand_.GetTileVal(kw_axes[0]).first;
     kw_cut *= cand_.GetTileVal(kw_axes[0]).first;
@@ -1148,44 +1160,44 @@ void TraverseSolver::AppendConvBackpropPragma() {
   Expr kw_cut = 1;
   bool cut_reduce = false;
   air::arith::Analyzer arith_ana;
-  std::vector<TileAxis *> batch_axes = analyzer_.GetAxesOfAttr(AttrInfo{"CONV", "N"});
+  std::vector<TileAxis *> batch_axes = analyzer_.GetAxesOfAttr(AttrInfo{AT_CONV, "N"});
   if (batch_axes.size() == 1U) {
     batch_cut *= cand_.GetTileVal(batch_axes[0]).first;
     cut_reduce = cut_reduce || arith_ana.CanProve(batch_cut < batch_axes[0]->range_extent);
     ko *= cand_.GetTileVal(batch_axes[0]).first;
   }
   Expr tile_out_h = 1;
-  std::vector<TileAxis *> h_axes = analyzer_.GetAxesOfAttr(AttrInfo{"CONV", "H"});
+  std::vector<TileAxis *> h_axes = analyzer_.GetAxesOfAttr(AttrInfo{AT_CONV, "H"});
   if (h_axes.size() == 1U) {
     tile_out_h *= cand_.GetTileVal(h_axes[0]).first;
     cut_reduce = cut_reduce || arith_ana.CanProve(tile_out_h < h_axes[0]->range_extent);
     ko *= cand_.GetTileVal(h_axes[0]).first;
   }
   Expr tile_out_w = 1;
-  std::vector<TileAxis *> w_axes = analyzer_.GetAxesOfAttr(AttrInfo{"CONV", "W"});
+  std::vector<TileAxis *> w_axes = analyzer_.GetAxesOfAttr(AttrInfo{AT_CONV, "W"});
   if (w_axes.size() == 1U) {
     tile_out_w *= cand_.GetTileVal(w_axes[0]).first;
     cut_reduce = cut_reduce || arith_ana.CanProve(tile_out_w < h_axes[0]->range_extent);
     ko *= cand_.GetTileVal(w_axes[0]).first;
   }
-  std::vector<TileAxis *> kc_axes = analyzer_.GetAxesOfAttr(AttrInfo{"CONV", "C1_in"});
+  std::vector<TileAxis *> kc_axes = analyzer_.GetAxesOfAttr(AttrInfo{AT_CONV, "C1_in"});
   if (kc_axes.size() == 1U) {
     co_cut *= cand_.GetTileVal(kc_axes[0]).first;
     mo *= cand_.GetTileVal(kc_axes[0]).first;
   }
-  std::vector<TileAxis *> kh_axes = analyzer_.GetAxesOfAttr(AttrInfo{"CONV", "kh"});
+  std::vector<TileAxis *> kh_axes = analyzer_.GetAxesOfAttr(AttrInfo{AT_CONV, "kh"});
   if (kh_axes.size() == 1U) {
     ko *= cand_.GetTileVal(kh_axes[0]).first;
     no *= cand_.GetTileVal(kh_axes[0]).first;
     kh_cut *= cand_.GetTileVal(kh_axes[0]).first;
   }
-  std::vector<TileAxis *> kw_axes = analyzer_.GetAxesOfAttr(AttrInfo{"CONV", "kw"});
+  std::vector<TileAxis *> kw_axes = analyzer_.GetAxesOfAttr(AttrInfo{AT_CONV, "kw"});
   if (kw_axes.size() == 1U) {
     ko *= cand_.GetTileVal(kw_axes[0]).first;
     no *= cand_.GetTileVal(kw_axes[0]).first;
     kw_cut *= cand_.GetTileVal(kw_axes[0]).first;
   }
-  std::vector<TileAxis *> co_axes = analyzer_.GetAxesOfAttr(AttrInfo{"CONV", "C1_out"});
+  std::vector<TileAxis *> co_axes = analyzer_.GetAxesOfAttr(AttrInfo{AT_CONV, "C1_out"});
   if (co_axes.size() == 1U) {
     cin_cut *= cand_.GetTileVal(co_axes[0]).first;
     no *= cand_.GetTileVal(co_axes[0]).first;

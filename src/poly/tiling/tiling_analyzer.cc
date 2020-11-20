@@ -41,7 +41,7 @@ TileAxis::TileAxis(TileAxis *p, int i, int da, bool mc, const std::pair<std::str
       forbid_iso(false),
       is_inner(inner),
       analyzer_(ta) {
-  data_size[ds.first] = ds.second;
+  data_size[ds.first].emplace_back(ds.second);
   l1_constraints.tile_min_ = CastIntToExpr(MIN_TILE);
   l1_constraints.tile_extent_ = CastIntToExpr(MIN_TILE);
 
@@ -151,7 +151,10 @@ void TileAxis::DumpAxis(bool on_screen) {
      << "| L1 Tile [" << this->l1_constraints.tile_min_ << "," << this->l1_constraints.tile_extent_ << "]"
      << "| Data size {";
   for (const auto &it : this->data_size) {
-    ss << it.first << ":" << it.second << ", ";
+    ss << it.first << ":";
+    for (const auto &sz : it.second) {
+      ss << sz << ", ";
+    }
   }
   ss << "} | Align to = " << this->l1_constraints.tile_mod_ << "| L0 Tile [" << this->l0_constraints.tile_min_ << ","
      << this->l0_constraints.tile_extent_ << "] "
@@ -214,31 +217,40 @@ void TileAxis::DumpAxis(bool on_screen) {
 
 void TileAxis::TileRestrainMod(const Expr &mod, TileLevel level) {
   CHECK(analyzer_->arith_ana_.CanProve(mod != 0));
-  Expr ori_mod = level == LEVEL1 ? this->l1_constraints.tile_mod_ : this->l0_constraints.tile_mod_;
+  auto &constraint = level == LEVEL1 ? this->l1_constraints : this->l0_constraints;
+  Expr ori_mod = constraint.tile_mod_;
   Expr gcd = analyzer_->expr_ac_.Gcd(mod, ori_mod);
   CHECK(analyzer_->arith_ana_.CanProve(gcd != 0));
   Expr lcm = CanonicalSimplify(floordiv(mod * ori_mod, gcd));
-  if (level == LEVEL1) {
-    this->l1_constraints.tile_mod_ = lcm;
-  } else {
-    this->l0_constraints.tile_mod_ = lcm;
-  }
+  constraint.tile_mod_ = lcm;
+}
+
+void TileAxis::TileRestrainUpper(const Expr &value, TileLevel level) {
+  auto &constraint = level == LEVEL1 ? this->l1_constraints : this->l0_constraints;
+  auto old_upper = constraint.tile_extent_;
+  auto new_value = value.type() == old_upper.type() ? value : Cast::make(old_upper.type(), value);
+  auto new_upper = CanonicalSimplify(Min::make(old_upper, new_value));
+  constraint.tile_extent_ = new_upper;
+}
+
+void TileAxis::TileRestrainLower(const Expr &value, TileLevel level) {
+  auto &constraint = level == LEVEL1 ? this->l1_constraints : this->l0_constraints;
+  auto old_lower = constraint.tile_min_;
+  auto new_value = value.type() == old_lower.type() ? value : Cast::make(old_lower.type(), value);
+  auto new_lower = CanonicalSimplify(Max::make(old_lower, new_value));
+  constraint.tile_min_ = new_lower;
 }
 
 void TileAxis::TileRestrainToSingleValue(const Expr &value, TileLevel level) {
-  if (level == LEVEL1) {
-    this->l1_constraints.tile_min_ = value;
-    this->l1_constraints.tile_extent_ = value;
-  } else {
-    this->l0_constraints.tile_min_ = value;
-    this->l0_constraints.tile_extent_ = value;
-  }
+  auto &constraint = level == LEVEL1 ? this->l1_constraints : this->l0_constraints;
+  constraint.tile_min_ = value;
+  constraint.tile_extent_ = value;
 }
 
 void TileAxis::TileRestrainEntire(TileLevel level) {
   if (level == LEVEL1) {
     Expr extent = this->range_extent;
-    if (this->HasAttr("SHIFT")) extent = this->l1_constraints.tile_extent_;
+    if (this->HasAttr(AT_SHIFT)) extent = this->l1_constraints.tile_extent_;
     this->l1_constraints.tile_min_ = extent;
     this->l1_constraints.tile_extent_ = extent;
   } else {
@@ -408,7 +420,7 @@ int64_t TileCandidate::CalActualTile(const CalAlignInfo *align_info) {
   auto GetAlignType = [align_info]() -> std::string {
     std::string align_type = "";
     for (const auto &attr : align_info->a->attrs) {
-      if (attr.attr_key.find("ALIGN") == std::string::npos) {
+      if (attr.attr_key.find(AT_ALIGN) == std::string::npos) {
         continue;
       }
       std::string local_name = attr.attr_value + "_local_UB";
@@ -427,10 +439,10 @@ int64_t TileCandidate::CalActualTile(const CalAlignInfo *align_info) {
     return actual_tile;
   }
   std::string align_type = GetAlignType();
-  if (align_type.find("TRANSPOSE") != std::string::npos) {
+  if (align_type.find(AT_TRANSPOSE) != std::string::npos) {
     int64_t block_size = GetAlignBytes(align_info->buf->align_size);
     actual_tile = align_info->tile * block_size;
-  } else if (align_type.find("DMA") != std::string::npos) {
+  } else if (align_type.find(AT_DMA) != std::string::npos) {
     int64_t block_size = GetAlignBytes(align_info->buf->align_size);
     int64_t gcd = air::ir::gcd(align_info->tile, block_size);
     CHECK_NE(gcd, 0);
@@ -649,7 +661,7 @@ int TileCandidate::GetDmaCopySizeWithinAxis(TileAxis *target_axis) {
   int min_data_each_core = -1;
   bool before_this_axis = true;
   for (const auto &attr : analyzer_->RootAxis()->attrs) {
-    if (attr.attr_key.find("DMA3") == std::string::npos) {
+    if (attr.attr_key.find(AT_DMA3) == std::string::npos) {
       continue;
     }
     int64_t data_each_core = 1;
@@ -681,7 +693,7 @@ int TileCandidate::GetDmaCopySizeWithinAxis(TileAxis *target_axis) {
       }
       CHECK_NE(l1_val, 0) << "Inner axis " << gm_axis->dim_axis << " should be tile before axis "
                           << target_axis->dim_axis;
-      if (gm_axis->HasAnyAttr({"REDUCE_AXIS", "TRANSPOSE", "TRANSFORM"})) {
+      if (gm_axis->HasAnyAttr({AT_REDUCE_AXIS, AT_TRANSPOSE, AT_TRANSFORM})) {
         ss << "axis " << gm_axis->index << "_" << gm_axis->dim_axis << " cannot be flatten. clear data each core.";
         analyzer_->logger_.AppendLog(DO_TILING, ss);
         data_each_core = 1;
@@ -1003,14 +1015,14 @@ class LinearAccessPatternBuilder : public IRVisitor {
 
   void CollectAlignedBuf() {
     for (const auto &attr : analyzer_->RootAxis()->attrs) {
-      if (attr.attr_key != "TRANSFORM") continue;
+      if (attr.attr_key != AT_TRANSFORM) continue;
       aligned_buf_.insert(attr.attr_value);
     }
   }
 
   void CollectReduceBuf() {
     for (const auto &attr : analyzer_->RootAxis()->attrs) {
-      if (attr.attr_key != "REDUCE_FLOW") continue;
+      if (attr.attr_key != AT_REDUCE_FLOW) continue;
       std::vector<std::string> flow = akg::common::Split(attr.attr_value, "->");
       CHECK_EQ(flow.size(), 2U);
       reduce_src_buf_.insert(flow[0]);
@@ -1041,7 +1053,7 @@ class LinearAccessPatternBuilder : public IRVisitor {
     };
     auto CollectBuf = [GetMinAlignSize, this](TileAxis *axis) {
       for (const auto &attr : axis->attrs) {
-        if (attr.attr_key != "CAST") continue;
+        if (attr.attr_key != AT_CAST) continue;
         std::vector<std::string> buffer_names;
 
         std::vector<std::string> src_dst = akg::common::Split(attr.attr_value, "->");
@@ -1335,7 +1347,7 @@ int TilingAnalyzer::GetNumOfAxisInBand(int band_idx) const {
   return max + 1;
 }
 
-void TilingAnalyzer::AddTilingConstraints() {
+void TilingAnalyzer::AddPostTilingConstraints() {
   auto strategy_manager = std::unique_ptr<TilingStrategyManager>(new (std::nothrow) TilingStrategyManager());
   CHECK(strategy_manager) << "memory alloc fail.";
   std::vector<TilingStrategy *> actived_strategies;
@@ -1344,15 +1356,32 @@ void TilingAnalyzer::AddTilingConstraints() {
     ReduceStrategy reduce_strategy(this);
     actived_strategies.push_back(&reduce_strategy);
 
+    GpuDmaAnalysisStrategy dma_analysis_strategy(this);
     GpuStrategy gpu_strategy(this);
-    if (!scop_info_.analysis_result_.GetIsGpuDmaAnalysed()) {
+    if (scop_info_.analysis_result_.GetIsGpuDmaAnalysed()) {
+      actived_strategies.push_back(&dma_analysis_strategy);
+    } else {
       actived_strategies.push_back(&gpu_strategy);
     }
-
     strategy_manager->SetStrategies(actived_strategies);
     strategy_manager->ExecuteGpu();
     return;
   }
+}
+
+void TilingAnalyzer::AddTilingConstraints() {
+  auto strategy_manager = std::unique_ptr<TilingStrategyManager>(new (std::nothrow) TilingStrategyManager());
+  CHECK(strategy_manager) << "memory alloc fail.";
+  std::vector<TilingStrategy *> actived_strategies;
+
+  if (scop_info_.user_config_.GetTarget() == TARGET_CUDA) {
+    CastStrategy cast_strategy(this);
+    actived_strategies.push_back(&cast_strategy);
+
+    strategy_manager->SetStrategies(actived_strategies);
+    strategy_manager->ExecuteGpu();
+    return;
+  }  // namespace poly
 
   // CCE strategies
   PassDownAttrStrategy pd_attr_strategy(this);
@@ -1398,7 +1427,7 @@ void TilingAnalyzer::AddTilingConstraints() {
 
   strategy_manager->SetStrategies(actived_strategies);
   strategy_manager->Execute();
-}
+}  // namespace ir
 
 bool TilingAnalyzer::Prepare() {
   // Stage 1: Analyze schedule tree.
@@ -1424,6 +1453,7 @@ bool TilingAnalyzer::Prepare() {
   // Stage 2: Analyze Halide IR and add tiling constraints.
   SpaceAnalyzer space_analyzer(this);
   space_analyzer.AnalyzeSpecialAxes();
+
   AddTilingConstraints();
 
   // Stage 3: Analyze buffer footprint.
@@ -1432,6 +1462,8 @@ bool TilingAnalyzer::Prepare() {
   linear_seq_ = std::move(lap_bdr.seq_);
   buf_info_ = std::move(lap_bdr.buf_);
   buffer_usage_timetable_ = std::move(lap_bdr.buffer_usage_timetable_);
+
+  AddPostTilingConstraints();
 
   // Stage 4: Set tiling priority based on previous analysis.
   TilingPriorityScorer scroer(*this);

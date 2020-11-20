@@ -25,6 +25,7 @@ from test_prim_transpose import test_prim_transpose
 from test_concat_prim import test_concat_prim
 from test_prim_argmax import test_prim_argmax
 from test_prim_argmin import test_prim_argmin
+from test_special_elem_red import test_special_elem_red
 
 def random_int_list(start, stop, length):
     start, stop = (int(start), int(stop)) if start <= stop else (int(stop), int(start))
@@ -33,6 +34,19 @@ def random_int_list(start, stop, length):
     for i in range(length):
         random_list.append(random.randint(start, stop))
     return random_list
+
+def special_reduce(poly_sch, fuzz_shape_lhs=None, fuzz_shape_rhs=None, fusion_mode=None):
+    poly_sch = True
+    # [sum, max]
+    test_elem_red((768, 3072), (768, 3072), 'float32', axis=None, keepdims=True, multi_out=True, poly_sch=poly_sch, fusion_mode='')
+    # [sum, max, sum, max]
+    test_elem_red((768, 3072), (768, 3072), 'float32', axis=None, keepdims=True, multi_out=True, poly_sch=poly_sch, fusion_mode='output_hrz')
+    # [sum, elem, sum, elem]
+    test_special_elem_red((768, 3072), (768, 3072), 'float32', axis=None, keepdims=True, multi_out=True, poly_sch=poly_sch, fusion_mode='output_hrz')
+    # elem + sum
+    test_elem_red((768, 3072), (768, 3072), 'float32', axis=None, keepdims=True, poly_sch=poly_sch, fusion_mode='')
+    # elem + sum + elem
+    test_special_elem_red((768, 3072), (768, 3072), 'float32', axis=None, keepdims=True, poly_sch=poly_sch, fusion_mode='')
 
 def elem(poly_sch, fuzz_shape_lhs=None, fuzz_shape_rhs=None, fusion_mode=None):
     if fuzz_shape:
@@ -199,7 +213,9 @@ if __name__ == '__main__':
                             "prim_transpose": prim_transpose,
                             "concat_prim": concat_prim,
                             "prim_argmax": prim_argmax,
-                            "prim_argmin": prim_argmin}
+                            "prim_argmin": prim_argmin,
+                            "special_reduce": special_reduce}
+
     all_f = list(op_map.values())
     op_map["all"] = all_f
     if len(sys.argv) == 1:

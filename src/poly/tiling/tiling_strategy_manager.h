@@ -61,6 +61,7 @@ class TilingStrategy {
   int64_t max_num_blocks_ = 256 * 256;
   int64_t max_num_threads_ = 1024;
   size_t max_dim_ = 3;
+  int64_t max_elem_per_thread_ = 1024;
 };
 
 class TilingStrategyManager {
@@ -88,6 +89,14 @@ class TilingStrategyManager {
   std::vector<TilingStrategy *> strategies_;
 };
 
+class GpuDmaAnalysisStrategy : public TilingStrategy {
+ public:
+  explicit GpuDmaAnalysisStrategy(const TilingAnalyzer *a) : TilingStrategy(a) {}
+  ~GpuDmaAnalysisStrategy() {}
+  void AddDavinciConstraint();
+  void AddGpuConstraint();
+};
+
 class CustomTilingStrategy : public TilingStrategy {
  public:
   explicit CustomTilingStrategy(const TilingAnalyzer *a) : TilingStrategy(a) {}
@@ -104,7 +113,6 @@ class ConflictTreeRangeStrategy : public TilingStrategy {
   ~ConflictTreeRangeStrategy() {}
   void AddDavinciConstraint();
   void AddGpuConstraint();
-
 };
 
 class ModStrategy : public TilingStrategy {
@@ -114,7 +122,7 @@ class ModStrategy : public TilingStrategy {
   void AddDavinciConstraint();
   void AddGpuConstraint();
 
-  std::string interested_attr_key = "MOD";
+  std::string interested_attr_key = AT_MOD;
 };
 
 // These strategies aim to deal with special insn in Davinci core.
@@ -124,8 +132,32 @@ class CastStrategy : public TilingStrategy {
   ~CastStrategy() {}
   void AddDavinciConstraint();
   void AddGpuConstraint();
+  void MarkDataSize() {
+    auto interested_info = GetInterestedInfo(interested_attr_key);
+    for (auto it : interested_info) {
+      TileAxis *axis = it.first;
+      for (const auto &attr : it.second) {
+        std::vector<std::string> src_dst = akg::common::Split(attr.attr_value, "->");
+        CHECK_EQ(src_dst.size(), 2U);
 
-  std::string interested_attr_key = "CAST";
+        std::vector<std::string> src_list = akg::common::Split(src_dst[0], ",");
+        CHECK_GE(src_list.size(), 1U);
+        for (const auto &src : src_list) {
+          std::vector<std::string> src_info = akg::common::Split(src, ":");
+          CHECK_EQ(src_info.size(), 2U);
+          CHECK_NE(src_info[1], "");
+          axis->data_size[src_info[0]].emplace_back(static_cast<int>(std::strtol(src_info[1].c_str(), nullptr, 10)));
+        }
+
+        std::vector<std::string> dst_info = akg::common::Split(src_dst[1], ":");
+        CHECK_EQ(dst_info.size(), 2U);
+        CHECK_NE(dst_info[1], "");
+        axis->data_size[dst_info[0]].emplace_back(static_cast<int>(std::strtol(dst_info[1].c_str(), nullptr, 10)));
+      }
+    }
+  }
+
+  std::string interested_attr_key = AT_CAST;
 };
 
 class ReduceStrategy : public TilingStrategy {
@@ -136,6 +168,23 @@ class ReduceStrategy : public TilingStrategy {
   void AddGpuConstraint();
   void DealWith4DFusedReduce(const std::vector<akg::ir::poly::TileAxis *> &reduce_axes);
 
+  void SimpleStrategyOnGpu();
+
+  // Used by setting scop_info.enable_akg_reduce_lib.
+  void AkgReduceLibStrategyOnGpu();
+
+  bool UseRegisterMem();
+
+  // For this special case, we have tiling constraint on axis to calculate correct isl_footprint_box.
+  void DealWith4DFusedReduce();
+
+  // For post reduce case, we should identify and disable atomic add for reduce axes.
+  void DealWithPostReduceTensors();
+
+  std::vector<TileAxis *> reduce_axes_;
+  std::vector<TileAxis *> injective_axes_;
+  bool all_reduce_{false};
+  bool has_transpose_{false};
 };
 
 class VectorizedStrategy : public TilingStrategy {
@@ -144,7 +193,6 @@ class VectorizedStrategy : public TilingStrategy {
   ~VectorizedStrategy() {}
   void AddDavinciConstraint();
   void AddGpuConstraint();
-
 };
 
 class DmaAlignStrategy : public TilingStrategy {
@@ -154,7 +202,7 @@ class DmaAlignStrategy : public TilingStrategy {
   void AddDavinciConstraint();
   void AddGpuConstraint();
 
-  std::string interested_attr_key = "ALIGN";
+  std::string interested_attr_key = AT_ALIGN;
 };
 
 class TensorOfTensorStrategy : public TilingStrategy {
@@ -163,7 +211,6 @@ class TensorOfTensorStrategy : public TilingStrategy {
   ~TensorOfTensorStrategy() {}
   void AddDavinciConstraint();
   void AddGpuConstraint();
-
 };
 
 class PassDownAttrStrategy : public TilingStrategy {
@@ -172,7 +219,6 @@ class PassDownAttrStrategy : public TilingStrategy {
   ~PassDownAttrStrategy() {}
   void AddDavinciConstraint();
   void AddGpuConstraint();
-
 };
 
 class DynamicShapeLimitStrategy : public TilingStrategy {
@@ -192,7 +238,7 @@ class ShiftAxisStrategy : public TilingStrategy {
   void AddDavinciConstraint();
   void AddGpuConstraint();
 
-  std::string interested_attr_key = "SHIFT";
+  std::string interested_attr_key = AT_SHIFT;
 };
 
 class ModShiftAxisStrategy : public TilingStrategy {
@@ -202,7 +248,7 @@ class ModShiftAxisStrategy : public TilingStrategy {
   void AddDavinciConstraint();
   void AddGpuConstraint();
 
-  std::string interested_attr_key = "MODSHIFT";
+  std::string interested_attr_key = AT_MODSHIFT;
 };
 
 class DynamicBoundStrategy : public TilingStrategy {
@@ -212,7 +258,7 @@ class DynamicBoundStrategy : public TilingStrategy {
   void AddDavinciConstraint();
   void AddGpuConstraint();
 
-  std::string interested_attr_key = "DYNAMIC_BOUND";
+  std::string interested_attr_key = AT_DYNAMIC_BOUND;
 };
 
 class ConvStrategy : public TilingStrategy {
@@ -222,7 +268,7 @@ class ConvStrategy : public TilingStrategy {
   void AddDavinciConstraint();
   void AddGpuConstraint();
 
-  std::string interested_attr_key = "CONV";
+  std::string interested_attr_key = AT_CONV;
 
   std::unordered_map<std::string, Expr> conv_info_{};
   air::arith::Analyzer arith_ana_;
@@ -238,7 +284,7 @@ class GemmStrategy : public TilingStrategy {
   void AddDavinciConstraint();
   void AddGpuConstraint();
 
-  std::string interested_attr_key = "GEMM";
+  std::string interested_attr_key = AT_GEMM;
 };
 
 class GpuStrategy : public TilingStrategy {
@@ -251,7 +297,9 @@ class GpuStrategy : public TilingStrategy {
     REDUCTION,
     ALL_REDUCE,
     BITWISE_REDUCTION,
-    TRANSPOSE,
+    MATMUL,
+    TRANSPOSE_OP,
+    TEMPLATE_BULK
   };
   void AddDavinciConstraint();
   void AddGpuConstraint();
@@ -278,19 +326,27 @@ class GpuStrategy : public TilingStrategy {
    */
   void InnerThreadOuterBlock();
 
-  int64_t GetThreadSize(const int64_t rest_threads, const int64_t shape);
+  int64_t GetThreadSize(const int64_t rest_threads, size_t inner_dim, const int64_t shape, const int64_t item);
+  int64_t TileAfterThreadMapping(TileAxis *axis, size_t inner_dim, int64_t thread_size, const int64_t item);
 
   // Step 3. Transform list of integer into string mapping config.
   void SetMappingConfig();
 
   Template template_{Template::DEFAULT};
+  bool is_reduce_op_[TEMPLATE_BULK] = {false, false, true, true, true, false};
+
   std::deque<std::pair<TileAxis *, int64_t>> pending_axes_;
   std::vector<int64_t> block_limit_;
   std::vector<int64_t> thread_limit_;
   std::vector<int64_t> block_cfg_;
   std::vector<int64_t> thread_cfg_;
-  std::unordered_set<std::string> excluded_attr_ = {"REDUCE_AXIS", "TRANSPOSE"};
+  std::unordered_set<std::string> excluded_attr_ = {AT_REDUCE_AXIS, AT_TRANSPOSE};
   int block_count_{0};  // number of mapped blocks
+  int64_t elem_per_thread_[3]{SpItemPerThread::AUTO};
+  int64_t min_elem_for_io_bound_ = 2;
+  std::unordered_map<int, std::string> template_map_ = {{0, "DEFAULT"},     {1, "PURE_ELEM"},         {2, "REDUCTION"},
+                                                        {3, "ALL_REDUCE"},  {4, "BITWISE_REDUCTION"}, {5, "MATMUL"},
+                                                        {6, "TRANSPOSE_OP"}};
 };
 
 class MulticoreStrategy {

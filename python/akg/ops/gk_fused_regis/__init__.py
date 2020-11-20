@@ -27,4 +27,5 @@ from .prim_argmax import prim_argmax_manual, prim_argmax_auto, prim_argmax_input
 from .prim_argmax import prim_argmax_output_hrz_manual, prim_argmax_output_hrz_auto, prim_argmax_diamond_manual, prim_argmax_diamond_auto
 from .prim_argmin import prim_argmin_manual, prim_argmin_auto, prim_argmin_input_hrz_manual, prim_argmin_input_hrz_auto
 from .prim_argmin import prim_argmin_output_hrz_manual, prim_argmin_output_hrz_auto, prim_argmin_diamond_manual, prim_argmin_diamond_auto
-
+from .special_elem_red import special_elem_red_manual, special_elem_red_auto, special_elem_red_input_hrz_manual, special_elem_red_input_hrz_auto
+from .special_elem_red import special_elem_red_output_hrz_manual, special_elem_red_output_hrz_auto, special_elem_red_diamond_manual, special_elem_red_diamond_auto

@@ -20,7 +20,7 @@ from akg.utils.format_transform import to_tvm_nd_array
 
 def gen_data(in_shape, in_dtype, axis, keepdims):
     support_list = {"float16": np.float16, "float32": np.float32}
-    data = random_gaussian(in_shape, miu=1, sigma=0.1).astype(support_list[in_dtype])
+    data = random_gaussian(in_shape, miu=0.0001, sigma=0.1).astype(support_list[in_dtype])
     expect = np.sum(data, axis=axis, keepdims=keepdims)
     if axis==None and keepdims==False:
         expect = np.broadcast_to(expect, (1,))

@@ -39,8 +39,6 @@ class MappingOuterBand : public SchedulePass {
   virtual isl::schedule Run(isl::schedule sch);
 
   isl::schedule DoBlockMapping(const isl::schedule &sch);
-  isl::union_map GetReduceWriteStmt(const isl::schedule_node_band &band);
-  void MarkReduceOutTensor(const isl::schedule_node_band &band);
   bool NeedAtomicAdd(const isl::schedule_node_band &band, size_t n_block_map);
   void MarkAtomicAddTensor(const isl::schedule_node_band &band);
   isl::schedule DoThreadMapping(const isl::schedule &sch);

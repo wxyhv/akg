@@ -920,7 +920,7 @@ void ScheduleTreeAnalyzer::AnalyzeCubeInfo() {
         if (l->loop_var.get()->name_hint != lname) continue;
         TileAxis *axis = analyzer_->Axis(l);
         CHECK(axis) << "cannot find axis for " << l->loop_var.get()->name_hint;
-        std::string key = analyzer_->op_type_ == CONV_OP ? "CONV" : "GEMM";
+        std::string key = analyzer_->op_type_ == CONV_OP ? AT_CONV : AT_GEMM;
         axis->attrs.emplace_back(AttrInfo{key, type});
         break;
       }

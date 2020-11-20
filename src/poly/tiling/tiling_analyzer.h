@@ -65,10 +65,16 @@ inline int64_t GetAlignBytes(const int64_t dtype) {
   return (ALIGN_BYTES + dtype - 1) / dtype;
 }
 
-inline int64_t GetMaxAlignBytes(std::unordered_map<std::string, int> dtypes) {
+inline int64_t GetMaxAlignBytes(std::unordered_map<std::string, std::vector<int>> dtypes) {
   int64_t min_byte = -1;
-  for (auto it : dtypes) {
-    if (min_byte == -1 || min_byte > it.second) min_byte = it.second;
+  for (const auto &it : dtypes) {
+    if (it.second.empty()) {
+      continue;
+    }
+    int min_elem = *min_element(it.second.begin(), it.second.end());
+    if (min_byte == -1 || min_byte > min_elem) {
+      min_byte = min_elem;
+    }
   }
   return GetAlignBytes(min_byte);
 }
@@ -92,11 +98,42 @@ enum TileLevel { LEVEL0 = 0, LEVEL1 };
 
 enum TileVarId { UNDEFINE = -1, VAR };
 
+enum SpItemPerThread { FULL = -1, AUTO };
+
 // Represent an attribute for marking special axes.
 struct AttrInfo {
   std::string attr_key;
   std::string attr_value;
 };
+
+// valid attr_key used in AttrInfo
+constexpr auto AT_VECTORIZED = "VECTORIZED";
+constexpr auto AT_TOT = "TOT";
+constexpr auto AT_ALIGN = "ALIGN";
+constexpr auto AT_DMA = "DMA";
+constexpr auto AT_DMA2 = "DMA2";
+constexpr auto AT_DMA3 = "DMA3";
+constexpr auto AT_OP_TYPE = "OP_TYPE";
+constexpr auto AT_ELEMWISE = "ELEMWISE";
+constexpr auto AT_TRANSFORM = "TRANSFORM";
+constexpr auto AT_TRANSPOSE = "TRANSPOSE";
+constexpr auto AT_BROADCAST = "BROADCAST";
+constexpr auto AT_REDUCE = "REDUCE";
+constexpr auto AT_REDUCE_DST_LAST = "REDUCE_DST_LAST";
+constexpr auto AT_REDUCE_SRC_LAST = "REDUCE_SRC_LAST";
+constexpr auto AT_REDUCE_FLOW = "REDUCE_FLOW";
+constexpr auto AT_REDUCE_AXIS = "REDUCE_AXIS";
+constexpr auto AT_POST_FUSION_REDUCE_TENSOR = "POST_FUSION_REDUCE_TENSOR";
+constexpr auto AT_CONV = "CONV";
+constexpr auto AT_GEMM = "GEMM";
+constexpr auto AT_ATTRIBUTE = "ATTRIBUTE";
+constexpr auto AT_SHIFT = "SHIFT";
+constexpr auto AT_MODSHIFT = "MODSHIFT";
+constexpr auto AT_DYNAMIC_SHIFT = "DYNAMIC_SHIFT";
+constexpr auto AT_DYNAMIC_BOUND = "DYNAMIC_BOUND";
+constexpr auto AT_MOD = "MOD";
+constexpr auto AT_CAST = "CAST";
+constexpr auto AT_MEM_RATIO = "MEM_RATIO";
 
 class TilingAnalyzer;
 
@@ -114,13 +151,14 @@ class TileAxis {
   struct MappingConstraint {
     int64_t map_mod_{MIN_TILE};
     int64_t map_min_{MIN_TILE};
-    int64_t map_extent_{0};  // 0 means it is not determined yet
+    int64_t map_extent_{0};           // 0 means it is not determined yet
+    int64_t item_process_{MIN_TILE};  // for thread only, equals to tile / thread_num
   };
   TileAxis *parent{nullptr};
   int index{0};
   int dim_axis{0};
   bool mc_sup{false};
-  std::unordered_map<std::string, int> data_size;
+  std::unordered_map<std::string, std::vector<int>> data_size;
   int64_t range_min;
   Expr range_extent;
   Constraint l1_constraints;
@@ -165,6 +203,8 @@ class TileAxis {
       return const_extent->value;
   }
   void TileRestrainMod(const Expr &mod, TileLevel level);
+  void TileRestrainUpper(const Expr &value, TileLevel level);
+  void TileRestrainLower(const Expr &value, TileLevel level);
   void TileRestrainToSingleValue(const Expr &value, TileLevel level);
   void TileRestrainEntire(TileLevel level);
 
@@ -267,6 +307,7 @@ class TilingAnalyzer {
 
  private:
   void AddTilingConstraints();
+  void AddPostTilingConstraints();
   std::unique_ptr<TileAxis> root_axis_;
 };
 

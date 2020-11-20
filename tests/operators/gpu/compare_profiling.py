@@ -35,11 +35,11 @@ def compare(manual_prof, auto_prof):
         a_times = auto_prof.get(k)
 
         if not a_times:
-            print("Time for {} if not found in auto schedule".format(k))
+            print("Time for {} is not found in auto schedule".format(k))
             continue
         print("operator: {}".format(k))
         for m, a in zip(m_times, a_times):
-            print("manual {} vs auto {}".format(m, a))
+            print("manual {} vs auto {}, manual / auto = {:.2f}%".format(m, a, float(m) / float(a) * 100))
         print("")
 
 

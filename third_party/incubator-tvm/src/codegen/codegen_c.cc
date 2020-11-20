@@ -39,7 +39,6 @@
 #include "codegen_c.h"
 #include "../pass/ir_util.h"
 #include "../arithmetic/compute_expr.h"
-#include <fstream>
 
 namespace air {
 namespace codegen {
