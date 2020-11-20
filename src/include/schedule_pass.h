@@ -23,7 +23,7 @@
 
 namespace akg {
 namespace schedule {
-TVM_DLL void AutoInline(air::Schedule sch, const air::Target &target);
+TVM_DLL void AutoInline(air::Schedule sch, const air::Target &target, bool enable_cse);
 
 TVM_DLL void AutoFuse(air::Schedule sch);
 }  // namespace schedule
