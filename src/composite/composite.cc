@@ -664,8 +664,12 @@ NodeRef CompositeLower(const std::string &json_str, const Map<std::string, NodeR
   akg::BuildConfig config = akg::BuildConfig::Current();
   CHECK(config.defined());
   bool tuning = attrs.find("tuning") != attrs.end();
+  std::string target = "cce";
+  if (GetProcess(json_str) == "cuda") {
+    target = "cuda";
+  }
   Array<NodeRef> shape_vars;
-  return akg::Lower(sch, info.args, shape_vars, info.kernel_name, info.in_binds, attrs, false, true, tuning, "cce",
+  return akg::Lower(sch, info.args, shape_vars, info.kernel_name, info.in_binds, attrs, false, true, tuning, target,
                     config);
 }
 
@@ -711,8 +715,8 @@ Module CompositeWithJsonListGpu(const Array<NodeRef> &json_str_node, const Array
     akg::BuildConfig config = akg::BuildConfig::Current();
     CHECK(config.defined());
     config->dump_pass_ir = akg_dump_pass_ir != nullptr;
-    Stmt s_ir = LowerStmt(sch, info.args, shape_vars, distinct_name, info.in_binds, attrs, false, poly, false, "cuda",
-                          config, &args, &arg_list_0, &binds, &binds_0, true);
+    Stmt s_ir = Downcast<Stmt>(LowerStmt(sch, info.args, shape_vars, distinct_name, info.in_binds, attrs, false, poly, false, "cuda",
+                          config, &args, &arg_list_0, &binds, &binds_0, true));
     for (const auto &x : arg_list_0) {
       all_args.push_back(x);
     }

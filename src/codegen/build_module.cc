@@ -455,7 +455,8 @@ void DumpIr(const std::string &name, const BuildConfig &config, bool lower_list)
     }
   }
 }
-Stmt LowerStmt(Schedule sch, const Array<NodeRef> &in_args, const Array<NodeRef> &shape_vars, const std::string &name,
+
+NodeRef LowerStmt(Schedule sch, const Array<NodeRef> &in_args, const Array<NodeRef> &shape_vars, const std::string &name,
                const Map<Tensor, Buffer> &in_binds, const Map<std::string, NodeRef> &in_attrs, bool simple_mode,
                bool polyhedral, bool tuning, const std::string &target, const BuildConfig &config, Array<NodeRef> *args,
                Array<NodeRef> *arg_list_0, Map<Tensor, Buffer> *binds, Map<Tensor, Buffer> *binds_0, bool lower_list) {
@@ -508,6 +509,17 @@ Stmt LowerStmt(Schedule sch, const Array<NodeRef> &in_args, const Array<NodeRef>
         stmt = air::Downcast<Stmt>(fuse_axis_res[0]);
         *arg_list_0 = air::Downcast<Array<NodeRef>>(fuse_axis_res[1]);
         *binds_0 = air::Downcast<Map<Tensor, Buffer>>(fuse_axis_res[2]);
+      }
+
+      int level = global_attrs.GetIntAttr(kHelpTiling, -1);
+      if (tuning || level > help_tiling_level["None"]) {
+        if (tuning) {
+          level = help_tiling_level["Tuning"];
+        }
+        Map<std::string, NodeRef> attrs_1 = global_attrs;
+        attrs_1.Set(kDumpTuningLevel, air::make_const(Int(32), level));
+        NodeRef tuning_spaces = NEXT_PASS(GenTuningSpace, stmt, target, *binds_0, attrs_1, false);
+        return tuning_spaces;
       }
 
       Array<NodeRef> poly_res = NEXT_PASS(AutoPoly, stmt, *binds_0, target, global_attrs, false, false);
@@ -580,8 +592,13 @@ NodeRef Lower(Schedule sch, const Array<NodeRef> &in_args, const Array<NodeRef> 
   Map<Tensor, Buffer> binds;
   Map<Tensor, Buffer> binds_0;
   PassTimer *pass_timer = PassTimer::GetInstance();
-  Stmt stmt = LowerStmt(sch, in_args, shape_vars, name, in_binds, in_attrs, simple_mode, polyhedral, tuning, target,
+  NodeRef tmp = LowerStmt(sch, in_args, shape_vars, name, in_binds, in_attrs, simple_mode, polyhedral, tuning, target,
                         config, &args, &arg_list_0, &binds, &binds_0);
+  if (target == "cuda" && tuning) {
+    return tmp;
+  }
+  Stmt stmt = Downcast<Stmt>(tmp);
+
   if (target == "cuda") {
     NodeRef lowered_func = LowerFunc(stmt, name, config, arg_list_0);
     return lowered_func;
