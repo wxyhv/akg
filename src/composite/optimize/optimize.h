@@ -19,5 +19,6 @@
 
 namespace akg {
 Stmt ElimTransformOp(Stmt &s, const FuncRefSet &input_funcs, const FuncRefSet &output_funcs, BuildInfoOpt &opt);
+Stmt ReshapeTensor(const Stmt &stmt);
 }  // namespace akg
 #endif  // COMPOSITE_OPTIMIZE_H_

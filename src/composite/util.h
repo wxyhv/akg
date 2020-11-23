@@ -30,6 +30,7 @@ bool IsElemwise(const std::string &op_name);
 bool EqualShape(const Array<Expr> &shape1, const Array<Expr> &shape2);
 bool ShapeIsOne(const Array<Expr> &shape);
 std::string GetOpName(const Provide *p);
+std::string CreateDataFormatKey(const std::string &tensor_name);
 
 using FuncRefMap = std::unordered_map<FunctionRef, FunctionRef, NodeHash, NodeEqual>;
 using FuncRefSet = std::unordered_set<FunctionRef, NodeHash, NodeEqual>;

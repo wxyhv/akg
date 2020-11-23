@@ -52,5 +52,9 @@ std::string GetOpName(const Provide *p) {
   auto op_name = call->name;
   return op_name;
 }
+std::string CreateDataFormatKey(const std::string &tensor_name) {
+  std::string key = tensor_name + "_format";
+  return key;
+}
 
 }  // namespace akg
