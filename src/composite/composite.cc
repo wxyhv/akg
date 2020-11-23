@@ -347,7 +347,7 @@ class InplaceAssignMutator : public IRMutator {
       auto inputs = call->args;
       opt_.sames[op->func] = inputs[2].as<Call>()->func;  // d = InplaceAssign(a, b, c)     d = c
       if (auto i1 = inputs[1].as<Call>()) {
-        opt_.inplaces[i1->func] = inputs[0].as<Call>()->func;  // d = InplaceAssign(a, b, c)     a = b
+        opt_.inplaces[i1->func] = inputs[0];  // d = InplaceAssign(a, b, c)     a = b
         return Evaluate::make(0);
       } else {
         // d = Assign(dst, src)    d = dst   fake d, d should be InplaceAssigin's inputs[2]
@@ -481,7 +481,7 @@ class Emitter : public IRVisitor {
     auto bind_input = compute(t->shape, [&](const Array<Var> &indices) { return t(indices); });
     tensor_map_[bind_input->op] = bind_input;
     opt_.sch_only.emplace_back(bind_input);
-    opt_.inplaces[bind_input->op] = input.as<Call>()->func;
+    opt_.inplaces[bind_input->op] = input;
   }
 
  private:
@@ -521,7 +521,7 @@ void ParseOutputTensors(const picojson::array &output_descs, std::vector<std::st
 void CollectBinds(FuncTensorMap &tensor_map, BuildInfoOpt &opt, BuildInfo &info) {
   for (const auto &kv : opt.inplaces) {
     auto first = tensor_map[kv.first];
-    auto second = tensor_map[kv.second];
+    auto second = tensor_map[kv.second.as<Call>()->func];
     auto buf = decl_buffer(first->shape, first->dtype, first->op->name);
     info.in_binds.Set(first, buf);
     info.in_binds.Set(second, buf);
@@ -568,6 +568,14 @@ void CollectOutputsAndComputes(const std::vector<std::string> &output_tensors, F
       info.args.push_back(iter->second);
     }
   }
+  for (const auto &inplace_itr : opt.inplaces) {
+    auto iter = std::find_if(tensor_map.begin(), tensor_map.end(), [&inplace_itr](std::pair<const FunctionRef, Tensor> &kv) {
+      return kv.first->func_name() == inplace_itr.first->func_name(); });
+    if (std::find_if(info.tensors.begin(), info.tensors.end(), [&iter](const Tensor& t) {
+        return t == iter->second; }) == info.tensors.end()) {
+      info.tensors.push_back(iter->second);
+    }
+  }
 }
 
 void CollectSchOnlyComputes(BuildInfoOpt &opt, BuildInfo &info) {
@@ -583,6 +591,17 @@ void CollectBuildInfo(const std::vector<std::string> &input_tensors, const std::
   CollectInputs(input_tensors, tensor_map, info);
   CollectOutputsAndComputes(output_tensors, tensor_map, opt, info);
   CollectSchOnlyComputes(opt, info);
+}
+
+void EmitIsolatedInplaceTensor(BuildInfoOpt &opt, FuncTensorMap &tensor_map) {
+  // tensors which have never be used before is isolated and not be created,
+  // so we should create them after emit.
+  for (const auto &kv : opt.inplaces) {
+    auto c = kv.second.as<Call>();
+    if (tensor_map.find(c->func) == tensor_map.end()) {
+      tensor_map[c->func] = placeholder(c->args, c->type, c->name);
+    }
+  }
 }
 
 void ExtractBuildInfo(const picojson::value &input_json, BuildInfo &info) {
@@ -611,6 +630,7 @@ void ExtractBuildInfo(const picojson::value &input_json, BuildInfo &info) {
   // 5. emit stmt by topi
   FuncTensorMap tensor_map;
   Emitter(tensor_map, opt).Visit(stmt);
+  EmitIsolatedInplaceTensor(opt, tensor_map);
   // 6. collect build info: args, compute, binds
   CollectBuildInfo(input_tensors, output_tensors, tensor_map, opt, info);
 }

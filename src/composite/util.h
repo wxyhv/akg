@@ -38,6 +38,7 @@ using FuncRefGraph = std::unordered_map<FunctionRef, FuncRefSet, NodeHash, NodeE
 using FuncTensorMap = std::unordered_map<FunctionRef, Tensor, NodeHash, NodeEqual>;
 using FuncStmtMap = std::unordered_map<FunctionRef, const Provide *, NodeHash, NodeEqual>;
 using FuncShape = std::unordered_map<FunctionRef, Array<Expr>, NodeHash, NodeEqual>;
+using FuncExprMap = std::unordered_map<FunctionRef, Expr, NodeHash, NodeEqual>;
 
 struct BuildInfo {
   Array<Tensor> tensors;         // topi's output tensor, which should be compute node
@@ -47,7 +48,7 @@ struct BuildInfo {
 };
 
 struct BuildInfoOpt {
-  FuncRefMap inplaces;           // the tensors which should be in bind
+  FuncExprMap inplaces;          // the tensors which should be in bind
   FuncRefMap sames;              // the tensors which are same
   FuncRefSet fakeout;            // the tensors which are not output
   std::vector<Tensor> sch_only;  // the tensors which should only used in sch, not output
