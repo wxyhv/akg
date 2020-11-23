@@ -32,6 +32,13 @@ from . import cce
 from . import gpu
 from . import op_build
 
+def _should_use_poly(kernel_info):
+    if os.getenv('MS_AKG_USE_POLY') == "on":
+        return True
+    for desc in kernel_info['op_desc']:
+        if desc['name'].startswith('Reduce'):
+            return True
+    return False
 
 @vc_util.check_input_type(str)
 def compilewithjson_to_func(json_str):
@@ -49,7 +56,7 @@ def compilewithjson_to_func(json_str):
     if 'composite' in kernel_info and kernel_info['composite'] is True:
         try:
             if processor == 'cuda':
-                use_poly = os.getenv('MS_AKG_USE_POLY') == "on"
+                use_poly = _should_use_poly(kernel_info) 
                 _ = composite._build(json_str, kernel_info, attrs={
                                      "target": "cuda", "enable_akg_reduce_lib": True}, poly=use_poly)
                 return True
