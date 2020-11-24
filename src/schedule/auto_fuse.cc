@@ -18,6 +18,30 @@
 #include <tvm/schedule_pass.h>
 #include <tvm.h>
 
+struct FuncIndex {
+  air::ir::FunctionRef f;
+  size_t arg_index;
+
+  inline bool operator==(const FuncIndex &other) const { return f == other.f && arg_index == other.arg_index; }
+  inline std::string GetStr() const {
+    std::ostringstream os;
+    os << f->func_name() << "_arg_" << arg_index;
+    return os.str();
+  }
+};
+
+namespace std {
+template <>
+struct hash<FuncIndex> {
+  std::size_t operator()(const FuncIndex &k) const {
+    size_t lhs = ::air::NodeHash()(k.f);
+    size_t rhs = k.arg_index;
+    lhs ^= rhs + 0x9e3779b9 + (lhs << 6) + (lhs >> 2);
+    return lhs;
+  }
+};
+}  // namespace std
+
 namespace akg {
 namespace schedule {
 
@@ -25,27 +49,71 @@ namespace schedule {
 
 class FuseOpAxis {
  public:
-  explicit FuseOpAxis(const Schedule &sch, const std::unordered_set<IterVar, ExprHash, ExprEqual> &reduce_group) {
+  explicit FuseOpAxis(
+    const Schedule &sch,
+    const std::unordered_map<IterVar, std::unordered_set<size_t>, ExprHash, ExprEqual> &axis_reduce_group_ids) {
     sch_ = sch;
-    reduce_group_ = reduce_group;
+    axis_reduce_group_ids_ = axis_reduce_group_ids;
   }
 
-  void Traverse(const Operation &op) {
-    if (!op.defined() || op->IsInstance<PlaceholderOpNode>() || visited.count(op)) {
+  void Run() {
+    for (auto op : sch_->outputs) {
+      TraverseCheck(op);
+    }
+    if (!enable_fuse) {
+      return;
+    }
+    for (auto op : sch_->outputs) {
+      TraverseFuse(op);
+    }
+  }
+
+  void TraverseCheck(const Operation &op) {
+    if (!op.defined() || op->IsInstance<PlaceholderOpNode>() || check_visited.count(op)) {
+      return;
+    }
+    RunCheck(op);
+    for (auto t : op->InputTensors()) {
+      TraverseCheck(t->op);
+    }
+    check_visited.insert(op);
+  }
+
+  void TraverseFuse(const Operation &op) {
+    if (!op.defined() || op->IsInstance<PlaceholderOpNode>() || fuse_visited.count(op)) {
       return;
     }
     RunFuse(op);
     for (auto t : op->InputTensors()) {
-      Traverse(t->op);
+      TraverseFuse(t->op);
     }
-    visited.insert(op);
+    fuse_visited.insert(op);
   }
 
  private:
   Schedule sch_;
-  std::unordered_set<Operation, ExprHash, ExprEqual> visited;
-  std::unordered_set<IterVar, ExprHash, ExprEqual> reduce_group_;
+  bool enable_fuse{true};
+  std::unordered_set<Operation, ExprHash, ExprEqual> check_visited;
+  std::unordered_set<Operation, ExprHash, ExprEqual> fuse_visited;
+  std::unordered_map<IterVar, std::unordered_set<size_t>, ExprHash, ExprEqual> axis_reduce_group_ids_;
 
+  void RunCheck(const Operation &op) {
+    // skip op that has been inlined
+    if (sch_[op]->attach_type == air::kInline) {
+      return;
+    }
+    auto tensor = op.output(0);
+    // reduce axis of op should be same
+    auto compute_op = sch_[tensor]->op.as<air::ComputeOpNode>();
+    CHECK_NOTNULL(compute_op);
+    if (compute_op->reduce_axis.size() > 1) {
+      if (SplitAxisToGroups(compute_op->reduce_axis).size() > 1) {
+        LOG(ERROR) << "The scenes where the reduce_axis cannot be fused into one axis currently not supported."
+                   << std::endl;
+        enable_fuse = false;
+      }
+    }
+  }
   void RunFuse(const Operation &op) {
     // skip op that has been inlined
     if (sch_[op]->attach_type == air::kInline) {
@@ -53,7 +121,7 @@ class FuseOpAxis {
     }
     auto tensor = op.output(0);
     // fuse reduce axis of op
-    auto compute_op = sch_[tensor]->op.as<air::BaseComputeOpNode>();
+    auto compute_op = sch_[tensor]->op.as<air::ComputeOpNode>();
     CHECK_NOTNULL(compute_op);
     if (compute_op->reduce_axis.size() > 1) {
       IterVar fused_reduce_axis;
@@ -65,11 +133,11 @@ class FuseOpAxis {
       }
     }
     // fuse axis of op
-    compute_op = sch_[tensor]->op.as<air::BaseComputeOpNode>();
+    compute_op = sch_[tensor]->op.as<air::ComputeOpNode>();
     CHECK_NOTNULL(compute_op);
     if (compute_op->axis.size() > 1) {
       auto axis_groups = SplitAxisToGroups(compute_op->axis);
-      for (auto axis_group : axis_groups) {
+      for (const auto &axis_group : axis_groups) {
         IterVar fused_axis;
         sch_[tensor].fuse(axis_group, &fused_axis);
       }
@@ -77,16 +145,16 @@ class FuseOpAxis {
   }
 
   std::vector<Array<IterVar>> SplitAxisToGroups(const Array<IterVar> &axis) {
-    std::vector<bool> reduced(axis.size(), false);
+    std::vector<std::unordered_set<size_t>> reduce_group_ids(axis.size());
     for (size_t i = 0; i < axis.size(); ++i) {
-      if (reduce_group_.count(axis[i])) {
-        reduced[i] = true;
+      if (axis_reduce_group_ids_.count(axis[i])) {
+        reduce_group_ids[i] = axis_reduce_group_ids_.at(axis[i]);
       }
     }
     std::vector<size_t> split_index;
     split_index.push_back(0);
     for (size_t i = 1; i < axis.size(); ++i) {
-      if (reduced[i] != reduced[i - 1]) {
+      if (reduce_group_ids[i] != reduce_group_ids[i - 1]) {
         split_index.push_back(i);
       }
     }
@@ -177,45 +245,66 @@ class ComputeInfo : public IRVisitor {
   void Run() {
     for (size_t i = 0; i < sch_->stages.size(); ++i) {
       auto op = sch_->stages[i]->op;
+      stage_id_ = i;
       if (auto compute_op = op.as<air::ComputeOpNode>()) {
         GetAxisInfo(compute_op->axis, compute_op->reduce_axis);
         VisitComputeOp(op);
       }
       if (DEBUG_AUTO_FUSE) {
-        LOG(INFO) << " stage_id: " << i << " op: " << op->func_name() << std::endl;
+        LOG(INFO) << " stage_id: " << stage_id_ << " op: " << op->func_name() << std::endl;
       }
     }
-    UpdateReduceGroup();
+    GetAxisReduceGroup();
     if (DEBUG_AUTO_FUSE) {
       std::stringstream info;
-      info << "==== reduce_group_ start" << std::endl;
-      for (auto ax : reduce_group_) {
-        info << ax << "(" << ax.get() << ")" << std::endl;
+      info << "==== axis_reduce_group_ids_ start" << std::endl;
+      for (size_t i = 0; i < sch_->stages.size(); ++i) {
+        auto op = sch_->stages[i]->op;
+        if (auto compute_op = op.as<air::ComputeOpNode>()) {
+          std::vector<IterVar> all_axis(compute_op->axis.begin(), compute_op->axis.end());
+          for (auto ax : compute_op->reduce_axis) {
+            all_axis.push_back(ax);
+          }
+          for (const auto &ax : all_axis) {
+            if (axis_reduce_group_ids_.count(ax)) {
+              info << compute_op->func_name() << ", " << ax << ": ";
+              auto reduce_groups_ids = axis_reduce_group_ids_.at(ax);
+              info << "[";
+              for (auto id : reduce_groups_ids) {
+                info << sch_->stages[id]->op->func_name() << ",";
+              }
+              info << "]" << std::endl;
+            }
+          }
+        }
       }
-      info << "==== reduce_group_ end" << std::endl;
+      info << "==== axis_reduce_group_ids_ end" << std::endl;
       LOG(INFO) << info.str();
     }
   }
 
-  std::unordered_set<IterVar, ExprHash, ExprEqual> reduce_group_;
+  std::unordered_map<IterVar, std::unordered_set<size_t>, ExprHash, ExprEqual> axis_reduce_group_ids_;
 
  private:
   Schedule sch_;
+  size_t stage_id_{0};
   std::unordered_set<const Variable *> reduce_axis_var_;
   std::unordered_set<const Variable *> axis_var_;
   std::unordered_map<const Variable *, IterVar> all_axis_var_axis_;
-  std::vector<FunctionRef> func_keys_;
-  std::unordered_map<FunctionRef, std::vector<std::unordered_set<IterVar, ExprHash, ExprEqual>>, ExprHash, ExprEqual>
-    func_index_axis_;
+  std::vector<FuncIndex> func_index_keys_;
+  std::unordered_map<FuncIndex, std::unordered_set<IterVar, ExprHash, ExprEqual>> func_index_axis_;
+  std::unordered_map<FuncIndex, std::unordered_set<size_t>> func_index_reduce_group_ids_;
+  std::unordered_map<IterVar, std::unordered_set<FuncIndex>, ExprHash, ExprEqual> axis_func_indexs_;
 
   void VisitComputeOp(const Operation &op) {
-    CHECK(!func_index_axis_.count(op));
-    func_keys_.push_back(op);
     auto compute_op = op.as<air::ComputeOpNode>();
     auto func_dim = compute_op->axis.size();
-    func_index_axis_[op] = std::vector<std::unordered_set<IterVar, ExprHash, ExprEqual>>(func_dim);
     for (size_t i = 0; i < func_dim; ++i) {
-      func_index_axis_[op][i].insert(compute_op->axis[i]);
+      FuncIndex func_index = FuncIndex{op, i};
+      if (!func_index_axis_.count(func_index)) {
+        func_index_keys_.push_back(func_index);
+      }
+      func_index_axis_[func_index].insert(compute_op->axis[i]);
     }
     for (auto expr : compute_op->body) {
       Visit(expr);
@@ -228,19 +317,19 @@ class ComputeInfo : public IRVisitor {
       return IRVisitor::Visit_(op);
     }
     auto func_dim = op->args.size();
-    if (!func_index_axis_.count(func)) {
-      func_keys_.push_back(func);
-      func_index_axis_[func] = std::vector<std::unordered_set<IterVar, ExprHash, ExprEqual>>(func_dim);
-    }
     for (size_t i = 0; i < func_dim; ++i) {
+      auto func_index = FuncIndex{func, i};
       auto arg = op->args[i];
       if (auto var = arg.as<Variable>()) {
         if (reduce_axis_var_.count(var) || axis_var_.count(var)) {
           CHECK(all_axis_var_axis_.count(var));
           auto ax = all_axis_var_axis_.at(var);
-          func_index_axis_[func][i].insert(ax);
+          if (!func_index_axis_.count(func_index)) {
+            func_index_keys_.push_back(func_index);
+          }
+          func_index_axis_[func_index].insert(ax);
           if (reduce_axis_var_.count(var)) {
-            reduce_group_.insert(ax);
+            func_index_reduce_group_ids_[func_index].insert(stage_id_);
           }
         }
       }
@@ -265,39 +354,78 @@ class ComputeInfo : public IRVisitor {
     }
   }
 
-  void UpdateReduceGroup() {
-    size_t group_size;
-    std::unordered_map<FunctionRef, std::vector<bool>, ExprHash, ExprEqual> visited;
-    for (auto func : func_keys_) {
-      visited[func] = std::vector<bool>(func_index_axis_.at(func).size(), false);
+  void GetAxisReduceGroup() {
+    // record map that axis to func_indexs
+    for (const auto &kv : func_index_axis_) {
+      auto func_index = kv.first;
+      auto axis = kv.second;
+      for (auto ax : axis) {
+        axis_func_indexs_[ax].insert(func_index);
+      }
+    }
+    // update reduce group by func_index
+    std::unordered_map<FuncIndex, std::unordered_set<FuncIndex>> func_index_map_func_indexs;
+    for (auto kv : func_index_axis_) {
+      auto func_index = kv.first;
+      auto axis = kv.second;
+      std::unordered_set<FuncIndex> func_indexs;
+      for (const auto &ax : axis) {
+        auto cur_func_indexs = axis_func_indexs_.at(ax);
+        func_indexs.insert(cur_func_indexs.begin(), cur_func_indexs.end());
+      }
+      // remove self from the map
+      func_indexs.erase(func_index);
+      if (!func_indexs.empty()) {
+        func_index_map_func_indexs[func_index] = func_indexs;
+      }
+    }
+    std::unordered_set<FuncIndex> last_updated;
+    for (const auto &kv : func_index_reduce_group_ids_) {
+      last_updated.insert(kv.first);
+    }
+    std::vector<FuncIndex> func_index_keys_has_map_;
+    for (const auto &func_index : func_index_keys_) {
+      if (func_index_map_func_indexs.count(func_index)) {
+        func_index_keys_has_map_.push_back(func_index);
+      }
     }
     do {
-      group_size = reduce_group_.size();
-      for (auto func : func_keys_) {
-        CHECK(func_index_axis_.count(func));
-        auto index_axis = func_index_axis_.at(func);
-        for (size_t i = 0; i < index_axis.size(); ++i) {
-          if (visited[func][i]) {
-            continue;
+      std::unordered_set<FuncIndex> updated;
+      for (const auto &func_index : func_index_keys_has_map_) {
+        std::unordered_set<FuncIndex> map_func_indexs = func_index_map_func_indexs.at(func_index);
+        std::unordered_set<size_t> reduce_group_ids;
+        if (func_index_reduce_group_ids_.count(func_index)) {
+          reduce_group_ids = func_index_reduce_group_ids_.at(func_index);
+        }
+        auto pre_size = reduce_group_ids.size();
+        for (const auto &cur_map_func_index : map_func_indexs) {
+          if (last_updated.count(cur_map_func_index)) {
+            auto cur_map_reduce_group_ids = func_index_reduce_group_ids_.at(cur_map_func_index);
+            reduce_group_ids.insert(cur_map_reduce_group_ids.begin(), cur_map_reduce_group_ids.end());
           }
-          auto axis = index_axis[i];
-          bool has_in_reduce_group = false;
-          for (auto ax : axis) {
-            if (reduce_group_.count(ax)) {
-              has_in_reduce_group = true;
-              break;
-            }
-          }
-          if (!has_in_reduce_group) {
-            continue;
-          }
-          for (auto ax : axis) {
-            reduce_group_.insert(ax);
-          }
-          visited[func][i] = true;
+        }
+        if (reduce_group_ids.size() > pre_size) {
+          func_index_reduce_group_ids_[func_index] = reduce_group_ids;
+          updated.insert(func_index);
         }
       }
-    } while (reduce_group_.size() > group_size);
+      last_updated = updated;
+    } while (!last_updated.empty());
+    // get reduce_group ids for axis
+    for (const auto &kv : axis_func_indexs_) {
+      auto ax = kv.first;
+      auto func_indexs = kv.second;
+      std::unordered_set<size_t> reduce_group_ids;
+      for (const auto &func_index : func_indexs) {
+        if (func_index_reduce_group_ids_.count(func_index)) {
+          auto cur_reduce_group_ids = func_index_reduce_group_ids_.at(func_index);
+          reduce_group_ids.insert(cur_reduce_group_ids.begin(), cur_reduce_group_ids.end());
+        }
+      }
+      if (!reduce_group_ids.empty()) {
+        axis_reduce_group_ids_[ax] = reduce_group_ids;
+      }
+    }
   }
 };
 
@@ -307,11 +435,9 @@ void AutoFuse(Schedule sch) {
   }
   auto compute_info = ComputeInfo(sch);
   compute_info.Run();
-  auto reduce_group = compute_info.reduce_group_;
-  auto fuse_op_axis = FuseOpAxis(sch, reduce_group);
-  for (auto op : sch->outputs) {
-    fuse_op_axis.Traverse(op);
-  }
+  auto axis_reduce_group_ids = compute_info.axis_reduce_group_ids_;
+  auto fuse_op_axis = FuseOpAxis(sch, axis_reduce_group_ids);
+  fuse_op_axis.Run();
 }
 }  // namespace schedule
 }  // namespace akg
