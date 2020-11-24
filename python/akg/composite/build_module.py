@@ -158,6 +158,7 @@ def get_tiling_space(kernel_desc, level=1, attr=None):
     if attr is None:
         attr = {}
     attr['help_tiling'] = level
+    attr['tuning'] = 'on'
     func = tvm.get_global_func('composite_lower')
     ret = func(kernel_desc, attr)
     spaces = {}
