@@ -215,6 +215,7 @@ class UserConfig {
     ParseStringAttr(attrs, "dump_poly_dir", &dump_poly_dir_);
 
     if (GetTarget() == TARGET_CUDA) {
+      ParseBoolAttr(attrs, "enable_atomic_add", &enable_atomic_add_);
       ParseBoolAttr(attrs, "enable_akg_reduce_lib", &enable_akg_reduce_lib_);
       ParseBoolAttr(attrs, "use_register_memory", &use_register_memory_);
       ParseBoolAttr(attrs, "use_shared_memory", &use_shared_memory_);
@@ -345,6 +346,8 @@ class UserConfig {
   // dump all info
   void DumpScopDataScheduleAttrs(std::ofstream &of);
 
+  bool GetEnableAtomicAdd() { return enable_atomic_add_; }
+
   bool GetEnableAkgReduceLib() { return enable_akg_reduce_lib_; }
   void SetEnableAkgReduceLib(bool enable_akg_reduce_lib) { enable_akg_reduce_lib_ = enable_akg_reduce_lib; }
 
@@ -452,6 +455,7 @@ class UserConfig {
   bool tile_size_is_var_{false};
   bool outer_band_need_split_{false};
 
+  bool enable_atomic_add_{false};
   // lib config
   bool enable_akg_reduce_lib_{false};
   // memory config

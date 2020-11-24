@@ -81,12 +81,18 @@ void ReduceStrategy::SimpleStrategyOnGpu() {
 
 void ReduceStrategy::AkgReduceLibStrategyOnGpu() {
   // disable atomic-add for bitwise-reduction
-  for (auto it : analyzer_->scop_info_.analysis_result_.GetReduceStatementMap()) {
-    if (analyzer_->scop_info_.analysis_result_.GetReduceOpType(it.first) == AKG_REDUCE_AND ||
-        analyzer_->scop_info_.analysis_result_.GetReduceOpType(it.first) == AKG_REDUCE_OR) {
-      analyzer_->ForEachAxisTopDown([](TileAxis *axis) { axis->block_constraints.map_extent_ = MIN_TILE; });
-      break;
+  bool disable_atomic = !analyzer_->scop_info_.user_config_.GetEnableAtomicAdd();
+  if (!disable_atomic) {
+    for (auto it : analyzer_->scop_info_.analysis_result_.GetReduceStatementMap()) {
+      if (analyzer_->scop_info_.analysis_result_.GetReduceOpType(it.first) == AKG_REDUCE_AND ||
+          analyzer_->scop_info_.analysis_result_.GetReduceOpType(it.first) == AKG_REDUCE_OR) {
+        disable_atomic = true;
+        break;
+      }
     }
+  }
+  if (disable_atomic) {
+    analyzer_->ForEachAxisTopDown([](TileAxis *axis) { axis->block_constraints.map_extent_ = MIN_TILE; });
   }
 
   // disable atomic-add for post reduce tensors

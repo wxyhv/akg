@@ -100,6 +100,7 @@ constexpr auto kErrorScope = "";
 constexpr auto kAllocBits = "alloc_bits";
 constexpr auto kEnablePolySch = "enable_poly_sch";
 constexpr auto kEnableFuseAxis = "enable_fuse_axis";
+constexpr auto kEnableAtomicAdd = "enable_atomic_add";
 
 static std::unordered_map<std::string, int> help_tiling_level = {
   {"None", 0},
