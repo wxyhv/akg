@@ -97,7 +97,8 @@ void ReduceStrategy::AkgReduceLibStrategyOnGpu() {
   int64_t total_injective_size = 1;
   int64_t injective_threads = 1;
   int64_t reduce_threads = 1;
-  int64_t possible_blocks = 1;
+  int64_t possible_reduce_blocks = 1;
+  int64_t possible_injective_blocks = 1;
 
   if (!all_reduce_) {
     DealWith4DFusedReduce();
@@ -108,9 +109,9 @@ void ReduceStrategy::AkgReduceLibStrategyOnGpu() {
     CHECK(axis->range_extent.as<IntImm>());
     total_reduce_size *= axis->range_extent.as<IntImm>()->value;
     if (axis->block_constraints.map_extent_ == 0) {
-      possible_blocks *= axis->range_extent.as<IntImm>()->value;
+      possible_reduce_blocks *= axis->range_extent.as<IntImm>()->value;
     } else {
-      possible_blocks *= axis->block_constraints.map_extent_;
+      possible_reduce_blocks *= axis->block_constraints.map_extent_;
     }
     if (axis->thread_constraints.map_min_ == axis->thread_constraints.map_extent_ &&
         axis->thread_constraints.map_extent_ != 0) {
@@ -121,9 +122,9 @@ void ReduceStrategy::AkgReduceLibStrategyOnGpu() {
     CHECK(axis->range_extent.as<IntImm>());
     total_injective_size *= axis->range_extent.as<IntImm>()->value;
     if (axis->block_constraints.map_extent_ == 0) {
-      possible_blocks *= axis->range_extent.as<IntImm>()->value;
+      possible_injective_blocks *= axis->range_extent.as<IntImm>()->value;
     } else {
-      possible_blocks *= axis->block_constraints.map_extent_;
+      possible_injective_blocks *= axis->block_constraints.map_extent_;
     }
     if (axis->thread_constraints.map_min_ == axis->thread_constraints.map_extent_ &&
         axis->thread_constraints.map_extent_ != 0) {
@@ -159,27 +160,12 @@ void ReduceStrategy::AkgReduceLibStrategyOnGpu() {
   ty_range.second =
     std::min(ty_range.second, static_cast<int64_t>(ceil(static_cast<float>(ty_range.second) / tx_range.second)));
 
-  possible_blocks = ceil(static_cast<float>(possible_blocks) / tx_range.second / ty_range.second);
+  auto possible_blocks =
+    ceil(static_cast<float>(possible_injective_blocks * possible_reduce_blocks) / tx_range.second / ty_range.second);
   int proposal = use_local ? 8 : 32;
-  auto default_elem_per_thread = possible_blocks > 1
+  auto default_elem_per_thread = possible_reduce_blocks > 1
                                    ? std::max(std::min<int>(proposal, (possible_blocks / min_blocks + 1) / 2 * 2), 1)
                                    : SpItemPerThread::FULL;
-  std::stringstream ss;
-  ss << "total_injective_size " << total_injective_size << " total_reduce_size " << total_reduce_size;
-  analyzer_->logger_.AppendLog(GPU_MAPPING, ss);
-
-  ss << "injective_threads " << injective_threads << " reduce_threads " << reduce_threads;
-  analyzer_->logger_.AppendLog(GPU_MAPPING, ss);
-
-  ss << "possible_blocks " << possible_blocks << " default_elem_per_thread " << default_elem_per_thread;
-  analyzer_->logger_.AppendLog(GPU_MAPPING, ss);
-
-  ss << "tx_range " << tx_range.first << " , " << tx_range.second;
-  analyzer_->logger_.AppendLog(GPU_MAPPING, ss);
-
-  ss << "ty_range " << ty_range.first << " , " << ty_range.second;
-  analyzer_->logger_.AppendLog(GPU_MAPPING, ss);
-
   if (square_thread) {
     reduce_threads = ty_range.second;
     injective_threads = tx_range.second;
@@ -187,6 +173,21 @@ void ReduceStrategy::AkgReduceLibStrategyOnGpu() {
     reduce_threads = tx_range.second;
     injective_threads = ty_range.second;
   }
+
+  std::stringstream ss;
+  ss << "total_injective_size " << total_injective_size << " total_reduce_size " << total_reduce_size;
+  analyzer_->logger_.AppendLog(GPU_MAPPING, ss);
+
+  ss << "injective_threads " << injective_threads << " reduce_threads " << reduce_threads;
+  analyzer_->logger_.AppendLog(GPU_MAPPING, ss);
+
+  ss << "possible_injective_blocks " << possible_injective_blocks << " possible_reduce_blocks "
+     << possible_reduce_blocks << " default_elem_per_thread " << default_elem_per_thread;
+  analyzer_->logger_.AppendLog(GPU_MAPPING, ss);
+
+  ss << "tx_range " << tx_range.first << " , " << tx_range.second << "ty_range " << ty_range.first << " , "
+     << ty_range.second;
+  analyzer_->logger_.AppendLog(GPU_MAPPING, ss);
 
   for (auto axis : injective_axes_) {
     axis->thread_constraints.map_min_ = injective_threads;
