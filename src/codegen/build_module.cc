@@ -478,7 +478,8 @@ NodeRef LowerStmt(Schedule sch, const Array<NodeRef> &in_args, const Array<NodeR
   }
   PassMgr::ClearPassId();
 
-  DumpIr(name, config, lower_list);
+  // dump lowerstmt
+  DumpIr(name + "_0", config, lower_list);
 
   GetBinds(*args, *binds, config, arg_list_0, binds_0);
 
@@ -580,7 +581,8 @@ NodeRef LowerStmt(Schedule sch, const Array<NodeRef> &in_args, const Array<NodeR
 }
 NodeRef LowerFunc(Stmt &stmt, const std::string &name, const BuildConfig &config, const Array<NodeRef> &all_args) {
   PassMgr::ClearPassId();
-  DumpIr(name, config, false);
+  // dump lowerfunc
+  DumpIr(name + "_1", config, false);
   LoweredFunc lowered_func = NEXT_PASS(MakeAPI, stmt, name, all_args, 0, config->restricted_func);
   return lowered_func;
 }
