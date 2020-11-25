@@ -16,14 +16,14 @@ from akg.utils import kernel_exec as utils
 from tensorio import compare_tensor
 import numpy as np
 from test_op.realdiv_ad import realdiv_ad
-from gen_random import random_gaussian
+from gen_random import random_gaussian, gen_epsilon
 
 def realdiv_ad_run(ashape, bshape, dtype, kernel_name, attrs):
     if 'tuning' in attrs.keys():
         t = attrs.get("tuning", False)
         kernel_name = attrs.get("kernel_name", False)
         a = random_gaussian(ashape, miu=1, sigma=0.1).astype(dtype)
-        b = random_gaussian(bshape, miu=1, sigma=0.1).astype(dtype)
+        b = random_gaussian(bshape, miu=1, sigma=0.1, epsilon=gen_epsilon(dtype)).astype(dtype)
         out = np.divide(a, b)
         mod = utils.op_build_test(realdiv_ad, [out.shape, ashape, bshape], [dtype, dtype, dtype], kernel_name=kernel_name, attrs=attrs, tuning=t)
         if t:
@@ -33,7 +33,7 @@ def realdiv_ad_run(ashape, bshape, dtype, kernel_name, attrs):
             return mod
     else:
         a = random_gaussian(ashape, miu=1, sigma=0.1).astype(dtype)
-        b = random_gaussian(bshape, miu=1, sigma=0.1).astype(dtype)
+        b = random_gaussian(bshape, miu=1, sigma=0.1, epsilon=gen_epsilon(dtype)).astype(dtype)
         out = np.divide(a, b)
 
         expect, head_np, output = gen_data(b, dtype, out)
