@@ -16,7 +16,7 @@ import numpy as np
 from tensorio import compare_tensor
 from akg.utils import kernel_exec as utils
 from akg.ops.math import rsqrt
-from gen_random import random_gaussian
+from gen_random import random_gaussian, gen_epsilon
 
 def rsqrt_run(shape, dtype, kernel_name, attrs, cce_path="./"):
     if 'tuning' in attrs.keys():
@@ -38,7 +38,7 @@ def rsqrt_run(shape, dtype, kernel_name, attrs, cce_path="./"):
 
 def gen_data(dtype, shape):
     support_list = {"float16": np.float16, "float32": np.float32}
-    input = random_gaussian(shape, miu=1, sigma=0.1).astype(support_list[dtype])
+    input = random_gaussian(shape, miu=1, sigma=0.1, epsilon=gen_epsilon(dtype)).astype(support_list[dtype])
     input = np.abs(input)
     expect = np.power(input, -0.5)
     output = np.full(expect.shape, np.nan, dtype)

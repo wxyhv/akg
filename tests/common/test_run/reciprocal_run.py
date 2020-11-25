@@ -17,7 +17,7 @@ from tensorio import compare_tensor
 from akg.utils import kernel_exec as utils
 from akg.ops.math import reciprocal
 from base import get_rtol_atol
-from gen_random import random_gaussian
+from gen_random import random_gaussian, gen_epsilon
 
 def reciprocal_execute(shape, dtype, attrs):
     if 'tuning' in attrs.keys():
@@ -39,7 +39,7 @@ def reciprocal_execute(shape, dtype, attrs):
 
 def gen_data(dtype, shape):
     support_list = {"float16": np.float16, "float32": np.float32}
-    input1 = random_gaussian(shape, miu=1, sigma=0.1).astype(support_list[dtype])
+    input1 = random_gaussian(shape, miu=1, sigma=0.1, epsilon=gen_epsilon(dtype)).astype(support_list[dtype])
     expect = np.reciprocal(input1)
     output = np.full(expect.shape, np.nan, dtype)
     return expect, input1, output
