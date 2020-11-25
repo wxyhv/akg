@@ -101,7 +101,7 @@ class OpRecog : public IRVisitor {
                 || (load_ == SINGLE && immNum_ == SINGLE && scalar_loads_ == NONE)    // A[cc1] = B[cc1] + 0.1
                 || (load_ == SINGLE && immNum_ == SINGLE && scalar_loads_ == SINGLE)  // A[0] = (B[0]*-1.0h)
                 || (load_ == SINGLE && varNum_ == SINGLE))                            // A[cc1] = B[cc1] *  var
-               && (op_ == "Add" || op_ == "Mul")) {
+               && (op_ == "Add" || op_ == "Mul") && GetBufScope(op->buffer_var->name_hint) != DMA_COPY_GLOBAL) {
       if (GetBufScope(op->buffer_var->name_hint) == SCOPE_REG) {
         // value_local_REG[0] = cc3*1016 + input_2_local_UB[cc4]
         op_ = "scatter";

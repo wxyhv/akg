@@ -727,7 +727,7 @@ class AlignGen : public IRVisitor {
     if (!is_ub_to_gm) {
       auto dst_name = info.arith_info.dst_info.p_store->buffer_var.get();
       auto divisor_dst = info.arith_info.dst_info.divisor;
-      if (!info.arith_info.is_scalar) {
+      if (observer_dic_.count(dst_name) && !info.arith_info.is_scalar) {
         HandleAlignment(observer_dic_[dst_name], divisor_dst, info.arith_info.vec_len);
       }
     }
