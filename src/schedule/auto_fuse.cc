@@ -17,6 +17,7 @@
 #include <tvm/operation.h>
 #include <tvm/schedule_pass.h>
 #include <tvm.h>
+#include <dmlc/common.h>
 
 struct FuncIndex {
   air::ir::FunctionRef f;
@@ -36,8 +37,7 @@ struct hash<FuncIndex> {
   std::size_t operator()(const FuncIndex &k) const {
     size_t lhs = ::air::NodeHash()(k.f);
     size_t rhs = k.arg_index;
-    lhs ^= rhs + 0x9e3779b9 + (lhs << 6) + (lhs >> 2);
-    return lhs;
+    return dmlc::HashCombine(lhs, rhs);
   }
 };
 }  // namespace std
@@ -51,7 +51,7 @@ class FuseOpAxis {
  public:
   explicit FuseOpAxis(
     const Schedule &sch,
-    const std::unordered_map<IterVar, std::unordered_set<size_t>, ExprHash, ExprEqual> &axis_reduce_group_ids) {
+    const std::unordered_map<IterVar, std::unordered_set<size_t>> &axis_reduce_group_ids) {
     sch_ = sch;
     axis_reduce_group_ids_ = axis_reduce_group_ids;
   }
@@ -93,9 +93,9 @@ class FuseOpAxis {
  private:
   Schedule sch_;
   bool enable_fuse{true};
-  std::unordered_set<Operation, ExprHash, ExprEqual> check_visited;
-  std::unordered_set<Operation, ExprHash, ExprEqual> fuse_visited;
-  std::unordered_map<IterVar, std::unordered_set<size_t>, ExprHash, ExprEqual> axis_reduce_group_ids_;
+  std::unordered_set<Operation> check_visited;
+  std::unordered_set<Operation> fuse_visited;
+  std::unordered_map<IterVar, std::unordered_set<size_t>> axis_reduce_group_ids_;
 
   void RunCheck(const Operation &op) {
     // skip op that has been inlined
@@ -108,8 +108,8 @@ class FuseOpAxis {
     CHECK_NOTNULL(compute_op);
     if (compute_op->reduce_axis.size() > 1) {
       if (SplitAxisToGroups(compute_op->reduce_axis).size() > 1) {
-        LOG(ERROR) << "The scenes where the reduce_axis cannot be fused into one axis currently not supported."
-                   << std::endl;
+        LOG(WARNING) << "The scenes where the reduce_axis cannot be fused into one axis currently not supported."
+                     << std::endl;
         enable_fuse = false;
       }
     }
@@ -171,72 +171,212 @@ class FuseOpAxis {
   }
 };
 
-bool IsMatmul(const Operation &op) {
-  if (op->tag == "dense" || op->tag == "batch_matmul" || op->tag == "matmul") {
-    return true;
+
+class FuseCheck {
+ public:
+  explicit FuseCheck(const Schedule &sch) { sch_ = sch; }
+
+  void Run() {
+    ReduceCheck();
+    OutputBroadcastCheck();
   }
 
-  auto compute_op = op.as<ComputeOpNode>();
-  auto reduce = compute_op->body[0].as<Reduce>();
-  CHECK_NOTNULL(reduce);
-  // combiner should be `lhs + rhs`
-  auto combiner = reduce->combiner;
-  if (combiner->lhs.size() != 1 || combiner->rhs.size() != 1 || combiner->result.size() != 1 ||
-      !combiner->result[0].as<Add>()) {
-    return false;
-  }
-  // size of reduce_axis should be 1
-  auto reduce_axis = reduce->axis;
-  if (reduce_axis.size() != 1) {
-    return false;
-  }
-  // source should be such as: left[..., i, k] * right[..., j, k]
-  auto source = reduce->source;
-  if (source.size() != 1 || !source[0].as<Mul>()) {
-    return false;
-  }
-  auto mul = source[0].as<Mul>();
-  auto left = mul->a.as<Call>();
-  auto right = mul->b.as<Call>();
-  if (!left || !right || left->args.size() != right->args.size()) {
-    return false;
-  }
-  auto args_size = left->args.size();
-  if (args_size < 2) {
-    return false;
-  }
-  for (size_t i = 0; i < args_size - 2; ++i) {
-    if (!left->args[i].same_as(right->args[i])) {
+  bool NeedToFuse() {
+    if (has_matmul_) {
       return false;
     }
+    return has_reduce_ || has_output_broadcast_;
   }
-  auto reduce_var = reduce_axis[0]->var.get();
-  if ((left->args[args_size - 1].as<Variable>() != reduce_var &&
-       left->args[args_size - 2].as<Variable>() != reduce_var) ||
-      (right->args[args_size - 1].as<Variable>() != reduce_var &&
-       right->args[args_size - 2].as<Variable>() != reduce_var)) {
-    return false;
-  }
-  return true;
-}
 
-bool NeedToFuse(const Schedule &sch) {
-  bool has_reduce = false;
-  bool has_matmul = false;
-  for (const auto &s : sch->stages) {
-    // If there is reduce, return true
-    auto op = s->op;
-    CHECK(op.defined());
-    auto compute_op = op.as<air::ComputeOpNode>();
-    if (compute_op && !compute_op->reduce_axis.empty()) {
-      has_reduce = true;
-      if (IsMatmul(op)) {
-        has_matmul = true;
+  void ReduceCheck() {
+    for (const auto &s : sch_->stages) {
+      auto op = s->op;
+      CHECK(op.defined());
+      auto compute_op = op.as<air::ComputeOpNode>();
+      if (compute_op && !compute_op->reduce_axis.empty()) {
+        has_reduce_ = true;
+        if (IsMatmul(op)) {
+          has_matmul_ = true;
+        }
       }
     }
   }
-  return has_reduce && !has_matmul;
-}
+
+  void OutputBroadcastCheck() {
+    GetOutputBroadcastPair();
+    if (!output_broadcast_pairs_.empty()) {
+      has_output_broadcast_ = true;
+    }
+    // For scenarios where there is a broadcast relationship between outputs,
+    // the current solution requires the compute_at process after fuse.
+    compute_at_pairs_ = output_broadcast_pairs_;
+  }
+
+  std::unordered_map<Operation, Operation> compute_at_pairs_;
+
+ private:
+  Schedule sch_;
+  bool has_reduce_{false};
+  bool has_matmul_{false};
+  bool has_output_broadcast_{false};
+  std::unordered_map<Operation, std::unordered_set<Operation>> op_input_ops;
+  std::unordered_map<Operation, Operation> output_broadcast_pairs_;
+
+  bool IsMatmul(const Operation &op) {
+    // judge according to the tag of the op
+    if (op->tag == "dense" || op->tag == "batch_matmul" || op->tag == "matmul") {
+      return true;
+    }
+
+    // judge according to the format of the compute op
+    auto compute_op = op.as<ComputeOpNode>();
+    auto reduce = compute_op->body[0].as<Reduce>();
+    CHECK_NOTNULL(reduce);
+    // combiner should be `lhs + rhs`
+    auto combiner = reduce->combiner;
+    if (combiner->lhs.size() != 1 || combiner->rhs.size() != 1 || combiner->result.size() != 1 ||
+        !combiner->result[0].as<Add>()) {
+      return false;
+    }
+    // size of reduce_axis should be 1
+    auto reduce_axis = reduce->axis;
+    if (reduce_axis.size() != 1) {
+      return false;
+    }
+    // source should be such as: left[..., i, k] * right[..., j, k]
+    auto source = reduce->source;
+    if (source.size() != 1 || !source[0].as<Mul>()) {
+      return false;
+    }
+    auto mul = source[0].as<Mul>();
+    auto left = mul->a.as<Call>();
+    auto right = mul->b.as<Call>();
+    if (!left || !right || left->args.size() != right->args.size()) {
+      return false;
+    }
+    auto args_size = left->args.size();
+    if (args_size < 2) {
+      return false;
+    }
+    for (size_t i = 0; i < args_size - 2; ++i) {
+      if (!left->args[i].same_as(right->args[i])) {
+        return false;
+      }
+    }
+    auto reduce_var = reduce_axis[0]->var.get();
+    if ((left->args[args_size - 1].as<Variable>() != reduce_var &&
+        left->args[args_size - 2].as<Variable>() != reduce_var) ||
+        (right->args[args_size - 1].as<Variable>() != reduce_var &&
+        right->args[args_size - 2].as<Variable>() != reduce_var)) {
+      return false;
+    }
+  return true;
+  }
+
+  void GetOutputBroadcastPair() {
+    if (sch_->outputs.size() < 2) {
+      return;
+    }
+    std::unordered_map<Operation, std::vector<Operation>> enable_output_broadcast_pairs;
+    std::vector<const ComputeOpNode *> output_compute_ops;
+    for (auto op : sch_->outputs) {
+      if (auto compute_op = op.as<ComputeOpNode>()) {
+        output_compute_ops.push_back(compute_op);
+      }
+    }
+    for (auto compute_op : output_compute_ops) {
+      if (compute_op->reduce_axis.size() > 0) {
+        continue;
+      }
+      for (auto compute_op_other : output_compute_ops) {
+        if (compute_op_other != compute_op && EnableBroadcast(compute_op, compute_op_other)) {
+          enable_output_broadcast_pairs[GetRef<Operation>(compute_op)].push_back(GetRef<Operation>(compute_op_other));
+        }
+      }
+    }
+    if (enable_output_broadcast_pairs.empty()) {
+      return;
+    }
+    GetOpInputOps();
+    for (auto kv : enable_output_broadcast_pairs) {
+      auto op = kv.first;
+      auto enable_broadcast_ops = kv.second;
+      for (auto enable_broadcast_op : enable_broadcast_ops) {
+        CHECK(op_input_ops.count(enable_broadcast_op));
+        if (op_input_ops[enable_broadcast_op].count(op)) {
+          if (output_broadcast_pairs_.count(op)) {
+            // otherwise there will be a problem of poly stuck
+            LOG(WARNING) << "As output " << op->func_name() << "needs broadcast to output "
+                         << output_broadcast_pairs_.at(op)->func_name() << " and output "
+                         << enable_broadcast_op->func_name()
+                         << ", this scenario does not currently support the fuse." << std::endl;
+            output_broadcast_pairs_.clear();
+            return;
+          }
+          output_broadcast_pairs_[op] = enable_broadcast_op;
+        }
+      }
+    }
+    // ComputeAtRoot(compute_at_pair);
+  }
+
+  void GetOpInputOps() {
+    for (auto stage : sch_->stages) {
+      auto op = stage->op;
+      std::unordered_set<Operation> input_ops;
+      for (auto input_op : op->InputTensors()) {
+        if (sch_[input_op]->attach_type == air::kInline) {
+          CHECK(op_input_ops.count(input_op->op));
+          input_ops.insert(op_input_ops[input_op->op].begin(), op_input_ops[input_op->op].end());
+        } else {
+          input_ops.insert(input_op->op);
+        }
+      }
+      op_input_ops[op] = input_ops;
+    }
+  }
+
+  bool EnableBroadcast(const ComputeOpNode *op1, const ComputeOpNode *op2) {
+    auto axis_1 = op1->axis;
+    auto axis_2 = op2->axis;
+    if (axis_1.size() != axis_2.size()) {
+      return false;
+    }
+    auto size = axis_1.size();
+    bool enable_broadcast = false;
+    std::vector<int64_t> axis_1_extent;
+    for (size_t i = 0; i < size; ++i) {
+      if (is_one(axis_1[i]->dom->extent) && !is_one(axis_2[i]->dom->extent)) {
+        enable_broadcast = true;
+      } else if (!AxisRangeEqual(axis_1[i], axis_2[i])) {
+        return false;
+      }
+    }
+    return enable_broadcast;
+  }
+
+  bool AxisRangeEqual(IterVar ax_1, IterVar ax_2) {
+    auto ax_1_extent = GetExprIntVal(ax_1->dom->extent);
+    auto ax_2_extent = GetExprIntVal(ax_2->dom->extent);
+    if (ax_1_extent < 0 || ax_2_extent < 0) {
+      return false;
+    }
+    return ax_1_extent == ax_2_extent;
+  }
+
+  int64_t GetExprIntVal(Expr expr) {
+    auto expr_int = as_const_int(expr);
+    auto expr_uint = as_const_uint(expr);
+    // -1 indicates that the val of the expr is invalid
+    int64_t expr_val = -1;
+    if (expr_int) {
+      expr_val = *expr_int;
+    } else if (expr_uint) {
+      expr_val = static_cast<int64_t>(*expr_uint);
+    }
+    return expr_val;
+  }
+};
 
 class ComputeInfo : public IRVisitor {
  public:
@@ -283,7 +423,7 @@ class ComputeInfo : public IRVisitor {
     }
   }
 
-  std::unordered_map<IterVar, std::unordered_set<size_t>, ExprHash, ExprEqual> axis_reduce_group_ids_;
+  std::unordered_map<IterVar, std::unordered_set<size_t>> axis_reduce_group_ids_;
 
  private:
   Schedule sch_;
@@ -292,9 +432,9 @@ class ComputeInfo : public IRVisitor {
   std::unordered_set<const Variable *> axis_var_;
   std::unordered_map<const Variable *, IterVar> all_axis_var_axis_;
   std::vector<FuncIndex> func_index_keys_;
-  std::unordered_map<FuncIndex, std::unordered_set<IterVar, ExprHash, ExprEqual>> func_index_axis_;
+  std::unordered_map<FuncIndex, std::unordered_set<IterVar>> func_index_axis_;
   std::unordered_map<FuncIndex, std::unordered_set<size_t>> func_index_reduce_group_ids_;
-  std::unordered_map<IterVar, std::unordered_set<FuncIndex>, ExprHash, ExprEqual> axis_func_indexs_;
+  std::unordered_map<IterVar, std::unordered_set<FuncIndex>> axis_func_indexs_;
 
   void VisitComputeOp(const Operation &op) {
     auto compute_op = op.as<air::ComputeOpNode>();
@@ -429,15 +569,38 @@ class ComputeInfo : public IRVisitor {
   }
 };
 
+class ComputeAtProcess {
+ public:
+  explicit ComputeAtProcess(Schedule sch) { sch_ = sch; }
+
+  void Run(const std::unordered_map<Operation, Operation> &compute_at_pair) {
+    for (auto kv : compute_at_pair) {
+      auto op1 = kv.first;
+      auto op2 = kv.second;
+      auto leaf_iter_vars_size = sch_[op2]->leaf_iter_vars.size();
+      auto compute_at_itervar = sch_[op2]->leaf_iter_vars[leaf_iter_vars_size - 1];
+      sch_[op1].compute_at(sch_[op2], compute_at_itervar);
+      // For the output, its is_output attribute should be set to false after the compute_at.
+      sch_[op1]->is_output = false;
+    }
+  }
+
+ private:
+  Schedule sch_;
+};
+
 void AutoFuse(Schedule sch) {
-  if (!NeedToFuse(sch)) {
+  auto fuse_check = FuseCheck(sch);
+  fuse_check.Run();
+  if (!fuse_check.NeedToFuse()) {
     return;
   }
   auto compute_info = ComputeInfo(sch);
   compute_info.Run();
-  auto axis_reduce_group_ids = compute_info.axis_reduce_group_ids_;
-  auto fuse_op_axis = FuseOpAxis(sch, axis_reduce_group_ids);
-  fuse_op_axis.Run();
+  FuseOpAxis(sch, compute_info.axis_reduce_group_ids_).Run();
+  if (!fuse_check.compute_at_pairs_.empty()) {
+    ComputeAtProcess(sch).Run(fuse_check.compute_at_pairs_);
+  }
 }
 }  // namespace schedule
 }  // namespace akg
