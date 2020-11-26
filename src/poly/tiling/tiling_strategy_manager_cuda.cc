@@ -92,11 +92,20 @@ void ReduceStrategy::AkgReduceLibStrategyOnGpu() {
     }
   }
   if (disable_atomic) {
-    analyzer_->ForEachAxisTopDown([](TileAxis *axis) { axis->block_constraints.map_extent_ = MIN_TILE; });
+    for (auto axis : reduce_axes_) {
+      axis->block_constraints.map_extent_ = MIN_TILE;
+    }
   }
 
   // disable atomic-add for post reduce tensors
   DealWithPostReduceTensors();
+
+  if (has_transpose_) {
+    for (auto axis : reduce_axes_) {
+      axis->TileRestrainEntire(TileLevel::LEVEL1);
+      axis->block_constraints.map_extent_ = MIN_TILE;
+    }
+  }
 
   bool square_thread = analyzer_->scop_info_.analysis_result_.GetReduceDirection() == Y_DIRECTION;
   int64_t total_reduce_size = 1;
@@ -449,11 +458,7 @@ void GpuStrategy::InnerThreadOuterBlock() {
   // If all axes for block mapping are element-wise, we can map them in any order
   // so we need a greedy algorithm to map the most blocks;
   // otherwise, we can simply map from outer to inner in sequence.
-  bool is_pure_elem = true;
-  for (size_t i = pending_axes_.size() - 1; i >= ori_size; --i) {
-    is_pure_elem = is_pure_elem && IsElemWiseAxis(pending_axes_[i].first);
-  }
-  if (is_pure_elem) {
+  if (template_ == Template::PURE_ELEM) {
     std::map<int64_t, std::vector<size_t>, std::greater<int64_t>> sorted_by_gcd;
     for (size_t i = pending_axes_.size() - 1; i >= ori_size; --i) {
       auto use = (max_num_blocks_ > 0 && pending_axes_[i].second > 0)
@@ -605,7 +610,30 @@ void GpuStrategy::DetermineTemplate() {
       return;
     }
   }
+
+  if (!analyzer_->GetAxesOfAttr(AT_GEMM).empty()) {
+    template_ = Template::MATMUL;
+    return;
+  }
+
   auto reduce_axes_ = analyzer_->GetAxesOfAttr(AT_REDUCE_AXIS);
+
+  if (reduce_axes_.empty()) {
+    bool has_transpose = false;
+    analyzer_->ForEachAxisTopDown([this, &has_transpose](TileAxis *axis) {
+      if (has_transpose) {
+        return;
+      }
+      for (const auto &attr : axis->attrs) {
+        if (attr.attr_key.find(AT_TRANSPOSE) != std::string::npos) {
+          has_transpose = true;
+        }
+      }
+    });
+    template_ = has_transpose ? Template::TRANSPOSE_OP : Template::PURE_ELEM;
+    return;
+  }
+
   size_t depth = 0;
   analyzer_->ForEachAxisTopDown([this, &depth](TileAxis *axis) {
     if (axis == analyzer_->RootAxis()) {
@@ -613,31 +641,8 @@ void GpuStrategy::DetermineTemplate() {
     }
     ++depth;
   });
-  if (reduce_axes_.size() == depth) {
-    template_ = Template::ALL_REDUCE;
-    return;
-  }
 
-  analyzer_->ForEachAxisTopDown([this](TileAxis *axis) {
-    if (axis->range_extent.as<IntImm>() == nullptr) {
-      return;
-    }
-    for (const auto &attr : axis->attrs) {
-      for (const auto &e : excluded_attr_) {
-        if (attr.attr_key.find(e) != std::string::npos) {
-          if (e == AT_REDUCE_AXIS && template_ < Template::REDUCTION) {
-            template_ = Template::REDUCTION;
-          }
-          if (e == AT_TRANSPOSE && template_ < Template::TRANSPOSE_OP) {
-            template_ = analyzer_->GetAxesOfAttr(AT_GEMM).empty() ? Template::TRANSPOSE_OP : Template::MATMUL;
-          }
-        }
-      }
-    }
-  });
-  if (template_ < Template::PURE_ELEM) {
-    template_ = Template::PURE_ELEM;
-  }
+  template_ = reduce_axes_.size() == depth ? Template::ALL_REDUCE : Template::REDUCTION;
 }
 
 void GpuStrategy::AdjustThreadMappingLimit() {
@@ -673,20 +678,6 @@ void GpuStrategy::AdjustThreadMappingLimit() {
     ss << tl << ", ";
   }
   analyzer_->logger_.AppendLog(GPU_MAPPING, ss);
-}
-
-bool GpuStrategy::IsElemWiseAxis(TileAxis *axis) {
-  if (axis->range_extent.as<IntImm>() == nullptr) {
-    return false;
-  }
-  for (const auto &attr : axis->attrs) {
-    for (const auto &e : excluded_attr_) {
-      if (attr.attr_key.find(e) != std::string::npos) {
-        return false;
-      }
-    }
-  }
-  return true;
 }
 
 // No constraint found in cuda

@@ -305,8 +305,6 @@ class GpuStrategy : public TilingStrategy {
   void AddGpuConstraint();
 
  private:
-  bool IsElemWiseAxis(TileAxis *axis);
-
   void DetermineTemplate();
   void AdjustThreadMappingLimit();
 
@@ -340,7 +338,6 @@ class GpuStrategy : public TilingStrategy {
   std::vector<int64_t> thread_limit_;
   std::vector<int64_t> block_cfg_;
   std::vector<int64_t> thread_cfg_;
-  std::unordered_set<std::string> excluded_attr_ = {AT_REDUCE_AXIS, AT_TRANSPOSE};
   int block_count_{0};  // number of mapped blocks
   int64_t elem_per_thread_[3]{SpItemPerThread::AUTO};
   int64_t min_elem_for_io_bound_ = 2;
