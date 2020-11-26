@@ -798,7 +798,7 @@ TVM_REGISTER_GLOBAL("TransData").set_body([](TVMArgs args, TVMRetValue *rv) {
   }
 });
 
-TVM_REGISTER_GLOBAL("Broadcast").set_body([](TVMArgs args, TVMRetValue *rv) {
+TVM_REGISTER_GLOBAL("BroadcastTo").set_body([](TVMArgs args, TVMRetValue *rv) {
   CHECK_EQ(args.size(), 2);
   auto inputs = args[0].operator Array<NodeRef>();
   CHECK_EQ(inputs.size(), 1);
