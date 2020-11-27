@@ -32,6 +32,7 @@ from . import cce
 from . import gpu
 from . import op_build
 
+
 def _should_use_poly(kernel_info):
     if os.getenv('MS_AKG_USE_POLY') == "on":
         return True
@@ -39,6 +40,17 @@ def _should_use_poly(kernel_info):
         if desc['name'].startswith('Reduce'):
             return True
     return False
+
+
+def _enable_atomic_add(kernel_info):
+    for op in kernel_info["op_desc"]:
+        if not op["attr"]:
+            continue
+        for attr in op["attr"]:
+            if attr["name"] == "enable_atomic_add" and attr["value"]:
+                return True
+    return False
+
 
 @vc_util.check_input_type(str)
 def compilewithjson_to_func(json_str):
@@ -57,8 +69,9 @@ def compilewithjson_to_func(json_str):
         try:
             if processor == 'cuda':
                 use_poly = _should_use_poly(kernel_info) 
+                enable_atomic_add = _enable_atomic_add(kernel_info)
                 _ = composite._build(json_str, kernel_info, attrs={
-                                     "target": "cuda", "enable_akg_reduce_lib": True}, poly=use_poly)
+                                     "target": "cuda", "enable_akg_reduce_lib": True, "enable_atomic_add": enable_atomic_add}, poly=use_poly)
                 return True
             else:
                 mod = composite._build_to_func(json_str, kernel_info)
