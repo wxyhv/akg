@@ -219,6 +219,7 @@ class UserConfig {
       ParseBoolAttr(attrs, "enable_akg_reduce_lib", &enable_akg_reduce_lib_);
       ParseBoolAttr(attrs, "use_register_memory", &use_register_memory_);
       ParseBoolAttr(attrs, "use_shared_memory", &use_shared_memory_);
+      ParseBoolAttr(attrs, "enable_bank_conflict_opt", &enable_bank_conflict_);
       ParseIntAttr(attrs, "register_memory_depth", &register_depth_);
       ParseIntAttr(attrs, "shared_memory_depth", &shared_depth_);
       ParseStringAttr(attrs, "shared_memory_tensors", &shared_tensors_);
@@ -358,6 +359,8 @@ class UserConfig {
   std::string GetSharedTensors() { return shared_tensors_; }
   std::string GetReduceLibType() { return reduce_lib_type_; }
   std::string GetLocalTensors() { return local_tensors_; }
+  void SetEnableBankConflict(bool enable_bank_conflict) { enable_bank_conflict_ = enable_bank_conflict; }
+  bool GetEnableBankConflict() { return enable_bank_conflict_; }
 
  private:
   // tools for parsing user config
@@ -488,6 +491,7 @@ class UserConfig {
   bool tile_check_coincident_{true};
   int max_unroll_loop_{1};
   bool unroll_shared_{false};
+  bool enable_bank_conflict_{false};
 
   // schedule tree transform config
   bool remove_self_dependence_{true};
