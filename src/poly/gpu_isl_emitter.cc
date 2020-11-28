@@ -270,12 +270,9 @@ Stmt GpuIslEmitter::EmitReduceInit(const isl::ast_node_user &node) {
   map_info += "|";
   map_info += reduce_info_.scalar_tensor_info_;
 
-  std::string promoted_tensor_init = MakePromotedTensorInitStmt(init_value);
-
-  Stmt stmt = Evaluate::make(Call::make(Int(32), REDUCE,
-                                        {StringImm::make(stmt_id.name()), StringImm::make(scalar_info),
-                                         StringImm::make(shared_info), StringImm::make(promoted_tensor_init)},
-                                        Call::Intrinsic));
+  Stmt stmt = Evaluate::make(Call::make(
+    Int(32), REDUCE, {StringImm::make(stmt_id.name()), StringImm::make(scalar_info), StringImm::make(shared_info)},
+    Call::Intrinsic));
   stmt = AttrStmt::make(Expr("INFO"), TENSOR_MAP_INFO_FLAG, StringImm::make(map_info), stmt);
   return stmt;
 }
@@ -695,85 +692,6 @@ void GpuIslEmitter::MakePromotedTensorInfoForReduce() {
   reduce_info_.promoted_tensor_info_for_reduce_ = ret;
 }
 
-std::string GpuIslEmitter::MakePromotedTensorInitStmt(std::string init_value) {
-  std::string tensor_name = reduce_info_.promoted_tensor_name_for_reduce_;
-  std::string ret = "";
-  bool add_if = false;
-  class CheckTheIterScop final : public IRVisitor {
-   public:
-    CheckTheIterScop() {}
-    ~CheckTheIterScop() override = default;
-    void Visit_(const Provide *op) final {
-      auto arr = op->args;
-      for (size_t i = 0; i < arr.size(); i++) {
-        Visit(arr[i]);
-      }
-    }
-    void Visit_(const Variable *op) final {
-      if (op->name_hint == iter_) {
-        is_global_ = false;
-        return;
-      }
-    }
-
-    bool Run(Stmt stmt, std::string iter) {
-      iter_ = iter;
-      IRVisitor::Visit(stmt);
-      return is_global_;
-    }
-
-   public:
-    bool is_global_{true};
-    std::string iter_{""};
-  };
-
-  if (reduce_info_.atomic_tensors_.find(tensor_name) == reduce_info_.atomic_tensors_.end()) {
-    Stmt stmt = reduce_info_.reduce_stmt_[tensor_name];
-    int size = reduce_info_.for_indexs_.size();
-    for (int i = size - 1; i >= 0; --i) {
-      std::string iter = reduce_info_.for_indexs_[i];
-      if (!CheckTheIterScop().Run(stmt, iter)) {
-        continue;
-      }
-      ret += "if (";
-      ret += iter;
-      ret += " == 0) { ";
-      add_if = true;
-    }
-  }
-
-  ret += tensor_name;
-
-  int size = reduce_info_.promoted_tensor_indexs_for_reduce_[tensor_name].size();
-  if (size == 0) {
-    ret += DEFAULT_TENSOR_INDEX;
-  } else if (size == 1) {
-    ret += "[";
-    ret += reduce_info_.promoted_tensor_indexs_for_reduce_[tensor_name].at(0);
-    ret += "]";
-  } else {
-    ret += "[";
-    for (int i = 0; i < size - 1; ++i) {
-      ret += reduce_info_.promoted_tensor_indexs_for_reduce_[tensor_name].at(i);
-      for (int j = i + 1; j < size; ++j) {
-        ret += "*";
-        ret += "(";
-        ret += reduce_info_.promoted_tensor_shape_for_reduce_[tensor_name].at(j);
-        ret += ")";
-      }
-      ret += "+";
-    }
-    ret += reduce_info_.promoted_tensor_indexs_for_reduce_[tensor_name].at(size - 1);
-    ret += "]";
-  }
-
-  ret += " =";
-  ret += init_value;
-  ret += ";";
-  if (add_if) ret += " }";
-  return ret;
-}
-
 Stmt GpuIslEmitter::EmitAkgAtomicReturnInfo(Stmt s, std::string info) {
   return Evaluate::make(
     Call::make(Int(32), REDUCE, {StringImm::make(REDUCE_ATOMIC_FLAG), StringImm::make(info)}, Call::Intrinsic));
@@ -859,7 +777,6 @@ Stmt GpuIslEmitter::EmitFor(const isl::ast_node_for &node) {
   }
   std::stringstream ss;
   ss << iter_expr_new;
-  reduce_info_.for_indexs_.push_back(ss.str());
   PushIter(iter_expr.get());
 
   Expr init_expr = Interpret(node.get_init());
@@ -884,8 +801,6 @@ Stmt GpuIslEmitter::EmitFor(const isl::ast_node_for &node) {
     stride_modify_iter_map_[iter_expr_new.get()] = modify_iter;
     std::stringstream ss;
     ss << modify_iter;
-    reduce_info_.for_indexs_.pop_back();
-    reduce_info_.for_indexs_.push_back(ss.str());
   }
 
   if (isl_cond.as<isl::ast_expr_op_le>()) {
@@ -896,7 +811,6 @@ Stmt GpuIslEmitter::EmitFor(const isl::ast_node_for &node) {
 
   if (!body_stmt.defined()) {
     PopIter(iter_expr.get());
-    reduce_info_.for_indexs_.pop_back();
     return Stmt();
   }
 
@@ -904,7 +818,6 @@ Stmt GpuIslEmitter::EmitFor(const isl::ast_node_for &node) {
     stride_modify_iter_map_.erase(iter_expr_new.get());
   }
   PopIter(iter_expr.get());
-  reduce_info_.for_indexs_.pop_back();
   return For::make(iter_expr_new, init_expr, cond_expr, ForType::Serial, DeviceAPI::None, body_stmt);
 }
 
@@ -920,7 +833,43 @@ Stmt GpuIslEmitter::EmitIf(const isl::ast_node_if &node) {
     else_case = EmitAst(node.get_else_node());
   }
   cur_if_list_.pop_back();
+  if (reduce_info_.init_stmt_emit_) {
+    reduce_info_.init_stmt_emit_ = false;
+    if (info_.user_config_.GetEnableAtomicAdd()) {
+      cond_expr = ConditionExprMod().Mutate(cond_expr);
+    }
+  }
   return IfThenElse::make(cond_expr, then_case, else_case);
+}
+
+Stmt GpuIslEmitter::EmitUserStmt(const isl::ast_node_user &node) {
+  CHECK(node.get_expr().isa<isl::ast_expr_op>());
+  isl::ast_expr_op usr_expr = node.get_expr().as<isl::ast_expr_op>();
+  stmt_id_ = usr_expr.get_arg(0).as<isl::ast_expr_id>().get_id();
+  node_id_ = node.get_annotation();
+  const Node *stmt_node = info_.analysis_result_.GetStatementMap().at(stmt_id_);
+  CHECK(stmt_node);
+  // compute VarMap to replace old iterators
+  auto build = node_info_map_.at(node_id_).build;
+  auto tuple = info_.analysis_result_.GetOperatorDomainMap().at(stmt_id_).tuple;
+  auto iterator_map = node_info_map_.at(node_id_).iterator_map;
+
+  auto ids = info_.analysis_result_.GetReduceInitIds();
+  for (auto &i : ids) {
+    if (i.get_name() == stmt_id_.get_name()) {
+      reduce_info_.init_stmt_emit_ = true;
+    }
+  }
+
+  var_map_.clear();
+  for (unsigned int i = 0; i < tuple.size(); ++i) {
+    isl::id isl_old_iter = tuple.get_id(i);
+    auto isl_expr = build.expr_from(iterator_map.get_pw_aff(i));
+    Expr halide_new_iter = Interpret(isl_expr);
+    var_map_.emplace(isl_old_iter, halide_new_iter);
+  }
+
+  return EmitUserStmtContent(stmt_node);
 }
 
 Expr GpuIslEmitter::ModifyTheInitExpr(const Expr &e) { return 0; }

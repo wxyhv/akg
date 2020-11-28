@@ -314,13 +314,11 @@ void CodeGenCUDA::PrintReduce(const Call* op) {
   const std::string& sync = op->args[0].as<StringImm>()->value;
   if (sync.find("red_init") != std::string::npos) {
     int len = op->args.size();
-    if (len == 4) {
+    if (len == 3) {
       this->PrintIndent();
       this->stream << op->args[1].as<StringImm>()->value << "\n";
       this->PrintIndent();
       this->stream << op->args[2].as<StringImm>()->value << "\n";
-      this->PrintIndent();
-      this->stream << op->args[3].as<StringImm>()->value << "\n";
     }
     in_reduce_area_ = true;
     return;
