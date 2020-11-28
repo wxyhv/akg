@@ -40,9 +40,10 @@ class ReduceManager {
                                      StatementMap all_statements);
 
  private:
-  isl::schedule_node OrderStatements(const isl::schedule_node &node, isl::union_set before, isl::union_set after,
-                                     std::vector<isl::id> reduce_init_ids);
-  bool IsOrderStatements(isl::union_set first_statements, isl::union_set second_statements, isl::union_map dependences);
+  isl::schedule_node ReorderStatements(const isl::schedule_node &node, isl::union_set before, isl::union_set after,
+                                       std::vector<isl::id> reduce_init_ids);
+  bool AreSequentialStatements(isl::union_set first_statements, isl::union_set second_statements,
+                               isl::union_map dependences);
 };
 
 }  // namespace poly
