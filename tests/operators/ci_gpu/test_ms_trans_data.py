@@ -29,16 +29,23 @@ def gen_data(shape, axes, dtype):
 
 def test_ms_trans_data(shape, axes, dtype, poly_sch=False):
     if poly_sch:
-        mod = utils.op_build_test(trans_data_auto, [shape], [dtype], op_attrs=[axes], kernel_name="trans_data_auto", attrs={"target": "cuda"})
+        mod = utils.op_build_test(
+            trans_data_auto,
+            [shape],
+            [dtype],
+            op_attrs=[axes],
+            kernel_name="trans_data_auto",
+            attrs={
+                "target": "cuda"})
     else:
         mod = utils.op_build_test(trans_data_manual, [shape], [dtype], op_attrs=[axes], kernel_name="trans_data_manual")
     data, output, expect = gen_data(shape, axes, dtype)
-    output = utils.mod_launch(mod, (data, output), expect = expect)
+    output = utils.mod_launch(mod, (data, output), expect=expect)
     ret = compare_tensor(output, expect, rtol=5e-03, atol=1.e-8, equal_nan=True)
     print("Test {}".format("Pass" if ret else "Failed"))
     if not ret:
         print("Error cuda:========================")
         print(mod.imported_modules[0].get_source())
-        raise AssertionError("Test fail")  
+        raise AssertionError("Test fail")
     data, expect = to_tvm_nd_array([data, expect])
     return True

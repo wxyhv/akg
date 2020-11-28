@@ -24,7 +24,7 @@ def gen_data(in_shape, in_dtype, axis, keepdims):
     data = random_gaussian(in_shape, miu=1, sigma=0.1).astype(
         support_list[in_dtype])
     expect = np.amax(data, axis=axis, keepdims=keepdims)
-    if axis == None and keepdims == False:
+    if axis is None and keepdims == False:
         expect = np.broadcast_to(expect, (1,))
     output = np.full(expect.shape, np.nan, in_dtype)
     return data, output, expect
@@ -33,10 +33,10 @@ def gen_data(in_shape, in_dtype, axis, keepdims):
 def test_ms_reduce_max(in_shape, in_dtype, axis=None, keepdims=False, poly_sch=False):
     if poly_sch:
         mod = utils.op_build_test(reduce_max_auto, (in_shape, ), (in_dtype, ), op_attrs=[
-                             axis, keepdims], kernel_name="reduce_max_auto", attrs={"target": "cuda"})
+            axis, keepdims], kernel_name="reduce_max_auto", attrs={"target": "cuda", "enable_akg_reduce_lib": True})
     else:
         mod = utils.op_build_test(reduce_max_manual, (in_shape, ),
-                             (in_dtype, ), kernel_name="reduce_max_manual", op_attrs=[axis, keepdims])
+                                  (in_dtype, ), kernel_name="reduce_max_manual", op_attrs=[axis, keepdims])
     data, output, expect = gen_data(in_shape, in_dtype, axis, keepdims)
     args = (data, output)
     output = utils.mod_launch(mod, args, expect=expect)

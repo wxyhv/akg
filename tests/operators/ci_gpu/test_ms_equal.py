@@ -10,7 +10,7 @@
 # distributed under the License is distributed on an "AS IS" BASIS,
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
-# limitations under the License 
+# limitations under the License
 import numpy as np
 from akg.ops.poly_gpu import equal_manual, equal_auto
 from gen_random import random_gaussian
@@ -33,10 +33,12 @@ def gen_data(shapes, dtype):
     return inputs, output, expect
 
 
-
 def test_ms_equal(shapes, dtype, poly_sch=False):
     if poly_sch:
-        mod = utils.op_build_test(equal_auto, shapes, [dtype, dtype], kernel_name="equal_auto", attrs={"target": "cuda"})
+        mod = utils.op_build_test(
+            equal_auto, shapes, [
+                dtype, dtype], kernel_name="equal_auto", attrs={
+                "target": "cuda"})
     else:
         mod = utils.op_build_test(equal_manual, shapes, [dtype, dtype], kernel_name="equal_manual")
     inputs1, output1, expect1 = gen_data(shapes, dtype)
@@ -50,7 +52,13 @@ def test_ms_equal(shapes, dtype, poly_sch=False):
         output2 = np.full(expect2.shape, 0, bool)
         output2 = utils.mod_launch(mod, (*inputs2, output2), expect=expect1)
 
-        res = np.allclose(output1, expect1, rtol=5e-03, atol=1.e-8) and np.allclose(output2, expect2, rtol=5e-03, atol=1.e-8)
+        res = np.allclose(output1,
+                          expect1,
+                          rtol=5e-03,
+                          atol=1.e-8) and np.allclose(output2,
+                                                      expect2,
+                                                      rtol=5e-03,
+                                                      atol=1.e-8)
         print("Test {}".format("Pass" if res else "Fail"))
         if not res:
             print("Error cuda:========================")
@@ -68,7 +76,7 @@ def test_ms_equal(shapes, dtype, poly_sch=False):
             print("Error cuda:========================")
             print(mod.imported_modules[0].get_source())
             raise AssertionError("Test fail")
-        
+
         inputs1 = to_tvm_nd_array(inputs1)
         expect1 = to_tvm_nd_array(expect1)
     return True

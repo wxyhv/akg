@@ -63,7 +63,10 @@ def reduce_str(inputs, output, attr, op_type):
     keepdims = False
     for ab in attr:
         if ab['name'] == 'axis':
-            axis = ab['value']
+            if isinstance(ab['value'], list): 
+                axis = ab['value']
+            else:
+                axis.append(ab['value'])
         elif ab['name'] == 'keep_dims':
             keepdims = ab['value']
 

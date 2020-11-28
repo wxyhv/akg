@@ -23,14 +23,26 @@ from test_run.one_hot_run import gen_data
 
 def test_ms_one_hot(shape, depth, dtype, on_value, off_value, axis, poly_sch=False):
     if poly_sch:
-        mod = utils.op_build_test(one_hot_auto, [shape], [dtype], kernel_name="one_hot_auto", op_attrs=[on_value, off_value, depth, axis, dtype], attrs={"target": "cuda"})
+        mod = utils.op_build_test(one_hot_auto, [shape], [dtype], kernel_name="one_hot_auto", op_attrs=[
+                                  on_value, off_value, depth, axis, dtype], attrs={"target": "cuda"})
     else:
-        mod = utils.op_build_test(one_hot_manual, [shape], [dtype], kernel_name="one_hot_manual", op_attrs=[on_value, off_value, depth, axis, dtype])
+        mod = utils.op_build_test(
+            one_hot_manual,
+            [shape],
+            [dtype],
+            kernel_name="one_hot_manual",
+            op_attrs=[
+                on_value,
+                off_value,
+                depth,
+                axis,
+                dtype])
 
     # gen data
-    expect, data_tmp, on_value_tensor, off_value_tensor, output = gen_data(axis, depth, dtype, shape, on_value, off_value)
+    expect, data_tmp, on_value_tensor, off_value_tensor, output = gen_data(
+        axis, depth, dtype, shape, on_value, off_value)
     data = data_tmp.astype(dtype)
-    output = utils.mod_launch(mod, (data, output), expect = expect)
+    output = utils.mod_launch(mod, (data, output), expect=expect)
     ret = compare_tensor(output, expect, rtol=5e-03, atol=1.e-8, equal_nan=True)
     print("Test {}".format("Pass" if ret else "Failed"))
     if not ret:

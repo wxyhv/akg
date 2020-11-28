@@ -258,5 +258,10 @@ if(ENABLE_AKG)
 	       ${TVM_DIR}/python/tvm
 	       ${TVM_DIR}/topi/python/topi
 	  DESTINATION ${CMAKE_CURRENT_BINARY_DIR}/akg)
+  install(
+    DIRECTORY
+	       ${AKG_SOURCE_DIR}/src/akg_reduce
+	       ${AKG_SOURCE_DIR}/src/paris_reduce
+	  DESTINATION ${CMAKE_CURRENT_BINARY_DIR}/akg/include)
 endif()
 

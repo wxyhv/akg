@@ -362,8 +362,8 @@ def test_reduce_sum():
 @pytest.mark.platform_x86_gpu_training
 @pytest.mark.env_onecard
 def test_select():
-    test_ms_select((2, ), (2, 2, 2),  "int8", "float16", poly_sch=True)
-    test_ms_select((2, ), (2, 2, 2),  "int8", "float16", poly_sch=False)
+    test_ms_select((2, ), (2, 2, 2), "int8", "float16", poly_sch=True)
+    test_ms_select((2, ), (2, 2, 2), "int8", "float16", poly_sch=False)
     return True
 
 @pytest.mark.level0
@@ -494,8 +494,8 @@ def test_ms_fused_bn_reduce_grad():
 @pytest.mark.platform_x86_gpu_training
 @pytest.mark.env_onecard
 def test_ms_fused_relu_grad_bn_reduce_grad():
-    test_fused_relu_grad_bn_reduce_grad((64, ), (256, 112, 112, 64),  layout='NHWC', poly_sch=True)
-    test_fused_relu_grad_bn_reduce_grad((64, ), (256, 112, 112, 64),  layout='NHWC', poly_sch=False)
+    test_fused_relu_grad_bn_reduce_grad((64, ), (256, 112, 112, 64), layout='NHWC', poly_sch=True)
+    test_fused_relu_grad_bn_reduce_grad((64, ), (256, 112, 112, 64), layout='NHWC', poly_sch=False)
     return True
 
 @pytest.mark.level0
@@ -510,8 +510,8 @@ def test_ms_fused_relu_grad_bn_double_reduce_grad():
 @pytest.mark.platform_x86_gpu_training
 @pytest.mark.env_onecard
 def test_ms_fused_l2loss_grad():
-    test_fused_l2loss_grad((1,1,256,1024), layout='NHWC', poly_sch=True)
-    test_fused_l2loss_grad((1,1,256,1024), layout='NHWC', poly_sch=False)
+    test_fused_l2loss_grad((1, 1, 256, 1024), layout='NHWC', poly_sch=True)
+    test_fused_l2loss_grad((1, 1, 256, 1024), layout='NHWC', poly_sch=False)
     return True
 
 @pytest.mark.level0
@@ -534,8 +534,8 @@ def test_ms_fused_relu_grad_bn_update_grad():
 @pytest.mark.platform_x86_gpu_training
 @pytest.mark.env_onecard
 def test_ms_fused_relu_grad_bn_double_update_grad():
-    test_fused_relu_grad_bn_double_update_grad((256,56,56,256), (256, ), layout='NHWC', poly_sch=False)
-    test_fused_relu_grad_bn_double_update_grad((256,56,56,256), (256, ), layout='NHWC', poly_sch=True)
+    test_fused_relu_grad_bn_double_update_grad((256, 56, 56, 256), (256, ), layout='NHWC', poly_sch=False)
+    test_fused_relu_grad_bn_double_update_grad((256, 56, 56, 256), (256, ), layout='NHWC', poly_sch=True)
     return True
 
 @pytest.mark.level0
@@ -588,4 +588,3 @@ def usage(op_map):
     print("\t$python test_all.py -f 3 add")
     print("Available func:")
     print("\t", list(op_map.keys()), "\n")
-

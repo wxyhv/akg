@@ -98,7 +98,7 @@ def test_fused_bn_reduce_grad(in_shape, in_dtype="float16", layout='NHWC', out_d
     outputs = [output]
     arglist = inputs + outputs
     output = utils.mod_launch(mod, arglist, expect=expect)
-    
+
     res = np.allclose(output, expect, rtol=5e-03, atol=1.e-8)
     print("Test {}".format("Pass" if res else "Fail"))
     if not res:

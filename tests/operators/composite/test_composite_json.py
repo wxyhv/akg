@@ -52,7 +52,7 @@ def print_usage():
 
 def get_result(desc, poly, attrs=None):
     input_for_mod, expect, output_indexes = gen_json_data(desc)
-    if attrs:
+    if poly:
         reduce_lib_key = "enable_akg_reduce_lib"
         if reduce_lib_key not in attrs.keys():
             attrs[reduce_lib_key] = poly
@@ -149,6 +149,7 @@ def test_ci(profile=False, poly=False):
             if fi == "base.json":
                 continue
             desc = f.read()
+            print("%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%  fi: ", fi)
             flag = get_result(desc, poly)
             if not flag:
                 logging.info("----------Error Json info is----------")

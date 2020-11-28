@@ -40,7 +40,13 @@ def gen_data(shape, out_shape, dtype, out_dtype, layout):
     expect = compute_expect(data_sum, in_bn, head, in_active, layout)
     return head, data_sum, in_bn, in_active, output, expect
 
-def test_fused_relu_grad_bn_update_grad(shape, out_shape, dtype="float16", layout="NHWC", out_dtype="float32", poly_sch=False):
+def test_fused_relu_grad_bn_update_grad(
+        shape,
+        out_shape,
+        dtype="float16",
+        layout="NHWC",
+        out_dtype="float32",
+        poly_sch=False):
     shape_list = [out_shape, shape, shape, shape]
     dtype_list = [out_dtype, dtype, dtype, dtype]
     op_attrs = [layout]
@@ -52,11 +58,15 @@ def test_fused_relu_grad_bn_update_grad(shape, out_shape, dtype="float16", layou
             op_attrs=op_attrs,
             kernel_name="fused_relu_grad_bn_update_grad_auto",
             attrs={
-                "target": "cuda",
-                "register_memory_depth":3})
+                "target": "cuda", "enable_akg_reduce_lib": True})
     else:
-        mod = utils.op_build_test(fused_relu_grad_bn_update_grad_manual, shape_list, dtype_list, kernel_name="fused_relu_grad_bn_update_grad_manual", op_attrs=op_attrs)
-    
+        mod = utils.op_build_test(
+            fused_relu_grad_bn_update_grad_manual,
+            shape_list,
+            dtype_list,
+            kernel_name="fused_relu_grad_bn_update_grad_manual",
+            op_attrs=op_attrs)
+
     head, data_sum, in_bn, in_active, output, expect = gen_data(shape, out_shape, dtype, out_dtype, layout)
     outputs = [output, output]
     inputs = [data_sum, in_bn, head, in_active]

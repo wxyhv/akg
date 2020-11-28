@@ -31,7 +31,7 @@ def test_ms_abs(shape, dtype, poly_sch=False):
     else:
         mod = utils.op_build_test(abs_manual, [shape], [dtype], kernel_name="abs_manual")
     data, output, expect = gen_data(shape, dtype)
-    output = utils.mod_launch(mod, (data, output), expect = expect)
+    output = utils.mod_launch(mod, (data, output), expect=expect)
     res = np.allclose(output, expect, rtol=5e-03, atol=1.e-8)
     print("Test {}".format("Pass" if res else "Fail"))
     if not res:
@@ -40,4 +40,3 @@ def test_ms_abs(shape, dtype, poly_sch=False):
         raise AssertionError("Test fail")
     data, expect = to_tvm_nd_array([data, expect])
     return True
-

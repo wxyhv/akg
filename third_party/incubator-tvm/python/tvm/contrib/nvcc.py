@@ -74,6 +74,9 @@ def compile_cuda(code,
     # mindspore root path
     mind_root_path = os.path.abspath(os.path.join(current_path, "../../../../.."))
     mind_root_path += "/akg/src"
+    # mindspore_ci root path
+    mind_root_ci_path = os.path.abspath(os.path.join(current_path, "../.."))
+    mind_root_ci_path += "/include"
 
     with open(temp_code, "w") as out_file:
         out_file.write(code)
@@ -108,6 +111,9 @@ def compile_cuda(code,
 
     include_path_mind = "-I" + mind_root_path
     cmd += [include_path_mind]
+
+    include_path_mind_ci = "-I" + mind_root_ci_path
+    cmd += [include_path_mind_ci]
 
     cmd += ["-o", file_target]
     cmd += [temp_code]

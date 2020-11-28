@@ -29,9 +29,10 @@ def gen_data(shape1, shape2, dtype):
 
 def test_ms_minimum(shape1, shape2, dtype, poly_sch=False):
     if poly_sch:
-        mod = utils.op_build_test(minimum_auto, (shape1, shape2), (dtype, dtype), kernel_name="minimum_auto", attrs={"target": "cuda"})    
+        mod = utils.op_build_test(minimum_auto, (shape1, shape2), (dtype, dtype),
+                                  kernel_name="minimum_auto", attrs={"target": "cuda"})
     else:
-        mod = utils.op_build_test(minimum_manual, (shape1, shape2), (dtype, dtype), kernel_name="minimum_manual")    
+        mod = utils.op_build_test(minimum_manual, (shape1, shape2), (dtype, dtype), kernel_name="minimum_manual")
     lhs, rhs, output, expect = gen_data(shape1, shape2, dtype)
     args = (lhs, rhs, output)
     output = utils.mod_launch(mod, args, expect=expect)

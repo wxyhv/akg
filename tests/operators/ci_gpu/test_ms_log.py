@@ -27,13 +27,14 @@ def gen_data(in_shape, in_dtype):
 
 def test_ms_log(in_shape, in_dtype, poly_sch=False):
     if poly_sch:
-        mod = utils.op_build_test(log_auto, (in_shape, ), (in_dtype, ), kernel_name="log_auto", attrs={"target":"cuda"})
+        mod = utils.op_build_test(log_auto, (in_shape, ), (in_dtype, ),
+                                  kernel_name="log_auto", attrs={"target": "cuda"})
     else:
         mod = utils.op_build_test(log_manual, (in_shape, ), (in_dtype, ), kernel_name="log_manual")
     data, output, expect = gen_data(in_shape, in_dtype)
     args = (data, output)
     output = utils.mod_launch(mod, args, expect=expect)
-    res = np.allclose(output, expect, rtol=5e-03, atol=1.e-7) #  from 1e-8 changing to 1e-7
+    res = np.allclose(output, expect, rtol=5e-03, atol=1.e-7)  # from 1e-8 changing to 1e-7
     print("Test {}".format("Pass" if res else "Fail"))
     if not res:
         print("Error cuda:========================")

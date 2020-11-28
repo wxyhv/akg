@@ -60,10 +60,16 @@ def gen_data(shape, out_shape, dtype, out_dtype):
     expect = compute_expect(inshp_data, outshp_data)
     return inshp_data, outshp_data, output, expect
 
-def test_fused_relu_grad_bn_double_reduce_grad(shape, out_shape, dtype="float32", layout="NHWC", out_dtype="float16", poly_sch=False):
-    
+def test_fused_relu_grad_bn_double_reduce_grad(
+        shape,
+        out_shape,
+        dtype="float32",
+        layout="NHWC",
+        out_dtype="float16",
+        poly_sch=False):
+
     shape_list = [shape] * 5 + [out_shape] + [shape] * 3 + [out_shape] + [shape] * 3 + [out_shape] * 3
-    dtype_list = [dtype] * 5 +[out_dtype] +[dtype] * 3 + [out_dtype] + [dtype] * 3 +[out_dtype] * 3
+    dtype_list = [dtype] * 5 + [out_dtype] + [dtype] * 3 + [out_dtype] + [dtype] * 3 + [out_dtype] * 3
     op_attrs = [layout, out_dtype]
     if poly_sch:
         mod = utils.op_build_test(
@@ -75,7 +81,12 @@ def test_fused_relu_grad_bn_double_reduce_grad(shape, out_shape, dtype="float32"
             attrs={
                 "target": "cuda"})
     else:
-        mod = utils.op_build_test(fused_relu_grad_bn_double_reduce_grad_manual, shape_list, dtype_list, kernel_name="fused_relu_grad_bn_double_reduce_grad_manual", op_attrs=op_attrs)
+        mod = utils.op_build_test(
+            fused_relu_grad_bn_double_reduce_grad_manual,
+            shape_list,
+            dtype_list,
+            kernel_name="fused_relu_grad_bn_double_reduce_grad_manual",
+            op_attrs=op_attrs)
 
     inshp_data, outshp_data, output, expect = gen_data(shape, out_shape, dtype, out_dtype)
     inputs = [inshp_data] * 5 + [outshp_data] + [inshp_data] * 3 + [outshp_data] + [inshp_data] * 3 + [outshp_data] * 3

@@ -22,20 +22,23 @@ def gen_data(in_shape, in_dtype, axis, keepdims):
     support_list = {"float16": np.float16, "float32": np.float32}
     data = random_gaussian(in_shape, miu=1, sigma=0.1).astype(support_list[in_dtype])
     expect = np.sum(data, axis=axis, keepdims=keepdims)
-    if axis==None and keepdims==False:
+    if axis is None and keepdims == False:
         expect = np.broadcast_to(expect, (1,))
     output = np.full(expect.shape, np.nan, in_dtype)
     return data, output, expect
 
 def test_ms_reduce_sum(in_shape, in_dtype, axis=None, keepdims=False, poly_sch=False):
     if poly_sch:
-        mod = utils.op_build_test(reduce_sum_auto, (in_shape, ), (in_dtype, ), kernel_name="reduce_sum_auto", op_attrs=[axis, keepdims], attrs={"target":"cuda"})
+        mod = utils.op_build_test(reduce_sum_auto, (in_shape, ), (in_dtype, ), 
+                                  kernel_name="reduce_sum_auto", op_attrs=[axis, keepdims], 
+                                  attrs={"target": "cuda", "enable_akg_reduce_lib": True})
     else:
-        mod = utils.op_build_test(reduce_sum_manual, (in_shape, ), (in_dtype, ), kernel_name="reduce_sum_manual", op_attrs=[axis, keepdims])
+        mod = utils.op_build_test(reduce_sum_manual, (in_shape, ), (in_dtype, ),
+                                  kernel_name="reduce_sum_manual", op_attrs=[axis, keepdims])
     data, output, expect = gen_data(in_shape, in_dtype, axis, keepdims)
     args = (data, output)
     output = utils.mod_launch(mod, args, expect=expect)
-    res = np.allclose(output, expect, rtol=5e-03, atol=1.e-8) 
+    res = np.allclose(output, expect, rtol=5e-03, atol=1.e-8)
     print("Test {}".format("Pass" if res else "Fail"))
     if not res:
         print("Error cuda:========================")
