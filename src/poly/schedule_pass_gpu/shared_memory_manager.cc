@@ -34,6 +34,7 @@ isl::schedule SharedMemoryManager::Run(isl::schedule sch) {
     use_config_ = true;
   }
   CHECK_GE(depth_, 0) << "shared depth should be greater than or equal with zero!";
+  bank_conflict_ = scop_info_.user_config_.GetEnableBankConflict();
 
   // collect all bands at the given depth in the schedule tree
   size_t remain_memory = share_memory_size_;
@@ -319,6 +320,10 @@ void SharedMemoryManager::GatherBufferFootprintDefInfo(const isl::schedule_node 
   }
   sizes = fp_cluster->GetFixedBoxSizes();
 
+  if (bank_conflict_) {
+    sizes = OptimizeBankConflict(sizes);
+  }
+
   isl::id tensor_id = tensor_info.tensor_id;
   isl::id cluster_id = tensor_info.dst_tensor_id;
 
@@ -355,9 +360,7 @@ isl::schedule_node SharedMemoryManager::HoistClusters(const isl::schedule_node &
       LOG(FATAL) << "Can not manage a scalar tensor";
     }
 
-    if (box_sizes.back() % 2 == 0) {
-      box_sizes.back() += 1;
-    }
+    box_sizes = OptimizeBankConflict(box_sizes);
 
     auto approximation_size = std::accumulate(box_sizes.begin(), box_sizes.end(), 1, std::multiplies<size_t>());
     size_t byte = Bytes(id);
@@ -396,8 +399,8 @@ isl::schedule_node SharedMemoryManager::HoistToBlockThreadMemory(isl::schedule_n
 
   isl::id dst_tensor_id = GpuDstId(type, tensor_id);
   auto sizes = cluster.GetFixedBoxSizes();
-  if (sizes.size() > 0 && force_last_extension_odd && (sizes.back() % 2) == 0) {
-    sizes.back() += 1;
+  if (force_last_extension_odd) {
+    sizes = OptimizeBankConflict(sizes);
   }
 
   auto res_node = PlaceOuterDataCopyBelow(scop_info_, tree, cluster, tensor_id, dst_tensor_id, out_schedule,
@@ -526,6 +529,18 @@ std::string SharedMemoryManager::AtomicMarker(std::string type) { return ATOMIC_
 size_t SharedMemoryManager::Bytes(const isl::id tensor_id) {
   Type type = scop_info_.GetDtypeOf(tensor_id);
   return static_cast<size_t>(type.bytes());
+}
+
+std::vector<size_t> SharedMemoryManager::OptimizeBankConflict(std::vector<size_t> sizes) {
+  std::vector<size_t> res = sizes;
+  if (res.back() % 2 == 0) {
+    if (bank_conflict_ && res.back() < 32) {
+      res.back() = 33;
+    } else {
+      res.back() += 1;
+    }
+  }
+  return res;
 }
 
 }  // namespace poly
