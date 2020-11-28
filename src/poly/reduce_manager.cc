@@ -43,8 +43,8 @@ isl::union_set ReduceManager::GetReduceStatements(isl::union_set domain, isl::un
 }
 
 // Determine whether the first statement can be ranked before the second statement
-bool ReduceManager::IsOrderStatements(isl::union_set first_statements, isl::union_set second_statements,
-                                      isl::union_map dependences) {
+bool ReduceManager::AreSequentialStatements(isl::union_set first_statements, isl::union_set second_statements,
+                                            isl::union_map dependences) {
   if (first_statements.is_empty() || second_statements.is_empty()) {
     return true;
   }
@@ -59,8 +59,8 @@ bool ReduceManager::IsOrderStatements(isl::union_set first_statements, isl::unio
   return dependences.is_subset(order_dependences);
 }
 
-isl::schedule_node ReduceManager::OrderStatements(const isl::schedule_node &node, isl::union_set before,
-                                                  isl::union_set after, std::vector<isl::id> reduce_init_ids) {
+isl::schedule_node ReduceManager::ReorderStatements(const isl::schedule_node &node, isl::union_set before,
+                                                    isl::union_set after, std::vector<isl::id> reduce_init_ids) {
   isl::union_set middle = CollectDomain(node);
   isl::schedule_node order_node = node;
   isl::union_set_list filter_list;
@@ -114,32 +114,40 @@ isl::schedule_node ReduceManager::OrderStatements(const isl::schedule_node &node
 bool ReduceManager::SplitReduceStatements(isl::schedule_node &node, isl::union_set reduce_statements,
                                           isl::union_map dependences, std::vector<isl::id> reduce_init_ids) {
   auto domain = CollectDomain(node);
-  auto no_reduce_statements = domain.subtract(reduce_statements);
-  if (no_reduce_statements.is_empty()) {
+  auto injective_statements = domain.subtract(reduce_statements);
+  if (injective_statements.is_empty()) {
     return true;
   }
 
   auto prefix = ShortScheduleMupaImpl(node.root(), node.root(), node.parent());
   isl::union_map active_dependences = dependences.intersect_domain(domain).intersect_range(domain).eq_at(prefix);
 
-  isl::union_set depend_reduce =
-    active_dependences.intersect_domain(reduce_statements).intersect_range(no_reduce_statements).range();
-  isl::union_set no_depend_reduce = no_reduce_statements.subtract(depend_reduce);
+  isl::union_set reduction_dependent_stmt =
+    active_dependences.intersect_domain(reduce_statements).intersect_range(injective_statements).range();
+  auto transitive_dependent_stmt =
+    active_dependences.intersect_domain(reduction_dependent_stmt).intersect_range(injective_statements).range();
+  while (!transitive_dependent_stmt.is_empty() && !transitive_dependent_stmt.subtract(reduction_dependent_stmt).is_empty()) {
+    reduction_dependent_stmt = reduction_dependent_stmt.unite(transitive_dependent_stmt);
+    transitive_dependent_stmt =
+      active_dependences.intersect_domain(reduction_dependent_stmt).intersect_range(injective_statements).range();
+  }
 
-  isl::union_set other_depend_reduce = domain.subtract(depend_reduce);
-  isl::union_set other_no_depend_reduce = domain.subtract(no_depend_reduce);
-  if (!IsOrderStatements(no_depend_reduce, other_no_depend_reduce, dependences) ||
-      !IsOrderStatements(other_depend_reduce, depend_reduce, dependences)) {
+  isl::union_set reduction_indenpendent_stmt = injective_statements.subtract(reduction_dependent_stmt);
+
+  if (reduction_indenpendent_stmt.is_empty() && reduction_dependent_stmt.is_empty()) {
     return false;
   }
 
-  // Statements that do not depend on the reduce statement are ordered before.
-  // Statements that depend on the reduce statement are ordered after.
-  if (no_depend_reduce.is_empty() && depend_reduce.is_empty()) {
+  // Check the rest statements are sequential after splitting reduction dependent and independent statements from
+  // reduction statements
+  if (!AreSequentialStatements(reduction_indenpendent_stmt, domain.subtract(reduction_indenpendent_stmt),
+                               dependences) ||
+      !AreSequentialStatements(domain.subtract(reduction_dependent_stmt), reduction_dependent_stmt, dependences)) {
     return false;
-  } else {
-    node = OrderStatements(node, no_depend_reduce, depend_reduce, reduce_init_ids);
   }
+
+  // Reorder statements in "reduction-independent-stmt -> reduction-stmt -> reduction-dependent-stmt" order
+  node = ReorderStatements(node, reduction_indenpendent_stmt, reduction_dependent_stmt, reduce_init_ids);
 
   return true;
 }
