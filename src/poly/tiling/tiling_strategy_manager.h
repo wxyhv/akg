@@ -299,6 +299,7 @@ class GpuStrategy : public TilingStrategy {
     BITWISE_REDUCTION,
     MATMUL,
     TRANSPOSE_OP,
+    CUSTOM_CONFIG,
     TEMPLATE_BULK
   };
   void AddDavinciConstraint();
