@@ -115,7 +115,8 @@ isl::schedule_node MappingOuterBand::FillRemainingThreads(isl::schedule_node &no
 
   isl::schedule_node_band band_node = node.as<isl::schedule_node_band>();
   Mapping mapping;
-  auto after_map_pair = MapInnerDimToThreads(band_node, false, thread_cfg, mapping, false);
+  auto after_map_pair = MapInnerDimToThreads(band_node, false, thread_cfg, mapping,
+                                             scop_info_.analysis_result_.GetReduceDirection() == Y_DIRECTION);
   auto after_map_node = after_map_pair.first;
   scop_info_.upa_node_mapping_.emplace_back(std::make_pair(after_map_node, mapping));
   after_map_node = after_map_node.parent();
@@ -186,11 +187,12 @@ isl::schedule MappingOuterBand::DoThreadMapping(const isl::schedule &sch) {
 
   // Step 1. Find inner-most permutable band to map threads.
   RoadMap thread_record;
-  bool is_reduce = false;
-  auto MapFromInner = [&thread_record, &is_reduce, thread_cfg, this](isl::schedule_node node) -> isl::schedule_node {
+  bool is_reduce_stmt = false;
+  auto MapFromInner = [&thread_record, &is_reduce_stmt, thread_cfg,
+                       this](isl::schedule_node node) -> isl::schedule_node {
     if (scop_info_.user_config_.GetEnableAkgReduceLib() && node.has_parent() &&
         !GetMarkerName(node.parent(), REDUCE_MARKER).empty()) {
-      is_reduce = true;
+      is_reduce_stmt = true;
     }
 
     size_t num_mapped_desc = NumMappedDescendant(thread_record, node);
@@ -229,10 +231,10 @@ isl::schedule MappingOuterBand::DoThreadMapping(const isl::schedule &sch) {
 
       auto need_sync = node.isa<isl::schedule_node_sequence>();
       if (need_sync) {
-        if (is_reduce && node.has_parent() && !GetMarkerName(node.parent(), INSERT_SYNC).empty()) {
+        if (is_reduce_stmt && node.has_parent() && !GetMarkerName(node.parent(), INSERT_SYNC).empty()) {
           node = node.parent().del();
           node = DoThreadSynchronization(node);
-        } else if (!is_reduce) {
+        } else if (!is_reduce_stmt) {
           node = DoThreadSynchronization(node);
         }
       }
@@ -441,14 +443,19 @@ size_t MappingOuterBand::MapThreadHelper(isl::schedule_node &thread_root) {
   // Step 1. Determine max num dimension of threads that can be mapped.
   auto n_thread_map = CountConsecutiveCoincident(band_node);
 
-  bool is_reduce = false;
+  bool is_reduce_stmt = false;
   std::string reduce_marker_name = "";
   if (band_node.has_parent()) {
     reduce_marker_name = GetMarkerName(band_node.parent(), REDUCE_MARKER);
     if (!reduce_marker_name.empty()) {
       ++n_thread_map;
-      is_reduce = true;
+      is_reduce_stmt = true;
     }
+  }
+
+  // When akg reduce lib is enabled, we can try to map other injective statements whose coincidence equals 0
+  if (n_thread_map < thread_cfg->bound && scop_info_.user_config_.GetEnableAkgReduceLib()) {
+    n_thread_map = thread_cfg->bound;
   }
 
   if (n_thread_map < 1) {
@@ -460,7 +467,7 @@ size_t MappingOuterBand::MapThreadHelper(isl::schedule_node &thread_root) {
     thread_root = band_node.split(n_thread_map - thread_cfg->bound);
     thread_root = thread_root.child(0);
     n_thread_map = thread_cfg->bound;
-    if (is_reduce) {
+    if (is_reduce_stmt) {
       isl::schedule_node ancestor_node = thread_root.ancestor(2);
       ancestor_node = ancestor_node.del().child(0);
       thread_root = ancestor_node.insert_mark(reduce_marker_name);
@@ -479,13 +486,13 @@ size_t MappingOuterBand::MapThreadHelper(isl::schedule_node &thread_root) {
 
   // Step 3. Map band under thread_root from inner dim to outer dim.
   Mapping mapping;
-  bool is_y_reduce = is_reduce && scop_info_.analysis_result_.GetReduceDirection() == Y_DIRECTION;
-  auto after_map_pair = MapInnerDimToThreads(band_node, false, thread_cfg, mapping, is_y_reduce);
+  auto after_map_pair = MapInnerDimToThreads(band_node, false, thread_cfg, mapping,
+                                             scop_info_.analysis_result_.GetReduceDirection() == Y_DIRECTION);
   thread_root = after_map_pair.first;
   scop_info_.upa_node_mapping_.emplace_back(std::make_pair(thread_root, mapping));
   int end_node_depth = thread_root.get_tree_depth() - start_node_depth;
 
-  if (is_reduce) {
+  if (is_reduce_stmt) {
     // Split the reduce axis and non-reduce axis of the outer band.
     if (thread_root.ancestor(2) && !GetMarkerName(thread_root.ancestor(2), REDUCE_MARKER).empty() && n_thread_map > 1) {
       thread_root = thread_root.ancestor(2).del();
@@ -685,7 +692,6 @@ isl::schedule MappingOuterBand::DoBlockMapping(const isl::schedule &sch) {
   auto final_schedule = node.get_schedule();
   return final_schedule;
 }
-
 
 bool MappingOuterBand::NeedAtomicAdd(const isl::schedule_node_band &band, size_t n_block_map) {
   if (!scop_info_.user_config_.GetEnableAkgReduceLib()) {
