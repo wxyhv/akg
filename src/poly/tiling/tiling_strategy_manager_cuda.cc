@@ -313,59 +313,57 @@ void GpuStrategy::InitMappingLimit() {
   std::stringstream ss;
   ss << "Use template " << template_map_[template_];
   analyzer_->logger_.AppendLog(GPU_MAPPING, ss);
-  auto thread_config = analyzer_->scop_info_.user_config_.GetThreadConfig();
-  if (thread_config == nullptr || thread_config->bound == 0) {
-    if (template_ == Template::REDUCTION || template_ == Template::BITWISE_REDUCTION) {
-      thread_limit_ = {max_num_threads_, max_num_threads_};
-    } else if (template_ == Template::ALL_REDUCE) {
-      if (analyzer_->scop_info_.user_config_.GetEnableAkgReduceLib()) {
-        thread_limit_ = {max_num_threads_, max_num_threads_};
-      } else {
-        thread_limit_ = {1};
-      }
-    } else if (template_ == Template::TRANSPOSE_OP) {
-      analyzer_->ForEachAxisTopDown([this](TileAxis *axis) {
-        axis->thread_constraints.item_process_ =
-          std::max(axis->thread_constraints.item_process_, min_elem_for_io_bound_);
-      });
-      thread_limit_ = {max_num_threads_, max_num_threads_};
-    } else if (template_ == Template::MATMUL) {
-      // This is a naive tiling strategy used in gpu when thread and block configs are already set.
-      // This strategy will tile up to three inner-most axes to 32 (for thread binding).
-      thread_limit_ = {32, 8};
-    } else {
-      thread_limit_ = {max_num_threads_, max_num_threads_, max_num_threads_};
-    }
-    AdjustThreadMappingLimit();
-  } else {
+  if (template_ == Template::CUSTOM_CONFIG) {
+    auto thread_config = analyzer_->scop_info_.user_config_.GetThreadConfig();
     for (size_t i = 0; i < thread_config->bound; ++i) {
       thread_limit_.emplace_back(thread_config->GetAt(i).second);
     }
+  } else if (template_ == Template::REDUCTION || template_ == Template::BITWISE_REDUCTION) {
+    thread_limit_ = {max_num_threads_, max_num_threads_};
+  } else if (template_ == Template::ALL_REDUCE) {
+    if (analyzer_->scop_info_.user_config_.GetEnableAkgReduceLib()) {
+      thread_limit_ = {max_num_threads_, max_num_threads_};
+    } else {
+      thread_limit_ = {1};
+    }
+  } else if (template_ == Template::TRANSPOSE_OP) {
+    analyzer_->ForEachAxisTopDown([this](TileAxis *axis) {
+      axis->thread_constraints.item_process_ = std::max(axis->thread_constraints.item_process_, min_elem_for_io_bound_);
+    });
+    thread_limit_ = {max_num_threads_, max_num_threads_};
+  } else if (template_ == Template::MATMUL) {
+    // This is a naive tiling strategy used in gpu when thread and block configs are already set.
+    // This strategy will tile up to three inner-most axes to 32 (for thread binding).
+    thread_limit_ = {32, 8};
+  } else {
+    thread_limit_ = {max_num_threads_, max_num_threads_, max_num_threads_};
   }
 
-  auto block_config = analyzer_->scop_info_.user_config_.GetBlockConfig();
-  if (block_config == nullptr || block_config->bound == 0) {
-    if (template_ <= Template::REDUCTION) {
+  if (template_ != Template::CUSTOM_CONFIG) {
+    AdjustThreadMappingLimit();
+  }
+
+  if (template_ == Template::CUSTOM_CONFIG) {
+    auto block_config = analyzer_->scop_info_.user_config_.GetBlockConfig();
+    for (int i = block_config->bound - 1; i >= 0; --i) {
+      block_limit_.emplace_back(block_config->GetAt(i).second);
+    }
+  } else if (template_ <= Template::REDUCTION) {
+    block_limit_ = {max_num_blocks_, max_num_blocks_, max_num_blocks_};
+  } else if (template_ == Template::ALL_REDUCE) {
+    if (analyzer_->scop_info_.user_config_.GetEnableAkgReduceLib()) {
       block_limit_ = {max_num_blocks_, max_num_blocks_, max_num_blocks_};
-    } else if (template_ == Template::ALL_REDUCE) {
-      if (analyzer_->scop_info_.user_config_.GetEnableAkgReduceLib()) {
-        block_limit_ = {max_num_blocks_, max_num_blocks_, max_num_blocks_};
-      } else {
-        block_limit_ = {1};
-      }
-    } else if (template_ == Template::BITWISE_REDUCTION) {
-      if (analyzer_->scop_info_.user_config_.GetEnableAkgReduceLib()) {
-        block_limit_ = {1};
-      } else {
-        block_limit_ = {max_num_blocks_, max_num_blocks_, max_num_blocks_};
-      }
+    } else {
+      block_limit_ = {1};
+    }
+  } else if (template_ == Template::BITWISE_REDUCTION) {
+    if (analyzer_->scop_info_.user_config_.GetEnableAkgReduceLib()) {
+      block_limit_ = {1};
     } else {
       block_limit_ = {max_num_blocks_, max_num_blocks_, max_num_blocks_};
     }
   } else {
-    for (int i = block_config->bound - 1; i >= 0; --i) {
-      block_limit_.emplace_back(block_config->GetAt(i).second);
-    }
+    block_limit_ = {max_num_blocks_, max_num_blocks_, max_num_blocks_};
   }
 
   std::vector<std::string> elem_cfg = common::Split(analyzer_->scop_info_.user_config_.GetElemPerThread(), " ");
@@ -431,7 +429,10 @@ void GpuStrategy::InnerThreadOuterBlock() {
       ss << ", tile = " << tile;
       analyzer_->logger_.AppendLog(GPU_MAPPING, ss);
     };
-    rest_threads = std::min(rest_threads, axis->thread_constraints.map_extent_);
+
+    if (template_ != Template::CUSTOM_CONFIG) {
+      rest_threads = std::min(rest_threads, axis->thread_constraints.map_extent_);
+    }
 
     if (rest_threads <= 1 || thread_cfg_.size() >= thread_dim || inner_dim >= max_dim_) {
       ss << ", no thread/dim rests";
@@ -443,7 +444,7 @@ void GpuStrategy::InnerThreadOuterBlock() {
     item = std::min(item, max_elem_per_thread_);
     auto use = GetThreadSize(rest_threads, inner_dim, shape, item);
     activated_threads *= use;
-    ss << ", use = " << use << ", actived threads = " << activated_threads;
+    ss << ", use = " << use << ", activated threads = " << activated_threads;
     thread_cfg_.emplace_back(use);
     auto tile = TileAfterThreadMapping(axis, inner_dim, use, item);
     pending_axes_.push_back(std::make_pair(axis, std::max<int64_t>(ceil(static_cast<float>(shape) / tile), 1)));
@@ -505,7 +506,7 @@ void GpuStrategy::InnerThreadOuterBlock() {
     }
     auto use = (rest_blocks > 0 && shape > 0) ? TilingAnalyzer::FindDivisibleTilingFactor(rest_blocks, shape) : 1;
     activated_blocks *= use;
-    ss << ", use = " << use << ", actived blocks = " << activated_blocks;
+    ss << ", use = " << use << ", activated blocks = " << activated_blocks;
     block_cfg_[pending_axes_.size() - 1 - i] = use;
     if (analyzer_->scop_info_.user_config_.GetEnableAkgReduceLib() || axis->mc_sup) {
       ++block_count_;
@@ -566,7 +567,7 @@ int64_t GpuStrategy::GetThreadSize(const int64_t rest_threads, size_t inner_dim,
 
   // Current experience is that let mapped threads divisible by warp_size to increase performance.
   int64_t thread_extent = item == SpItemPerThread::FULL ? rest_threads : ceil(static_cast<float>(shape) / item);
-  if (thread_extent > rest_threads) {
+  if (thread_extent > rest_threads || template_ == Template::CUSTOM_CONFIG) {
     return rest_threads;
   }
   auto proposal = inner_dim == 0 ? ((thread_extent - 1 + warp_sizes_) / warp_sizes_ * warp_sizes_) : thread_extent;
@@ -596,6 +597,10 @@ int64_t GpuStrategy::TileAfterThreadMapping(TileAxis *axis, size_t inner_dim, in
       --tile;
     }
   }
+  if (template_ == Template::CUSTOM_CONFIG && tile < thread_size) {
+    tile = thread_size;
+    ss << "use custom config, tile = thread size";
+  }
   ss << "axis " << axis->index << "_" << axis->dim_axis << " elem_per_thread = " << item << ", tile = " << tile;
   analyzer_->logger_.AppendLog(GPU_MAPPING, ss);
   axis->TileRestrainToSingleValue(CastInt64ToExpr(tile), TileLevel::LEVEL1);
@@ -603,6 +608,14 @@ int64_t GpuStrategy::TileAfterThreadMapping(TileAxis *axis, size_t inner_dim, in
 }
 
 void GpuStrategy::DetermineTemplate() {
+  if (analyzer_->scop_info_.user_config_.GetThreadConfig() != nullptr &&
+      analyzer_->scop_info_.user_config_.GetBlockConfig() != nullptr &&
+      analyzer_->scop_info_.user_config_.GetThreadConfig()->bound > 0 &&
+      analyzer_->scop_info_.user_config_.GetBlockConfig()->bound > 0) {
+    template_ = Template::CUSTOM_CONFIG;
+    return;
+  }
+
   for (auto it : analyzer_->scop_info_.analysis_result_.GetReduceStatementMap()) {
     if (analyzer_->scop_info_.analysis_result_.GetReduceOpType(it.first) == AKG_REDUCE_AND ||
         analyzer_->scop_info_.analysis_result_.GetReduceOpType(it.first) == AKG_REDUCE_OR) {
