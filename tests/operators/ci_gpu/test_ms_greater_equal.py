@@ -29,9 +29,11 @@ def gen_data(shape1, shape2, in_dtype):
 
 def test_ms_greater_equal(shape1, shape2, in_dtype, poly_sch=False):
     if poly_sch:
-        mod = utils.op_build_test(greater_equal_auto, (shape1, shape2), (in_dtype, in_dtype),  attrs={"target":"cuda"}, kernel_name="greater_equal_auto")
+        mod = utils.op_build_test(greater_equal_auto, (shape1, shape2), (in_dtype, in_dtype),
+                                  attrs={"target": "cuda"}, kernel_name="greater_equal_auto")
     else:
-        mod = utils.op_build_test(greater_equal_manual, (shape1, shape2), (in_dtype, in_dtype), kernel_name="greater_equal_manual")
+        mod = utils.op_build_test(greater_equal_manual, (shape1, shape2),
+                                  (in_dtype, in_dtype), kernel_name="greater_equal_manual")
     lhs, rhs, output, expect = gen_data(shape1, shape2, in_dtype)
     args = (lhs, rhs, output)
     output = utils.mod_launch(mod, args, expect=expect)

@@ -36,11 +36,22 @@ def gen_data(shape1, shape2, dtype, shape_bias=None):
 
 def test_ms_bmm(shape1, shape2, dtype, shape_bias=None, poly_sch=False):
     if poly_sch:
-        mod = utils.op_build_test(batch_matmul_auto, (shape1, shape2, shape_bias), (dtype, dtype)
-                             if shape_bias is None else (dtype, dtype, dtype), attrs={"target": "cuda"}, kernel_name="batch_matmul_auto")
+        mod = utils.op_build_test(
+            batch_matmul_auto, (shape1, shape2, shape_bias), (dtype, dtype) if shape_bias is None else (
+                dtype, dtype, dtype), attrs={
+                "target": "cuda"}, kernel_name="batch_matmul_auto")
     else:
-        mod = utils.op_build_test(batch_matmul_manual, (shape1, shape2, shape_bias),
-                             (dtype, dtype) if shape_bias is None else (dtype, dtype, dtype), kernel_name="batch_matmul_manual")
+        mod = utils.op_build_test(
+            batch_matmul_manual,
+            (shape1,
+             shape2,
+             shape_bias),
+            (dtype,
+             dtype) if shape_bias is None else (
+                dtype,
+                dtype,
+                dtype),
+            kernel_name="batch_matmul_manual")
     lhs, rhs, bias, output, expect = gen_data(
         shape1, shape2, dtype, shape_bias)
     args = (lhs, rhs, output) if shape_bias is None else (

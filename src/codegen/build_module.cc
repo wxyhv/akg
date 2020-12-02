@@ -485,7 +485,7 @@ NodeRef LowerStmt(Schedule sch, const Array<NodeRef> &in_args, const Array<NodeR
   // Phase 0
   Target target_platform = Target::Create(target);
   if (polyhedral && global_attrs.GetBoolAttr(kEnableAutoInline, true)) {
-    akg::schedule::AutoInline(sch, target_platform, global_attrs.GetBoolAttr(kEnableCSE, true));
+    akg::schedule::AutoInline(sch, target_platform, global_attrs.GetBoolAttr(kEnableCSE, false));
   }
   if (target_platform->device_type == kDLGPU && polyhedral && global_attrs.GetBoolAttr(kEnableAutoFuse, true)) {
     akg::schedule::AutoFuse(sch);

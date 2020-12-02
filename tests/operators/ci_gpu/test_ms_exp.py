@@ -30,9 +30,9 @@ def test_ms_exp(shape, dtype, poly_sch=False):
     if poly_sch:
         mod = utils.op_build_test(exp_auto, [shape], [dtype], attrs={"target": "cuda"}, kernel_name="exp_auto")
     else:
-        mod = utils.op_build_test(exp_manual, [shape], [dtype], kernel_name="exp_manual")    
+        mod = utils.op_build_test(exp_manual, [shape], [dtype], kernel_name="exp_manual")
     data, output, expect = gen_data(shape, dtype)
-    output = utils.mod_launch(mod, (data, output), expect = expect)
+    output = utils.mod_launch(mod, (data, output), expect=expect)
     ret = compare_tensor(output, expect, rtol=5e-03, atol=1.e-8, equal_nan=True)
     print("Test {}".format("Pass" if ret else "Failed"))
     if not ret:

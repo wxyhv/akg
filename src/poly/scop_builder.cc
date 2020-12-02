@@ -832,15 +832,19 @@ isl::schedule MakeScheduleTreeHelper(const NodeRef &s, ScopInfo &scop_info, cons
             call->func->func_name() == op->func->func_name() || call->args.empty()) {
           return;
         }
-        auto last_axis = call->args[call->args.size() - 1];
-        auto mod = last_axis.as<FloorMod>();
-        if (mod != nullptr) {
-          if (auto v = mod->a.as<Variable>()) {
-            reduce_direction = reduce_attrs.count(v->name_hint) ? X_DIRECTION : Y_DIRECTION;
-          }
-        } else {
-          if (auto v = last_axis.as<Variable>()) {
-            reduce_direction = reduce_attrs.count(v->name_hint) == 1 ? X_DIRECTION : Y_DIRECTION;
+        for (size_t i = call->args.size() - 1; i >= 0; --i){
+          auto last_axis = call->args[i];
+          auto mod = last_axis.as<FloorMod>();
+          if (mod != nullptr) {
+            if (auto v = mod->a.as<Variable>()) {
+              reduce_direction = reduce_attrs.count(v->name_hint) ? X_DIRECTION : Y_DIRECTION;
+              break;
+            }
+          } else {
+            if (auto v = last_axis.as<Variable>()) {
+              reduce_direction = reduce_attrs.count(v->name_hint) == 1 ? X_DIRECTION : Y_DIRECTION;
+              break;
+            }
           }
         }
       });

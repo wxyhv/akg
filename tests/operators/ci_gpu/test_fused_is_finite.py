@@ -29,26 +29,39 @@ def gen_data(shape, dtype, layout='NHWC'):
 
     data_isfinite = np.isfinite(data)
     n, h, w, c = np.shape(data_isfinite)
-    expect = np.all(data_isfinite, axis = (0, 1, 2, 3))
+    expect = np.all(data_isfinite, axis=(0, 1, 2, 3))
     expect = np.broadcast_to(expect, (1,))
     output = expect
-    return data, expect, output    
+    return data, expect, output
 
 def test_fused_is_finite(shape, layout='NHWC', poly_sch=False):
-    dtype="float32"
+    dtype = "float32"
     if poly_sch:
-        mod = utils.op_build_test(fused_is_finite_auto, [shape], [dtype], op_attrs=[layout], kernel_name="fused_is_finite_auto", attrs={"target": "cuda"})    
+        mod = utils.op_build_test(
+            fused_is_finite_auto,
+            [shape],
+            [dtype],
+            op_attrs=[layout],
+            kernel_name="fused_is_finite_auto",
+            attrs={
+                "target": "cuda",
+                "enable_akg_reduce_lib": True})
     else:
-        mod = utils.op_build_test(fused_is_finite_manual, [shape], [dtype], op_attrs=[layout], kernel_name="fused_is_finite_manual")    
+        mod = utils.op_build_test(
+            fused_is_finite_manual,
+            [shape],
+            [dtype],
+            op_attrs=[layout],
+            kernel_name="fused_is_finite_manual")
     data, expect, output = gen_data(shape, dtype, layout)
     args = (data, output)
-    output = utils.mod_launch(mod, args, expect = expect)
+    output = utils.mod_launch(mod, args, expect=expect)
     res = np.allclose(output, expect, rtol=5e-03, atol=1e-8)
     print("Test {}".format("Pass" if res else "Fail"))
     if not res:
         print("Error cuda:========================")
         print(mod.imported_modules[0].get_source())
         raise AssertionError("Test fail")
-    
+
     data, expect = to_tvm_nd_array([data, expect])
     return True

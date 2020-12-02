@@ -39,16 +39,28 @@ def compute_expect(input, c1):
     return np.where(cmp_zero, data_add, data_zero)
 
 def test_fused_relu_grad(shape, c1=0, poly_sch=False):
-    dtype='float16'
+    dtype = 'float16'
     input = gen_data(shape, dtype)
     expect = compute_expect(input, c1)
     shapes = [shape] * 3
     dtypes = [dtype] * 3
     attrs = [c1]
     if poly_sch:
-        mod = utils.op_build_test(fused_relu_grad_auto, shapes, dtypes, op_attrs=attrs, kernel_name="fused_relu_grad_auto", attrs={"target": "cuda"})
+        mod = utils.op_build_test(
+            fused_relu_grad_auto,
+            shapes,
+            dtypes,
+            op_attrs=attrs,
+            kernel_name="fused_relu_grad_auto",
+            attrs={
+                "target": "cuda"})
     else:
-        mod = utils.op_build_test(fused_relu_grad_manual, shapes, dtypes, op_attrs=attrs, kernel_name="fused_relu_grad_manual")
+        mod = utils.op_build_test(
+            fused_relu_grad_manual,
+            shapes,
+            dtypes,
+            op_attrs=attrs,
+            kernel_name="fused_relu_grad_manual")
     output = np.full(shape, np.nan, dtype)
     output = utils.mod_launch(mod, (*input, output), expect=expect)
     res = np.allclose(output, expect, rtol=5e-3, atol=1e-8)

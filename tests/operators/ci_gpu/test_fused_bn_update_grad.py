@@ -45,15 +45,28 @@ def test_fused_bn_update_grad(shape, out_shape, dtype="float16", out_dtype="floa
     dtype_list = [dtype, out_dtype, dtype]
     op_attrs = [layout]
     if poly_sch:
-        mod = utils.op_build_test(fused_bn_update_grad_auto, shape_list, dtype_list, op_attrs=op_attrs, kernel_name="fused_bn_update_grad_auto", attrs={"target": "cuda"})
+        mod = utils.op_build_test(
+            fused_bn_update_grad_auto,
+            shape_list,
+            dtype_list,
+            op_attrs=op_attrs,
+            kernel_name="fused_bn_update_grad_auto",
+            attrs={
+                "target": "cuda",
+                "enable_akg_reduce_lib": True})
     else:
-        mod = utils.op_build_test(fused_bn_update_grad_manual, shape_list, dtype_list, kernel_name="fused_bn_update_grad_manual", op_attrs=op_attrs)
+        mod = utils.op_build_test(
+            fused_bn_update_grad_manual,
+            shape_list,
+            dtype_list,
+            kernel_name="fused_bn_update_grad_manual",
+            op_attrs=op_attrs)
     head, data_sum, in_bn, output, expect = gen_data(shape, out_shape, dtype, out_dtype, layout)
     outputs = [output, output]
     inputs = [head, data_sum, in_bn]
     arg_list = inputs + outputs
     outputs = utils.mod_launch(mod, arg_list, outputs=tuple(range(-len(outputs), 0)), expect=expect)
-    
+
     res = np.allclose(outputs, expect, rtol=5e-03, atol=1.e-8)
     print("Test {}".format("Pass" if res else "Fail"))
     if not res:

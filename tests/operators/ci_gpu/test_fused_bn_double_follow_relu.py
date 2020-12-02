@@ -84,16 +84,26 @@ def test_fused_bn_double_follow_relu(in_shape, in_dtype='float16', layout='NHWC'
     input_dtype_list = [inter_dtype] * 4 + [in_dtype] + [inter_dtype] * 4 + [in_dtype]
     op_attrs = [layout, out_dtype]
     if poly_sch:
-        mod = utils.op_build_test(fused_bn_double_follow_relu_auto, input_shape_list, input_dtype_list,
-                             kernel_name="fused_bn_double_follow_relu_auto", op_attrs=op_attrs, attrs={"target": "cuda"})
+        mod = utils.op_build_test(
+            fused_bn_double_follow_relu_auto,
+            input_shape_list,
+            input_dtype_list,
+            kernel_name="fused_bn_double_follow_relu_auto",
+            op_attrs=op_attrs,
+            attrs={
+                "target": "cuda"})
     else:
-        mod = utils.op_build_test(fused_bn_double_follow_relu_manual, input_shape_list, input_dtype_list, kernel_name="fused_bn_double_follow_relu_manual", op_attrs=op_attrs)
-
+        mod = utils.op_build_test(
+            fused_bn_double_follow_relu_manual,
+            input_shape_list,
+            input_dtype_list,
+            kernel_name="fused_bn_double_follow_relu_manual",
+            op_attrs=op_attrs)
 
     outputs = [output]
     arglist = inputs + outputs
     output = utils.mod_launch(mod, arglist, expect=expect)
-    
+
     res = np.allclose(output, expect, rtol=5e-03, atol=1.e-8)
     print("Test {}".format("Pass" if res else "Fail"))
     if not res:

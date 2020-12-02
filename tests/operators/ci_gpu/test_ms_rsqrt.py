@@ -21,11 +21,11 @@ from akg.utils.format_transform import to_tvm_nd_array
 
 def test_ms_rsqrt(shape1, dtype, poly_sch=False):
     if poly_sch:
-        mod = utils.op_build_test(rsqrt_auto, (shape1,), (dtype,), attrs={"target": "cuda"}, kernel_name="rsqrt_auto")    
+        mod = utils.op_build_test(rsqrt_auto, (shape1,), (dtype,), attrs={"target": "cuda"}, kernel_name="rsqrt_auto")
     else:
-        mod = utils.op_build_test(rsqrt_manual, (shape1,), (dtype,), kernel_name="rsqrt_auto")    
-    expect, input1, output  = gen_data(dtype, shape1)
-    args = (input1, output) 
+        mod = utils.op_build_test(rsqrt_manual, (shape1,), (dtype,), kernel_name="rsqrt_auto")
+    expect, input1, output = gen_data(dtype, shape1)
+    args = (input1, output)
     output = utils.mod_launch(mod, args, expect=expect)
     res = np.allclose(output, expect, rtol=5e-03, atol=1.e-8)
     print("Test {}".format("Pass" if res else "Fail"))

@@ -29,7 +29,7 @@ def gen_data(dtype, in_shape, out_shape):
 def test_ms_reshape(dtype, in_shape, out_shape, poly_sch=False):
     if poly_sch:
         mod = utils.op_build_test(reshape_auto, [in_shape], [
-                             dtype], [out_shape], attrs={"target": "cuda"}, kernel_name="reshape_auto")
+            dtype], [out_shape], attrs={"target": "cuda"}, kernel_name="reshape_auto")
     else:
         mod = utils.op_build_test(reshape_manual, [in_shape], [dtype], [out_shape], kernel_name="reshape_manual")
 

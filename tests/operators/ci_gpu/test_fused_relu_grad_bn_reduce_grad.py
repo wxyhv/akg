@@ -26,7 +26,7 @@ def gen_data(shape, dtype):
 def compute_py(data_1, data_2, data_3, data_4, data_5, data_6, data_7, data_8, data_9, layout):
     data_tmp1 = np.multiply(data_4, data_5)
     n, h, w, c = np.shape(data_9)
-    data_tmp2 = np.full(np.shape(data_tmp1), 1.0/(n*h*w), 'float32')
+    data_tmp2 = np.full(np.shape(data_tmp1), 1.0 / (n * h * w), 'float32')
     data_tmp3 = np.multiply(data_tmp1, data_tmp2)
 
     data_tmp5 = np.full(np.shape(data_9), 0.0, 'float16')
@@ -34,7 +34,7 @@ def compute_py(data_1, data_2, data_3, data_4, data_5, data_6, data_7, data_8, d
     data_tmp7 = np.where(data_tmp6, data_8, data_tmp5)
 
     data_tmp8 = data_tmp7.astype('float32')
-    data_tmp9 = np.full(np.shape(data_9), n*h*w, 'float32')
+    data_tmp9 = np.full(np.shape(data_9), n * h * w, 'float32')
     data_tmp10 = np.multiply(data_tmp8, data_tmp9)
 
     data_tmp12 = np.subtract(data_tmp10, data_3)
@@ -68,9 +68,21 @@ def test_fused_relu_grad_bn_reduce_grad(shape_1, shape_2, layout='NHWC', poly_sc
     dtype_list = ['float32', 'float32', 'float32', 'float32', 'float32', 'float32', 'float16', 'float16', 'float16']
     op_attrs = [layout]
     if poly_sch:
-        mod = utils.op_build_test(fused_relu_grad_bn_reduce_grad_auto, input_list, dtype_list, kernel_name="fused_relu_grad_bn_reduce_grad_auto", op_attrs=op_attrs, attrs={"target": "cuda"})
+        mod = utils.op_build_test(
+            fused_relu_grad_bn_reduce_grad_auto,
+            input_list,
+            dtype_list,
+            kernel_name="fused_relu_grad_bn_reduce_grad_auto",
+            op_attrs=op_attrs,
+            attrs={
+                "target": "cuda"})
     else:
-        mod = utils.op_build_test(fused_relu_grad_bn_reduce_grad_manual, input_list, dtype_list, kernel_name="fused_relu_grad_bn_reduce_grad_manual", op_attrs=op_attrs)
+        mod = utils.op_build_test(
+            fused_relu_grad_bn_reduce_grad_manual,
+            input_list,
+            dtype_list,
+            kernel_name="fused_relu_grad_bn_reduce_grad_manual",
+            op_attrs=op_attrs)
     args = [data_1, data_2, data_3, data_4, data_5, data_6, data_7, data_8, data_9, output]
     output = utils.mod_launch(mod, args, expect=expect)
     res = np.allclose(output, expect, rtol=5e-03, atol=1e-08)
@@ -82,4 +94,4 @@ def test_fused_relu_grad_bn_reduce_grad(shape_1, shape_2, layout='NHWC', poly_sc
 
     inputs = to_tvm_nd_array([data_1, data_2, data_3, data_4, data_5, data_6, data_7, data_8, data_9])
     expect = to_tvm_nd_array(expect)
-    return True 
+    return True

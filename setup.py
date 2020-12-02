@@ -1,12 +1,16 @@
 import os
 from setuptools import setup
 
-package_data = {'': ['*.so*']}
+package_data = {'': ['*.so*',
+                     '*.cuh',
+                    ]}
 include_dirs = ['python/akg',
                 'third_party/incubator-tvm/python/tvm',
                 'third_party/incubator-tvm/topi/python/topi',
                 'tests/fuzz',
-                'tests/common']
+                'tests/common',
+                'src/akg_reduce',
+                'src/paris_reduce']
 
 def find_files(where=['.']):
     """

@@ -78,19 +78,24 @@ def test_fused_bn_follow_relu(in_shape, in_dtype='float16', layout='NHWC', out_d
             attrs={
                 "target": "cuda"})
     else:
-        mod = utils.op_build_test(fused_bn_follow_relu_manual, input_shape_list, input_dtype_list, kernel_name="fused_bn_follow_relu_manual", op_attrs=op_attrs)
+        mod = utils.op_build_test(
+            fused_bn_follow_relu_manual,
+            input_shape_list,
+            input_dtype_list,
+            kernel_name="fused_bn_follow_relu_manual",
+            op_attrs=op_attrs)
 
     outputs = [output]
     arglist = inputs + outputs
     output = utils.mod_launch(mod, arglist, expect=expect)
-    
+
     res = np.allclose(output, expect, rtol=5e-03, atol=1.e-8)
     print("Test {}".format("Pass" if res else "Fail"))
     if not res:
         print("Error cuda:========================")
         print(mod.imported_modules[0].get_source())
         raise AssertionError("Test fail")
-    
+
     inputs = to_tvm_nd_array(inputs)
     expect = to_tvm_nd_array(expect)
     return True

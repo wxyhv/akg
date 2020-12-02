@@ -25,8 +25,8 @@ def bn_beta_grad_np(head, layout='NHWC'):
     elif layout != "NHWC":
         raise NotImplementedError(
             'layout is not supported {} '.format(layout)
-        ) 
-    
+        )
+
     bn_beta_grad = np.sum(head, axis=(0, 1, 2))
     return bn_beta_grad
 
@@ -44,5 +44,3 @@ def bn_gamma_grad_np(head, in_data, data_sum, layout='NHWC'):
     x_hat_mul = np.multiply(x_hat, head)
     bn_gamma_grad = np.sum(x_hat_mul, axis=(0, 1, 2))
     return bn_gamma_grad
-
-    

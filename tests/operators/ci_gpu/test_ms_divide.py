@@ -29,11 +29,15 @@ def gen_data(shape, dtype):
 
 def test_ms_divide(shape, dtype, poly_sch=False):
     if poly_sch:
-        mod = utils.op_build_test(divide_auto, [shape, shape], [dtype, dtype], kernel_name="divide_auto", attrs={"target": "cuda"})
+        mod = utils.op_build_test(
+            divide_auto, [
+                shape, shape], [
+                dtype, dtype], kernel_name="divide_auto", attrs={
+                "target": "cuda"})
     else:
         mod = utils.op_build_test(divide_manual, [shape, shape], [dtype, dtype], kernel_name="divide_manual")
     lhs, rhs, output, expect = gen_data(shape, dtype)
-    output = utils.mod_launch(mod, (lhs, rhs, output), expect = expect)
+    output = utils.mod_launch(mod, (lhs, rhs, output), expect=expect)
     ret = compare_tensor(output, expect, rtol=5e-03, atol=1.e-8, equal_nan=True)
     print("Test {}".format("Pass" if ret else "Failed"))
     if not ret:
