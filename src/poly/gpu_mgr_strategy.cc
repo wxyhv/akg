@@ -29,12 +29,8 @@ namespace poly {
 void GPUMgrStrategy::RegisterTilingPasses() { RegisterPass(std::make_shared<TileOuterBand>(pass_info_, scop_info_)); }
 
 void GPUMgrStrategy::RegisterMemPromPasses() {
-  if (scop_info_.user_config_.UseSharedMemory()) {
-    RegisterPass(std::make_shared<SharedMemoryManager>(scop_info_));
-  }
-  if (scop_info_.user_config_.UseRegisterMemory()) {
-    RegisterPass(std::make_shared<RegisterMemoryManager>(scop_info_));
-  }
+  RegisterPass(std::make_shared<SharedMemoryManager>(scop_info_));
+  RegisterPass(std::make_shared<RegisterMemoryManager>(scop_info_));
 }
 
 void GPUMgrStrategy::RegisterPasses() {

@@ -65,6 +65,7 @@ void TileOuterBand::InitDimensionInfo(const isl::schedule &sch_init) {
 
   // apply default tiling
   if (dim.empty()) {
+    scop_info_.analysis_result_.SetEnableAutoTiling(true);
     auto tiling_res = GenerateTiling(sch_init, scop_info_, GenHalide(scop_info_, sch_init, true));
     scop_info_.analysis_result_.SetTileSizes(tiling_res.first);
     scop_info_.analysis_result_.SetTileConstraints(tiling_res.second);

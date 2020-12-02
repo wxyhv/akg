@@ -333,6 +333,9 @@ isl::schedule RegisterMemoryManager::HoistRegisterMemory(isl::schedule_node root
 }
 
 isl::schedule RegisterMemoryManager::Run(isl::schedule sch) {
+  if (!scop_info_.user_config_.UseRegisterMemory()) {
+    return sch;
+  }
   LOG(INFO) << ">>>>>>>>Register memory promotion<<<<<<<<<<<<<<<";
   schedule_ = sch;
   auto root = sch.get_root();

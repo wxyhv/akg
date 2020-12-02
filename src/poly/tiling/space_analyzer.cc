@@ -179,9 +179,12 @@ class SpaceVisitor : public IRVisitor {
   }
 
   std::string GetBasicOpType(const Tensor dst, const std::vector<Tensor> &srcs) {
-    auto IsNum = [](std::string name) -> bool {
-      for (auto c : name)
-        if (c > '9' || c < '0') return false;
+    auto IsNum = [](const std::string &name) -> bool {
+      for (auto c : name) {
+        if (c > '9' || c < '0') {
+          return false;
+        }
+      }
       return true;
     };
 
@@ -189,7 +192,9 @@ class SpaceVisitor : public IRVisitor {
       std::unordered_set<std::string> uni_name;
       for (auto names : var_names) {
         for (auto n : names) {
-          if (IsNum(n)) continue;
+          if (IsNum(n)) {
+            continue;
+          }
           uni_name.insert(n);
         }
       }
@@ -204,7 +209,7 @@ class SpaceVisitor : public IRVisitor {
       std::string type = "";
       if (this->local_buf_.find(s.name) == this->local_buf_.end()) type += "DMA2_";
       if (this->local_buf_.find(d.name) == this->local_buf_.end()) type += "DMA3_";
-      if (src_vars_size == 0) {
+      if (src_vars_size == 0 && analyzer_->scop_info_.user_config_.GetTarget() != TARGET_CUDA) {
         return type + "SP_CALL";
       }
       if (dst_vars_size < src_vars_size) {
@@ -227,13 +232,21 @@ class SpaceVisitor : public IRVisitor {
           src_vars.pop_back();
           VarNames dst_pure_name;
           VarNames src_pure_name;
-          for (auto n : dst_name)
-            if (!IsNum(n)) dst_pure_name.emplace_back(n);
-          for (auto n : src_name)
-            if (!IsNum(n)) src_pure_name.emplace_back(n);
+          for (auto n : dst_name) {
+            if (!IsNum(n)) {
+              dst_pure_name.emplace_back(n);
+            }
+          }
+          for (auto n : src_name) {
+            if (!IsNum(n)) {
+              src_pure_name.emplace_back(n);
+            }
+          }
           if (dst_pure_name.size() == src_pure_name.size()) {
             for (size_t j = 0; j < dst_pure_name.size(); ++j) {
-              if (dst_pure_name[j] != src_pure_name[j]) return type + AT_TRANSPOSE;
+              if (dst_pure_name[j] != src_pure_name[j]) {
+                return type + AT_TRANSPOSE;
+              }
             }
           }
         }
@@ -241,8 +254,28 @@ class SpaceVisitor : public IRVisitor {
           // A[i,j] = B[i,j]
           return type + AT_ELEMWISE;
         } else {
-          // A[0,i] = B[i,i]
-          return type + AT_TRANSFORM;
+          // AutoFused case in cuda
+          if (analyzer_->scop_info_.user_config_.GetTarget() == TARGET_CUDA && d.args.size() == s.args.size()) {
+            for (size_t i = 0; i < d.args.size(); ++i) {
+              if (Equal(d.args[i], s.args[i])) {
+                continue;
+              }
+              if (analyzer_->arith_ana_.CanProve(s.args[i] == 0)) {
+                // A[floordiv(i, 128), floormod(i, 128)] = B[0, floormod(i, 128)]
+                type += AT_BROADCAST;
+              } else if (analyzer_->arith_ana_.CanProve(d.args[i] == 0)) {
+                // A[0, floormod(i, 128)] = B[floordiv(i, 128), floormod(i, 128)]
+                type += AT_REDUCE;
+              } else {
+                type += AT_TRANSFORM;
+              }
+              type += ("|" + std::to_string(i) + "_");
+            }
+          } else {
+            // A[0,i] = B[i,i]
+            type += AT_TRANSFORM;
+          }
+          return type;
         }
       }
       return type;
