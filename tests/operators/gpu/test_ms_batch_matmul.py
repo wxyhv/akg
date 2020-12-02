@@ -19,10 +19,13 @@ from akg.utils.result_analysis import gpu_profiling
 from akg.utils.format_transform import to_tvm_nd_array
 
 
-def gen_data(shape1, shape2, dtype, layout1="NHDT", layout2="NHDT", layout_out="NHDT"):
+def gen_data(shape1, shape2, dtype, layout1="NHDT", layout2="NHDT", layout_out="NHDT", shape_bias=None, add_bias=False):
     support_list = {"float16": np.float16, "float32": np.float32}
     lhs = random_gaussian(shape1, miu=1, sigma=0.1).astype(support_list[dtype])
     rhs = random_gaussian(shape2, miu=1, sigma=0.1).astype(support_list[dtype])
+    bias = []
+    if add_bias == True:
+        bias = random_gaussian(shape_bias, miu=1, sigma=0.1).astype(support_list[dtype])
     data1 = lhs
     data2 = rhs
 
@@ -45,6 +48,8 @@ def gen_data(shape1, shape2, dtype, layout1="NHDT", layout2="NHDT", layout_out="
         data2 = np.transpose(data2, axes=layout2_axis)
 
     expect = np.matmul(data1, data2)
+    if add_bias == True:
+        expect = np.add(expect, bias)
 
     if layout_out != "NHDT":
         if len(shape1) == 3:
@@ -59,11 +64,17 @@ def gen_data(shape1, shape2, dtype, layout1="NHDT", layout2="NHDT", layout_out="
     output = np.full(expect.shape, np.nan, dtype)
     print("expect shape is ", np.shape(expect))
     
-    return lhs, rhs, output, expect
+    return lhs, rhs, bias, output, expect
 
 
-def test_ms_bmm(shape1, shape2, dtype, layout1="NHDT", layout2="NHDT", layout_out="NHDT", poly_sch=False):
-    op_attrs = [layout1, layout2, layout_out]
+def test_ms_bmm(shape1, shape2, dtype, layout1="NHDT", layout2="NHDT", layout_out="NHDT", shape_bias=None, add_bias=False, poly_sch=False):
+    shape_tuple = (shape1, shape2)
+    dtype_tuple = (dtype, dtype)
+    op_attrs = [None, layout1, layout2, layout_out]
+    if add_bias == True:
+        shape_tuple = (shape1, shape2, shape_bias)
+        dtype_tuple = (dtype, dtype, dtype)
+        op_attrs = [layout1, layout2, layout_out]
 
     if poly_sch:
         manual_tiling = False
@@ -73,12 +84,14 @@ def test_ms_bmm(shape1, shape2, dtype, layout1="NHDT", layout2="NHDT", layout_ou
             attrs["bind_thread"] = "32 8"  # thread x = 32, thread y = 8
             attrs["dim"] = "0 0 64 1 0 1 32 1 0 2 32 1"  # tile m = 64, tile n = 32, tile k = 32
 
-        mod = utils.op_build_test(batch_matmul_auto, (shape1, shape2), (dtype, dtype), op_attrs=op_attrs, attrs=attrs, kernel_name="batch_matmul_auto")
+        mod = utils.op_build_test(batch_matmul_auto, shape_tuple, dtype_tuple, op_attrs=op_attrs, attrs=attrs, kernel_name="batch_matmul_auto")
     else:
-        mod = utils.op_build_test(batch_matmul_manual, (shape1, shape2), (dtype, dtype), op_attrs=op_attrs, kernel_name="batch_matmul_manual")
+        mod = utils.op_build_test(batch_matmul_manual, shape_tuple, dtype_tuple, op_attrs=op_attrs, kernel_name="batch_matmul_manual")
     
-    lhs, rhs, output, expect = gen_data( shape1, shape2, dtype, layout1, layout2, layout_out)
+    lhs, rhs, bias, output, expect = gen_data( shape1, shape2, dtype, layout1, layout2, layout_out, shape_bias, add_bias)
     args = (lhs, rhs, output)
+    if add_bias == True:
+        args = (lhs, rhs, bias, output)
     output = utils.mod_launch(mod, args, expect=expect)
     res = np.allclose(output, expect, rtol=5e-03, atol=1.e-8)
     print("Test {}".format("Pass" if res else "Fail"))
@@ -87,5 +100,9 @@ def test_ms_bmm(shape1, shape2, dtype, layout1="NHDT", layout2="NHDT", layout_ou
         print(mod.imported_modules[0].get_source())
         raise AssertionError("Test fail")
 
-    lhs, rhs, expect = to_tvm_nd_array([lhs, rhs, expect])
-    gpu_profiling(mod, lhs, rhs, expect, 400)
+    if add_bias == True:
+        lhs, rhs, bias, expect = to_tvm_nd_array([lhs, rhs, bias, expect])
+        gpu_profiling(mod, lhs, rhs, bias, expect, 400)
+    else:
+        lhs, rhs, expect = to_tvm_nd_array([lhs, rhs, expect])
+        gpu_profiling(mod, lhs, rhs, expect, 400)
