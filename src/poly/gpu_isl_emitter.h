@@ -117,7 +117,8 @@ struct ReduceEmitInfo {
   std::string reduce_data_type_;
 
   // add for init stmt emit
-  std::vector<std::string> for_indexs_;
+  std::set<std::string> reduce_for_indexes_;
+  bool init_stmt_emit_{false};
 };
 
 class GpuIslEmitter : public IslEmitter {
@@ -135,6 +136,7 @@ class GpuIslEmitter : public IslEmitter {
   Stmt EmitFor(const isl::ast_node_for &node) final;
   Stmt EmitMark(const isl::ast_node_mark &node_id) override;
   Stmt EmitIf(const isl::ast_node_if &node) final;
+  Stmt EmitUserStmt(const isl::ast_node_user &node) final;
 
   // DMA emitters for GPU
   Expr EmitLoad(const isl::ast_expr &lhs, Type type);
@@ -176,7 +178,6 @@ class GpuIslEmitter : public IslEmitter {
   void MakeOutputTensorInfo();
   void MakeOutputPromotedTensorInfoForAtomic();
   void MakePromotedTensorInfoForReduce();
-  std::string MakePromotedTensorInitStmt(std::string init_value);
   Stmt EmitAkgAtomicReturnInfo(Stmt s, std::string info);
   std::string GetTheIndexOfPromotedTensor(std::string s);
 
@@ -293,6 +294,68 @@ class AkgReduceAddTensorIndex : public air::ir::IRMutator {
  private:
   std::map<std::string, std::vector<std::string>> indexs;
   std::map<std::string, std::vector<std::string>> shapes;
+};
+
+class ConditionExprMod : public air::ir::IRMutator {
+ public:
+  explicit ConditionExprMod() {}
+  ~ConditionExprMod() override = default;
+
+  Expr Mutate_(const And *op, const Expr &e) override {
+    auto a = air::ir::IRMutator::Mutate(op->a);
+    auto b = air::ir::IRMutator::Mutate(op->b);
+    if (!a.defined() && !b.defined()) {
+      return Expr();
+    }
+    if (!a.defined()) {
+      return b;
+    }
+    if (!b.defined()) {
+      return a;
+    }
+    return e;
+  }
+
+  Expr Mutate_(const Or *op, const Expr &e) override {
+    auto a = air::ir::IRMutator::Mutate(op->a);
+    auto b = air::ir::IRMutator::Mutate(op->b);
+    if (!a.defined() && !b.defined()) {
+      return Expr();
+    }
+    if (!a.defined()) {
+      return b;
+    }
+    if (!b.defined()) {
+      return a;
+    }
+    return e;
+  }
+
+  Expr Mutate_(const EQ *op, const Expr &e) override {
+    Expr a = op->a;
+    Expr b = op->b;
+
+    bool rh_zero = false;
+    bool lh_block = false;
+    if (b.as<IntImm>()) {
+      auto v = b.as<IntImm>();
+      if (v->value == 0) {
+        rh_zero = true;
+      }
+    }
+
+    if (a.as<Variable>()) {
+      auto v = a.as<Variable>();
+      if (v->name_hint == BLOCK_IDX_X || v->name_hint == BLOCK_IDX_Y || v->name_hint == BLOCK_IDX_Z) {
+        lh_block = true;
+      }
+    }
+
+    if (rh_zero && lh_block) {
+      return Expr();
+    }
+    return e;
+  }
 };
 
 }  // namespace poly

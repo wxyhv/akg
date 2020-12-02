@@ -34,14 +34,12 @@ class ReduceManager {
   ReduceManager() {}
   ~ReduceManager() {}
 
-  bool SplitReduceStatements(isl::schedule_node &node, isl::union_set reduce_statements, isl::union_map dependences,
-                             std::vector<isl::id> reduce_init_ids);
+  bool SplitReduceStatements(isl::schedule_node &node, isl::union_set reduce_statements, isl::union_map dependences);
   isl::union_set GetReduceStatements(isl::union_set domain, isl::union_map reduce_statement_map,
                                      StatementMap all_statements);
 
  private:
-  isl::schedule_node ReorderStatements(const isl::schedule_node &node, isl::union_set before, isl::union_set after,
-                                       std::vector<isl::id> reduce_init_ids);
+  isl::schedule_node ReorderStatements(const isl::schedule_node &node, isl::union_set before, isl::union_set after);
   bool AreSequentialStatements(isl::union_set first_statements, isl::union_set second_statements,
                                isl::union_map dependences);
 };

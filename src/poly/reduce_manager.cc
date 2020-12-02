@@ -60,7 +60,7 @@ bool ReduceManager::AreSequentialStatements(isl::union_set first_statements, isl
 }
 
 isl::schedule_node ReduceManager::ReorderStatements(const isl::schedule_node &node, isl::union_set before,
-                                                    isl::union_set after, std::vector<isl::id> reduce_init_ids) {
+                                                    isl::union_set after) {
   isl::union_set middle = CollectDomain(node);
   isl::schedule_node order_node = node;
   isl::union_set_list filter_list;
@@ -70,21 +70,9 @@ isl::schedule_node ReduceManager::ReorderStatements(const isl::schedule_node &no
     filter_list = filter_list.is_null() ? first_uset : filter_list.add(isl::union_set(s));
   };
 
-  isl::union_set del_init_before = before.empty(before.ctx());
-  before.foreach_set([reduce_init_ids, &del_init_before](const isl::set &s) -> void {
-    for (auto init_id : reduce_init_ids) {
-      if (s.get_tuple_name() == init_id.get_name()) {
-        return;
-      }
-    }
-    del_init_before = del_init_before.add_set(s);
-  });
-
   if (!before.is_empty() && after.is_empty()) {
     middle = middle.subtract(before);
-    if (!del_init_before.is_empty()) {
-      filter_list = isl::union_set_list(del_init_before);
-    }
+    filter_list = isl::union_set_list(before);
     middle.foreach_set(AddToFilterList);
   } else if (before.is_empty() && !after.is_empty()) {
     middle = middle.subtract(after);
@@ -92,9 +80,7 @@ isl::schedule_node ReduceManager::ReorderStatements(const isl::schedule_node &no
     filter_list = filter_list.add(after);
   } else {
     middle = middle.subtract(before).subtract(after);
-    if (!del_init_before.is_empty()) {
-      filter_list = isl::union_set_list(del_init_before);
-    }
+    filter_list = isl::union_set_list(before);
     middle.foreach_set(AddToFilterList);
     filter_list = filter_list.add(after);
   }
@@ -112,7 +98,7 @@ isl::schedule_node ReduceManager::ReorderStatements(const isl::schedule_node &no
 
 // Separate the reduce statement from other statements
 bool ReduceManager::SplitReduceStatements(isl::schedule_node &node, isl::union_set reduce_statements,
-                                          isl::union_map dependences, std::vector<isl::id> reduce_init_ids) {
+                                          isl::union_map dependences) {
   auto domain = CollectDomain(node);
   auto injective_statements = domain.subtract(reduce_statements);
   if (injective_statements.is_empty()) {
@@ -147,7 +133,7 @@ bool ReduceManager::SplitReduceStatements(isl::schedule_node &node, isl::union_s
   }
 
   // Reorder statements in "reduction-independent-stmt -> reduction-stmt -> reduction-dependent-stmt" order
-  node = ReorderStatements(node, reduction_indenpendent_stmt, reduction_dependent_stmt, reduce_init_ids);
+  node = ReorderStatements(node, reduction_indenpendent_stmt, reduction_dependent_stmt);
 
   return true;
 }
