@@ -79,6 +79,43 @@ def get_result(desc, poly, attrs=None):
     return flag
 
 
+def _should_use_poly(kernel_info):
+    """Judge whether to use poly."""
+    if os.getenv('MS_AKG_USE_POLY') == "on":
+        return True
+    for desc in kernel_info['op_desc']:
+        if desc['name'].startswith('Reduce'):
+            return True
+    return False
+
+
+def _enable_atomic_add(kernel_info):
+    """Judge whether to enable atomic add."""
+    for op in kernel_info["op_desc"]:
+        if not op["attr"]:
+            continue
+        for attr in op["attr"]:
+            if attr["name"] == "enable_atomic_add" and attr["value"]:
+                return True
+    return False
+
+
+def _add_composite_attrs(desc, attrs, poly=True):
+    if isinstance(desc, str):
+        json_obj = json.loads(desc)
+    elif isinstance(desc, dict):
+        json_obj = desc
+    else:
+        return poly
+
+    if not poly:
+        return False
+    use_poly = _should_use_poly(json_obj)
+    if use_poly and _enable_atomic_add(json_obj):
+        attrs["enable_atomic_add"] = True
+    return use_poly
+
+
 @pytest.mark.skip
 def test_single_file(input_file, use_custom, poly=False):
     with open(input_file, 'r') as f:
@@ -86,7 +123,8 @@ def test_single_file(input_file, use_custom, poly=False):
         attrs = {}
         if use_custom:
             attrs["dim"] = custom_tiling.set_dims(((4, 1), (4, 1)))
-        flag = get_result(desc, poly, attrs)
+        use_poly = _add_composite_attrs(desc, attrs, poly)
+        flag = get_result(desc, use_poly, attrs)
         if flag:
             logging.info("Run Pass!")
         else:
@@ -115,7 +153,8 @@ def test_json_dir(poly=False):
             if input_file in dims_dict:
                 dim_info = dims_dict[input_file]
                 attrs = {'dim': dim_info}
-            flag = get_result(desc, poly, attrs)
+            use_poly = _add_composite_attrs(desc, attrs, poly)
+            flag = get_result(desc, use_poly, attrs)
             if not flag:
                 logging.info("----------Error Json name is----------")
                 logging.info(input_file)

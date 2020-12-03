@@ -21,6 +21,15 @@ from gen_random import random_gaussian
 import inspect
 
 
+def get_attr(attr_desc, attr_type):
+    """get op attr by type"""
+    for attr in attr_desc:
+        if attr["name"] == attr_type:
+            return attr["value"]
+    logging.warning("attr {} not found, please check.".format(attr_type))
+    return None
+
+
 class CodePrinter(object):
     """print numpy file"""
 
@@ -61,41 +70,44 @@ def reduce_str(inputs, output, attr, op_type):
     """gen sum string"""
     axis = []
     keepdims = False
-    for ab in attr:
-        if ab['name'] == 'axis':
-            if isinstance(ab['value'], list): 
-                axis = ab['value']
-            else:
-                axis.append(ab['value'])
-        elif ab['name'] == 'keep_dims':
-            keepdims = ab['value']
+    axis_value = get_attr(attr, "axis")
+    if axis_value:
+        axis = list(axis_value) if isinstance(axis_value, (list, tuple)) else [axis_value]
+    keepdims_value = get_attr(attr, "keep_dims")
+    keepdims = keepdims_value if keepdims_value else keepdims
 
     if axis == []:
-        s = "%s = np.%s(%s, keepdims=%s)" % (
-            output[0]['tensor_name'], op_type, get_input(inputs[0][0]), keepdims)
+        s = "%s = np.%s(%s.astype(np.float32) if %s.dtype == np.float16 else %s, keepdims=%s).astype(%s.dtype)" % (
+            output[0]['tensor_name'], op_type, get_input(inputs[0][0]), get_input(inputs[0][0]),
+            get_input(inputs[0][0]), keepdims, get_input(inputs[0][0]))
     else:
-        s = "%s = np.%s(%s, axis=tuple(%s), keepdims=%s)" %\
-            (output[0]['tensor_name'], op_type,
-             get_input(inputs[0][0]), axis, keepdims)
+        s = "%s = np.%s(%s.astype(np.float32) if %s.dtype == np.float16 else %s, axis=tuple(%s), keepdims=%s).astype(%s.dtype)" %\
+            (output[0]['tensor_name'], op_type, get_input(inputs[0][0]), get_input(inputs[0][0]),
+             get_input(inputs[0][0]), axis, keepdims, get_input(inputs[0][0]))
     return s
 
 
 def cast_str(inputs, output, attr):
     """gen cast string"""
-    for ab in attr:
-        if ab['name'] == 'dst_type':
-            dst_type = ab['value']
+    dst_type = get_attr(attr, "dst_type")
     s = "%s = %s.astype(np.%s)" % (
         output[0]['tensor_name'], get_input(inputs[0][0]), dst_type)
+    return s
+
+
+def broadcast_str(inputs, output, attr):
+    """gen broadcast string"""
+    dst_shape = get_attr(attr, "shape")
+    s = "%s = np.ones(%s) * %s" % (
+        output[0]["tensor_name"], dst_shape, get_input(inputs[0][0]))
     return s
 
 
 def transpose_str(inputs, output, attr):
     """gen transpose string"""
     axes = None
-    for ab in attr:
-        if ab['name'] == 'perm':
-            axes = ab['value']
+    axes_value = get_attr(attr, "perm")
+    axes = axes_value if axes_value else axes
     s = "%s = np.transpose(%s, axes=%s)" % (
         output[0]['tensor_name'], get_input(inputs[0][0]), axes)
     return s
@@ -270,6 +282,7 @@ op_dsl = {
     (output[0]['tensor_name'], get_input(inputs[0][0]), attr[0]['value']),
     "Transpose": lambda inputs, output, attr: transpose_str(inputs, output, attr),
     "TransData": trans_data_dsl,
+    "BroadcastTo": lambda inputs, output, attr: broadcast_str(inputs, output, attr),
 }
 
 
@@ -290,10 +303,29 @@ def gen_json_data(op_desc):
 
     p = CodePrinter('json_data.py')
     idx = 0
+
+    # Collect input which should be processed by atomic clean.
+    clean_input = []
+    sum_out = None
+    for op in desc["op_desc"]:
+        if op["name"] == "ReduceSum":
+            for a in op["attr"]:
+                if a["name"] == "enable_atomic_add":
+                    sum_out = op["output_desc"][0]["tensor_name"]
+                    break
+        elif op["name"] == "InplaceAssign":
+            if not sum_out:
+                continue
+            if op["input_desc"][1][0]["tensor_name"] == sum_out:
+                clean_input.append(op["input_desc"][0][0]["tensor_name"])
+
     for input_desc in desc["input_desc"]:
         shape = [1] if not input_desc[0]["shape"] else input_desc[0]["shape"]
         dtype = input_desc[0]["data_type"]
-        item = random_gaussian(shape, miu=1, sigma=0.1).astype(dtype)
+        if input_desc[0]["tensor_name"] in clean_input:
+            item = np.zeros(shape).astype(dtype)
+        else:
+            item = random_gaussian(shape, miu=1, sigma=0.1).astype(dtype)
         input_for_mod.append(item)
         tensor_name = input_desc[0]["tensor_name"]
         input_order[tensor_name] = idx
@@ -305,12 +337,19 @@ def gen_json_data(op_desc):
         p.out("\"))")
         p.null_line()
 
+    inplace_assign_write = []
+    fake_output_tensors = []
     for op in desc["op_desc"]:
         dsl_fun = op_dsl.get(op["name"], None)
         if op["name"] == "InplaceAssign" and with_inplace_assign:
+            fake_output = False
+            for attr in op["attr"]:
+                if attr["name"] == "fake_output":
+                    fake_output = attr["value"]
             out_name = op["output_desc"][0]["tensor_name"]
-            in_name = op["input_desc"][0][0]["tensor_name"]
-            inplace_assign_dict[out_name] = in_name
+            inplace_assign_write.append(op["input_desc"][0][0]["tensor_name"])
+            if fake_output:
+                fake_output_tensors.append(op["output_desc"][0]["tensor_name"])
         if dsl_fun is None:
             logging.info("[%s] is not support for %s", op["name"], op)
             continue
@@ -319,8 +358,6 @@ def gen_json_data(op_desc):
         p.out(sent, True)
 
     idx = 0
-    inplace_assign_num = 0
-    inplace_assign_idx = -1
     out_nums = len(desc["output_desc"])
     for output_desc in desc["output_desc"]:
         shape = [1] if not output_desc["shape"] else output_desc["shape"]
@@ -328,24 +365,31 @@ def gen_json_data(op_desc):
         item = np.full(shape, 0, dtype)
         input_for_mod.append(item)
         tensor_name = output_desc["tensor_name"]
-        if tensor_name in inplace_assign_dict:
-            real_idx = input_order[inplace_assign_dict[tensor_name]]
-            inplace_assign_num += 1
-            if inplace_assign_idx == -1:
-                inplace_assign_idx = idx
-        else:
-            real_idx = idx - out_nums
+        if tensor_name in fake_output_tensors:
+            idx += 1
+            continue
+        real_idx = idx - out_nums
         output_indexes.append(real_idx)
         idx += 1
         p.out("expect.append(", True)
         p.out(tensor_name)
         p.out(")")
+
+    # Add inplace tensors to expect, and add their index to output_indexes.
+    if inplace_assign_write:
+        inplace_tensors = "["
+        inplace_tensors_index = []
+
+        for tensor_name in inplace_assign_write:
+            inplace_tensors_index.append(input_order[tensor_name])
+            inplace_tensors += "{}, ".format(tensor_name)
+        inplace_tensors += "]"
+
+        p.out("inplace_tensors = {}".format(inplace_tensors), True)
+        p.out("expect.extend(inplace_tensors)", True)
+        output_indexes.extend(inplace_tensors_index)
+
     p.close()
-    # offset of inplace assign index
-    if inplace_assign_num > 0:
-        for i in range(len(output_indexes)):
-            if i > inplace_assign_idx and output_indexes[i] < 0:
-                output_indexes[i] -= inplace_assign_num
 
     with open("json_data.py", 'r') as f:
         sent = f.read()
