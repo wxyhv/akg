@@ -59,6 +59,8 @@ class RegisterMemoryManager : public SchedulePass {
 
   size_t UpdateDepth(const isl::schedule_node &root);
 
+  isl::schedule_node GetRegisterPromotedNode(isl::schedule_node &root);
+
  private:
   ScopInfo &scop_info_;
   isl::schedule schedule_;
