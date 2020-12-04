@@ -146,6 +146,7 @@ REGISTER_PASS(ConvertIfToSelect);
 REGISTER_PASS(StmtPatternRewrite);
 REGISTER_PASS(ExprPatternRewrite);
 REGISTER_PASS(AutoPragma);
+REGISTER_PASS(FixUnsupportedInstruction);
 REGISTER_PASS(EliminateAtomicDma);
 REGISTER_PASS(DMASink);
 REGISTER_PASS(SpecialValueReplacer);

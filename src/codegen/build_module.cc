@@ -852,6 +852,7 @@ NodeRef Lower(Schedule sch, const Array<NodeRef> &in_args, const Array<NodeRef> 
 
     if (target != "aicpu") {
       stmt = NEXT_PASS(AutoPragma, stmt);
+      stmt = NEXT_PASS(FixUnsupportedInstruction, stmt);
     }
     stmt = NEXT_PASS(EliminateAtomicDma, stmt);
     if (global_attrs.GetBoolAttr(kDeadCodeElim, false)) {
