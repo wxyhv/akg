@@ -807,6 +807,7 @@ Stmt GpuIslEmitter::EmitFor(const isl::ast_node_for &node) {
     cond_expr = Simplify(cond_expr + 1);
   }
 
+  cond_expr = Simplify(cond_expr - init_expr);
   Stmt body_stmt = EmitAst(node.get_body());
 
   if (!body_stmt.defined()) {
