@@ -321,7 +321,33 @@ Rsqrt1.Mul15.TensorAdd14.InplaceAssign1819.InplaceAssign11523.1724': {
                 'dim': '0 0 32 1 0 1 512 1'
             },
         },
+        '1---.1024_1024--': {
+            'float32------': {
+                'metadata': {
+                    'attrs': {
+                        'enable_double_buffer': True,
+                        'enable_mark_multi_core': True,
+                        'enable_invariant_hoist': False,
+                        'multicore_scalar_rearrange': True,
+                    },
+                },
+                'dim': '0 0 32 1 0 1 512 1'
+            },
+        },
         '--.1.1024_4096--': {
+            'float32------': {
+                'metadata': {
+                    'attrs': {
+                        'enable_double_buffer': True,
+                        'enable_mark_multi_core': True,
+                        'enable_invariant_hoist': False,
+                        'multicore_scalar_rearrange': True,
+                    },
+                },
+                'dim': '0 0 64 1'
+            },
+        },
+        '1---.1024_4096--': {
             'float32------': {
                 'metadata': {
                     'attrs': {
@@ -347,7 +373,33 @@ Rsqrt1.Mul15.TensorAdd14.InplaceAssign1819.InplaceAssign11523.1724': {
                 'dim': '0 0 128 1'
             },
         },
+        '1---.4096_1024--': {
+            'float32------': {
+                'metadata': {
+                    'attrs': {
+                        'enable_double_buffer': True,
+                        'enable_mark_multi_core': True,
+                        'enable_invariant_hoist': False,
+                        'multicore_scalar_rearrange': True,
+                    },
+                },
+                'dim': '0 0 128 1'
+            },
+        },
         '--.1.21128_1024--': {
+            'float32------': {
+                'metadata': {
+                    'attrs': {
+                        'enable_double_buffer': True,
+                        'enable_mark_multi_core': True,
+                        'enable_invariant_hoist': False,
+                        'multicore_scalar_rearrange': True,
+                    },
+                },
+                'dim': '0 0 8 1 0 1 512 1'
+            },
+        },
+        '1---.21128_1024--': {
             'float32------': {
                 'metadata': {
                     'attrs': {
@@ -373,7 +425,33 @@ Rsqrt1.Mul15.TensorAdd14.InplaceAssign1819.InplaceAssign11523.1724': {
                 'dim': '0 0 32 1 0 1 512 1'
             },
         },
+        '1---.30528_1024--': {
+            'float32------': {
+                'metadata': {
+                    'attrs': {
+                        'enable_double_buffer': True,
+                        'enable_mark_multi_core': True,
+                        'enable_invariant_hoist': False,
+                        'multicore_scalar_rearrange': True,
+                    },
+                },
+                'dim': '0 0 32 1 0 1 512 1'
+            },
+        },
         '--.1.30522_1024--': {
+            'float32------': {
+                'metadata': {
+                    'attrs': {
+                        'enable_double_buffer': True,
+                        'enable_mark_multi_core': True,
+                        'enable_invariant_hoist': False,
+                        'multicore_scalar_rearrange': True,
+                    },
+                },
+                'dim': '0 0 6 1 0 1 512 1'
+            },
+        },
+        '1---.30522_1024--': {
             'float32------': {
                 'metadata': {
                     'attrs': {
