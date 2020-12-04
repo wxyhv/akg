@@ -326,6 +326,8 @@ Stmt ExprPatternRewrite(Stmt stmt);
 
 Stmt AutoPragma(Stmt stmt);
 
+Stmt FixUnsupportedInstruction(Stmt stmt);
+
 Stmt DMASink(Stmt stmt);
 
 Stmt SpecialValueReplacer(Stmt stmt);
