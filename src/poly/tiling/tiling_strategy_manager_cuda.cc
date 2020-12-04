@@ -174,13 +174,6 @@ void ReduceStrategy::AkgReduceLibStrategyOnGpu() {
   }
   ty_range.second =
     std::min(ty_range.second, static_cast<int64_t>(ceil(static_cast<float>(ty_range.second) / tx_range.second)));
-
-  auto possible_blocks =
-    ceil(static_cast<float>(possible_injective_blocks * possible_reduce_blocks) / tx_range.second / ty_range.second);
-  int proposal = use_local ? 8 : 32;
-  auto default_elem_per_thread = possible_reduce_blocks > 1
-                                   ? std::max(std::min<int>(proposal, (possible_blocks / min_blocks + 1) / 2 * 2), 1)
-                                   : SpItemPerThread::FULL;
   if (square_thread) {
     reduce_threads = ty_range.second;
     injective_threads = tx_range.second;
@@ -188,7 +181,45 @@ void ReduceStrategy::AkgReduceLibStrategyOnGpu() {
     reduce_threads = tx_range.second;
     injective_threads = ty_range.second;
   }
+  for (auto axis : reduce_axes_) {
+    for (const auto &attr : axis->attrs) {
+      if (attr.attr_key != AT_MOD) {
+        continue;
+      }
+      CHECK_NE(attr.attr_value, "");
+      auto mod_value = static_cast<int>(std::strtol(attr.attr_value.c_str(), nullptr, 10));
+      axis->TileRestrainMod(CastInt64ToExpr(mod_value), TileLevel::LEVEL1);
+    }
+    if (use_local) {
+      auto tile_mod = axis->l1_constraints.tile_mod_.as<IntImm>()->value;
+      while (tile_mod > reduce_threads && tile_mod % reduce_threads != 0) {
+        --reduce_threads;
+      }
+    }
+  }
 
+  int possible_blocks =
+    ceil(static_cast<float>(possible_injective_blocks * possible_reduce_blocks) / injective_threads / reduce_threads);
+  int proposal = use_local ? 8 : 32;
+  auto default_elem_per_thread = possible_reduce_blocks > 1
+                                   ? std::max(std::min<int>(proposal, (possible_blocks / min_blocks + 1) / 2 * 2), 1)
+                                   : IsHalfReduce() ? 64 : SpItemPerThread::FULL;
+
+  auto original_ept = default_elem_per_thread;
+  // try to increase thread loop (no more than twice as original)
+  while (possible_blocks > default_elem_per_thread && possible_blocks % default_elem_per_thread != 0) {
+    ++default_elem_per_thread;
+  }
+  if (original_ept * 2 < default_elem_per_thread) {
+    default_elem_per_thread = original_ept;
+  }
+  // try to decrease thread loop (no less than half of original)
+  while (possible_blocks > default_elem_per_thread && possible_blocks % default_elem_per_thread != 0) {
+    --default_elem_per_thread;
+  }
+  if (default_elem_per_thread * 2 < original_ept) {
+    default_elem_per_thread = original_ept;
+  }
   std::stringstream ss;
   ss << "total_injective_size " << total_injective_size << " total_reduce_size " << total_reduce_size;
   analyzer_->logger_.AppendLog(GPU_MAPPING, ss);
@@ -196,12 +227,12 @@ void ReduceStrategy::AkgReduceLibStrategyOnGpu() {
   ss << "injective_threads " << injective_threads << " reduce_threads " << reduce_threads;
   analyzer_->logger_.AppendLog(GPU_MAPPING, ss);
 
-  ss << "possible_injective_blocks " << possible_injective_blocks << " possible_reduce_blocks "
-     << possible_reduce_blocks << " default_elem_per_thread " << default_elem_per_thread;
+  ss << "possible_blocks " << possible_blocks << " possible_injective_blocks " << possible_injective_blocks
+     << " possible_reduce_blocks " << possible_reduce_blocks << " default_elem_per_thread " << default_elem_per_thread;
   analyzer_->logger_.AppendLog(GPU_MAPPING, ss);
 
-  ss << "tx_range " << tx_range.first << " , " << tx_range.second << "ty_range " << ty_range.first << " , "
-     << ty_range.second;
+  ss << "tx:[" << tx_range.first << ", " << tx_range.second << "]; ty:[" << ty_range.first << ", " << ty_range.second
+     << "]";
   analyzer_->logger_.AppendLog(GPU_MAPPING, ss);
 
   for (auto axis : injective_axes_) {
@@ -210,20 +241,6 @@ void ReduceStrategy::AkgReduceLibStrategyOnGpu() {
     axis->thread_constraints.item_process_ = MIN_TILE;
   }
   for (auto axis : reduce_axes_) {
-    if (use_local) {
-      for (const auto &attr : axis->attrs) {
-        if (attr.attr_key != AT_MOD) {
-          continue;
-        }
-        CHECK_NE(attr.attr_value, "");
-        auto mod_value = static_cast<int>(std::strtol(attr.attr_value.c_str(), nullptr, 10));
-        axis->TileRestrainMod(CastInt64ToExpr(mod_value), TileLevel::LEVEL1);
-      }
-    }
-    auto tile_mod = axis->l1_constraints.tile_mod_.as<IntImm>()->value;
-    while (tile_mod > reduce_threads && tile_mod % reduce_threads != 0) {
-      --reduce_threads;
-    }
     axis->thread_constraints.map_extent_ = reduce_threads;
     axis->thread_constraints.item_process_ = default_elem_per_thread;
   }
@@ -235,6 +252,22 @@ bool ReduceStrategy::UseRegisterMem() {
     CHECK(buf);
     if (buf->scope == TilingMemScope::MEM_SCOPE_LOCAL) {
       return true;
+    }
+  }
+  return false;
+}
+
+bool ReduceStrategy::IsHalfReduce() {
+  for (const auto axis : reduce_axes_) {
+    for (const auto &attr : axis->attrs) {
+      if (attr.attr_key != AT_REDUCE_AXIS) {
+        continue;
+      }
+      auto red_tensor_name = attr.attr_value;
+      auto it = axis->data_size.find(red_tensor_name);
+      if (it != axis->data_size.end() && *std::min_element(it->second.begin(), it->second.end()) == 2) {
+        return true;
+      }
     }
   }
   return false;
@@ -586,15 +619,25 @@ int64_t GpuStrategy::TileAfterThreadMapping(TileAxis *axis, size_t inner_dim, in
     return tile_extent;
   }
 
-  auto tile = item == SpItemPerThread::FULL ? std::min(shape, thread_size * max_elem_per_thread_)
-                                            : std::min(shape, thread_size * item);
-
-  while (tile > tile_mod && tile % tile_mod != 0 && tile > thread_size) {
-    --tile;
-  }
+  auto tile = item == SpItemPerThread::FULL ? std::min(tile_extent, thread_size * max_elem_per_thread_)
+                                            : std::min(tile_extent, thread_size * item);
   if (analyzer_->scop_info_.user_config_.GetEnableAkgReduceLib()) {
-    while (shape % tile != 0 && tile > thread_size) {
-      --tile;
+    if (tile < tile_mod) {
+      // tile axis with mod value
+      // e.g. tile cc0 with 128 in the following code
+      // for cc0 in 1024:
+      //    A[0, floormod(cc0, 256)] = B[floordiv(cc0, 256), floormod(cc0, 256)]
+      while (tile_mod % tile != 0 && tile > thread_size) {
+        --tile;
+      }
+    } else {
+      // tile axis with div value
+      // e.g. tile cc0 with 512 in the following code (which equals tile floordiv(cc0, 256) with 2)
+      // for cc0 in 1024:
+      //    A[0, floormod(cc0, 256)] = B[floordiv(cc0, 256), floormod(cc0, 256)]
+      while (shape % tile != 0 && tile > thread_size) {
+        --tile;
+      }
     }
   }
   if (template_ == Template::CUSTOM_CONFIG && tile < thread_size) {

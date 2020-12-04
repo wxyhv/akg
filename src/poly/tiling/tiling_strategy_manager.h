@@ -174,6 +174,7 @@ class ReduceStrategy : public TilingStrategy {
   void AkgReduceLibStrategyOnGpu();
 
   bool UseRegisterMem();
+  bool IsHalfReduce();
 
   // For this special case, we have tiling constraint on axis to calculate correct isl_footprint_box.
   void DealWith4DFusedReduce();
