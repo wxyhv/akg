@@ -49,9 +49,8 @@ namespace schedule {
 
 class FuseOpAxis {
  public:
-  explicit FuseOpAxis(
-    const Schedule &sch,
-    const std::unordered_map<IterVar, std::unordered_set<size_t>> &axis_reduce_group_ids) {
+  explicit FuseOpAxis(const Schedule &sch,
+                      const std::unordered_map<IterVar, std::unordered_set<size_t>> &axis_reduce_group_ids) {
     sch_ = sch;
     axis_reduce_group_ids_ = axis_reduce_group_ids;
   }
@@ -171,6 +170,48 @@ class FuseOpAxis {
   }
 };
 
+class BroadcastElemWiseDetector : public air::ir::IRVisitor {
+ public:
+  explicit BroadcastElemWiseDetector(Array<IterVar> axis) : axis_(axis) {}
+
+  void Visit(const NodeRef &e) final {
+    if (!is_element_wise_) return;
+    IRVisitor::Visit(e);
+  }
+
+  void Visit_(const Call *op) final {
+    if (op->func.defined() && op->func.as<OperationNode>()) {
+      Array<Expr> args = op->args;
+      if (args.size() > axis_.size()) {
+        is_element_wise_ = false;
+        return;
+      }
+      for (size_t i = 1; i <= args.size(); ++i) {
+        auto args_index = args.size() - i;
+        auto axis_index = axis_.size() - i;
+        if (args[args_index].same_as(axis_[axis_index]->var)) {
+          continue;
+        } else if (is_zero(args[args_index]) && !is_one(axis_[axis_index]->dom->extent)) {
+          has_broadcast_ = true;
+        } else {
+          is_element_wise_ = false;
+          return;
+        }
+      }
+      if (args.size() < axis_.size()) {
+        has_broadcast_ = true;
+      }
+    } else {
+      IRVisitor::Visit_(op);
+    }
+  }
+
+  bool is_element_wise_{true};
+  bool has_broadcast_{false};
+
+ private:
+  Array<IterVar> axis_;
+};
 
 class FuseCheck {
  public:
@@ -179,13 +220,16 @@ class FuseCheck {
   void Run() {
     ReduceCheck();
     OutputBroadcastCheck();
+    if (!has_matmul_ && !has_reduce_ && !has_output_broadcast_) {
+      BroadcastElemwiseCheck();
+    }
   }
 
   bool NeedToFuse() {
     if (has_matmul_) {
       return false;
     }
-    return has_reduce_ || has_output_broadcast_;
+    return has_reduce_ || has_output_broadcast_ || is_broadcast_elemwise_;
   }
 
   void ReduceCheck() {
@@ -212,6 +256,29 @@ class FuseCheck {
     compute_at_pairs_ = output_broadcast_pairs_;
   }
 
+  void BroadcastElemwiseCheck() {
+    bool has_broadcast = false;
+    for (const auto &s : sch_->stages) {
+      auto op = s->op;
+      CHECK(op.defined());
+      if (auto compute_op = op.as<air::ComputeOpNode>()) {
+        auto broadcast_elemwise_detector = BroadcastElemWiseDetector(compute_op->axis);
+        for (const auto &e : compute_op->body) {
+          broadcast_elemwise_detector.Visit(e);
+        }
+        if (broadcast_elemwise_detector.has_broadcast_) {
+          has_broadcast = true;
+        }
+        if (!broadcast_elemwise_detector.is_element_wise_) {
+          return;
+        }
+      }
+    }
+    if (has_broadcast) {
+      is_broadcast_elemwise_ = true;
+    }
+  }
+
   std::unordered_map<Operation, Operation> compute_at_pairs_;
 
  private:
@@ -219,6 +286,7 @@ class FuseCheck {
   bool has_reduce_{false};
   bool has_matmul_{false};
   bool has_output_broadcast_{false};
+  bool is_broadcast_elemwise_{false};
   std::unordered_map<Operation, std::unordered_set<Operation>> op_input_ops;
   std::unordered_map<Operation, Operation> output_broadcast_pairs_;
 
@@ -265,12 +333,12 @@ class FuseCheck {
     }
     auto reduce_var = reduce_axis[0]->var.get();
     if ((left->args[args_size - 1].as<Variable>() != reduce_var &&
-        left->args[args_size - 2].as<Variable>() != reduce_var) ||
+         left->args[args_size - 2].as<Variable>() != reduce_var) ||
         (right->args[args_size - 1].as<Variable>() != reduce_var &&
-        right->args[args_size - 2].as<Variable>() != reduce_var)) {
+         right->args[args_size - 2].as<Variable>() != reduce_var)) {
       return false;
     }
-  return true;
+    return true;
   }
 
   void GetOutputBroadcastPair() {
@@ -308,8 +376,8 @@ class FuseCheck {
             // otherwise there will be a problem of poly stuck
             LOG(WARNING) << "As output " << op->func_name() << "needs broadcast to output "
                          << output_broadcast_pairs_.at(op)->func_name() << " and output "
-                         << enable_broadcast_op->func_name()
-                         << ", this scenario does not currently support the fuse." << std::endl;
+                         << enable_broadcast_op->func_name() << ", this scenario does not currently support the fuse."
+                         << std::endl;
             output_broadcast_pairs_.clear();
             return;
           }
