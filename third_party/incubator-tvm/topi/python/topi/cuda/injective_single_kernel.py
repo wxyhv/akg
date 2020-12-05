@@ -62,7 +62,11 @@ def schedule_injective_from_existing(sch, out, tmp_out, fork_node, fake_out, aut
 
     try:
         const_size = util.get_const_int(util.prod(out.shape))
-        need_block_split = const_size > max_block * num_thread
+        if const_size > num_thread:
+            need_block_split = const_size > max_block * num_thread
+        else:
+            need_block_split = False
+            num_thread = const_size
     except ValueError:
         need_block_split = False
 
