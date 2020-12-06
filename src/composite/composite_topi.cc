@@ -810,14 +810,105 @@ TVM_REGISTER_GLOBAL("BroadcastTo").set_body([](TVMArgs args, TVMRetValue *rv) {
   }
   if (inputs[0]->IsInstance<ExprNode>()) {
     auto val = Downcast<Expr>(inputs[0]);
-    auto fcompute = [&](const Array<Var> &indices) {
-      return val;
-    };
+    auto fcompute = [&](const Array<Var> &indices) { return val; };
     *rv = compute(shape, fcompute, "broadcast");
   } else {
     auto val = Downcast<Tensor>(inputs[0]);
     *rv = topi::broadcast_to(val, shape);
   }
+});
+
+TVM_REGISTER_GLOBAL("BatchMatMul").set_body([](TVMArgs args, TVMRetValue *rv) {
+  CHECK_GE(args.size(), 2);
+  auto inputs = args[0].operator Array<NodeRef>();
+  auto attrs = args[1].operator OpAttr();
+  CHECK_GE(inputs.size(), 2);
+  CHECK(inputs[0]->IsInstance<TensorNode>());
+  CHECK(inputs[1]->IsInstance<TensorNode>());
+  auto left_matrix = Downcast<Tensor>(inputs[0]);
+  auto right_matrix = Downcast<Tensor>(inputs[1]);
+  CHECK(attrs.count("transpose_a"));
+  CHECK(attrs.count("transpose_b"));
+  bool transpose_a = static_cast<bool>(ir::GetInt32Const(Downcast<Expr>(attrs["transpose_a"])));
+  bool transpose_b = static_cast<bool>(ir::GetInt32Const(Downcast<Expr>(attrs["transpose_b"])));
+  auto left_shape = left_matrix->shape;
+  auto right_shape = right_matrix->shape;
+  CHECK_EQ(left_shape.size(), right_shape.size());
+
+  auto type_checker = [](const Tensor &input_data, const std::string name) {
+    if (input_data->dtype != Float(16) && input_data->dtype != Float(32)) {
+      LOG(FATAL) << "dtype of " << name << " should be float16 or float32";
+    }
+  };
+
+  Expr k;
+  auto compute_out = [&k](const Array<Expr> &left_shape, const Array<Expr> &right_shape, bool transpose_a,
+                          bool transpose_b, size_t batch_dim) {
+    auto m = left_shape[batch_dim];
+    k = left_shape[batch_dim + 1];
+    if (transpose_a) {
+      m = left_shape[batch_dim + 1];
+      k = left_shape[batch_dim];
+    }
+    auto n = right_shape[batch_dim + 1];
+    if (transpose_b) {
+      n = right_shape[batch_dim];
+    }
+    Array<Expr> output_shape;
+    for (size_t i = 0; i < batch_dim; ++i) {
+      output_shape.push_back(left_shape[i]);
+    }
+    output_shape.push_back(m);
+    output_shape.push_back(n);
+    return output_shape;
+  };
+
+  size_t batch_dim = 0;
+  IterVar reduce_k;
+  auto fcompute = [&left_matrix, &right_matrix, &transpose_a, &transpose_b, &reduce_k,
+                   &batch_dim](const Array<Var> &indices) {
+    Array<Expr> left_indice;
+    Array<Expr> right_indice;
+    for (size_t i = 0; i < batch_dim; ++i) {
+      left_indice.push_back(indices[i]);
+      right_indice.push_back(indices[i]);
+    }
+
+    if (transpose_a) {
+      left_indice.push_back(reduce_k);
+      left_indice.push_back(indices[batch_dim]);
+    } else {
+      left_indice.push_back(indices[batch_dim]);
+      left_indice.push_back(reduce_k);
+    }
+
+    if (transpose_b) {
+      right_indice.push_back(indices[batch_dim + 1]);
+      right_indice.push_back(reduce_k);
+    } else {
+      right_indice.push_back(reduce_k);
+      right_indice.push_back(indices[batch_dim + 1]);
+    }
+
+    Expr left_buffer = Call::make(left_matrix->dtype, left_matrix->op->name, left_indice, Call::CallType::Halide,
+                                  left_matrix->op, left_matrix->value_index);
+    Expr right_buffer = Call::make(right_matrix->dtype, right_matrix->op->name, right_indice, Call::CallType::Halide,
+                                   right_matrix->op, right_matrix->value_index);
+
+    auto matrix_mul = Mul::make(left_buffer, right_buffer);
+    Array<IterVar> reduces;
+    reduces.push_back(reduce_k);
+    auto res = air::sum(matrix_mul, reduces);
+    return res;
+  };
+
+  type_checker(left_matrix, "left_matrix");
+  type_checker(right_matrix, "right_matrix");
+  batch_dim = left_shape.size() - 2;
+  Array<Expr> output_shape = compute_out(left_shape, right_shape, transpose_a, transpose_b, batch_dim);
+  reduce_k = air::reduce_axis(Range(0, k), "reduce_axis");
+  auto name = "T_batch_matmul_" + left_matrix->op->name + "_" + right_matrix->op->name;
+  *rv = compute(output_shape, fcompute, name);
 });
 
 }  // namespace akg
