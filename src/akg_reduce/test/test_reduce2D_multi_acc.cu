@@ -1,3 +1,19 @@
+/**
+ * Copyright 2020 Huawei Technologies Co., Ltd
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ * http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
 #include "../utils/util.cuh"
 #include "../algorithm/shared_reduce.cuh"
 #include "../reduce.cuh"
@@ -80,6 +96,9 @@ __global__ void ComputeResultAlongXGPUMultiBlock(int x_len, int y_len, T *arr, T
   T T_red_rf[4];  // must be explict 16384 = 4096 * 4 * 1
   __shared__ T red_buf[4][1024];
   __shared__ T temp_output[4];  // temp storage for output
+  for (int i = 0; i < 4; ++i) {
+    temp_output[i] = (T)0.0;
+  }
   for (int i = 0; i < item_per_thread_y; ++i) {
     T_red_rf[i] = 0.0;
     for (int k = 0; k < item_per_thread_x; ++k) {
@@ -90,10 +109,11 @@ __global__ void ComputeResultAlongXGPUMultiBlock(int x_len, int y_len, T *arr, T
       }
     }
   }
-
+  __syncthreads();
   for (int i = 0; i < item_per_thread_y; ++i) {
     AkgReduce<T, ReduceOp, 1024, REDUCE2D_X>(op, &temp_output[i * blockDim.y + 0], &red_buf[i][0], T_red_rf[i]);
   }
+  __syncthreads();
   if (threadIdx.x == 0) {
     for (int i = 0; i < item_per_thread_y; ++i) {
       AkgAtomicReturn<T, ReduceOp>(
@@ -108,6 +128,9 @@ __global__ void ComputeResultAlongYGPUMultiBlock(int x_len, int y_len, T *arr, T
   T T_red_rf[4];
   __shared__ T red_buf[4 * 1024];
   __shared__ T temp_output[32 * 4];
+  for (int i = 0; i < 32 * 4; ++i) {
+    temp_output[i] = (T)0.0;
+  }
   for (int i = 0; i < item_per_thread_x; ++i) {  // x is non-reduce-axis
     T_red_rf[i] = 0.0;
     for (int k = 0; k < item_per_thread_y; ++k) {  // here y is reduce-axis
@@ -118,10 +141,12 @@ __global__ void ComputeResultAlongYGPUMultiBlock(int x_len, int y_len, T *arr, T
       }
     }
   }
+  __syncthreads();
   for (int i = 0; i < item_per_thread_x; ++i) {
     AkgReduce<T, ReduceOp, 32, REDUCE2D_Y>(op, &temp_output[i * blockDim.x + threadIdx.x], &red_buf[i * 1024],
                                T_red_rf[i], sharedmem_x);
   }
+  __syncthreads();
   if (threadIdx.y == 0) {
     for (int i = 0; i < item_per_thread_x; ++i) {
       AkgAtomicReturn<T, ReduceOp>(temp_output[i * blockDim.x + threadIdx.x],
