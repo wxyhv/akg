@@ -31,12 +31,12 @@ namespace ir {
 
  ========>
 
- // attr [T_vadd_input_1_local_UB] storage_scope = "local.UB"
- allocate T_vadd_input_1_local_UB[int32 * 1]
+ // attr [fix_vadds_int_0_local_UB] storage_scope = "local.UB"
+ allocate fix_vadds_int_0_local_UB[int32 * 1]
  // attr [0] pragma_emit_insn = "broadcast"
- T_vadd_input_1_local_UB[0] = 1
+ fix_vadds_int_0_local_UB[0] = 1
  // attr [0] pragma_emit_insn = "vec_binary_add"
- T_add_input_0_local_UB[0] = (input_0_local_UB[0] + T_vadd_input_1_local_UB[0])
+ T_add_input_0_local_UB[0] = (input_0_local_UB[0] + fix_vadds_int_0_local_UB[0])
  -----------------------------------------------------------------------------
 */
 class FixVaddsInt : public IRMutator {
@@ -46,7 +46,7 @@ class FixVaddsInt : public IRMutator {
       auto store = op->body.as<Store>();
       auto add = store->value.as<Add>();
 
-      auto new_buf = VarExpr("T_vadd_input_1_local_UB", Int(32));
+      auto new_buf = VarExpr("fix_vadds_int_" + std::to_string(id++) + "_local_UB", Int(32));
 
       auto store_stmt = Store::make(new_buf, add->b, 0, const_true(1));
       auto store_attr = AttrStmt::make(make_zero(Int(32)), "pragma_emit_insn", Expr("broadcast"), store_stmt);
@@ -83,6 +83,7 @@ class FixVaddsInt : public IRMutator {
 
     return false;
   }
+  int id = 0;
 };
 
 Stmt FixUnsupportedInstruction(Stmt stmt) {
