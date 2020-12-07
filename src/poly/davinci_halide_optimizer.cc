@@ -32,7 +32,7 @@ namespace akg {
 namespace ir {
 namespace poly {
 constexpr auto PASS_DOWN = "pass_down";
-enum OPERATOR_TYPE { T_OUTOF_LIB = 0, T_PASS_DOWN, T_TENSOR_OF_TENSOR };
+enum OPERATOR_TYPE { T_OUTOF_LIB = 0, T_PASS_DOWN, T_TENSOR_OF_TENSOR, T_TENSOR_OF_TENSOR_ACCUM };
 using OP_TYPE = OPERATOR_TYPE;
 using TensorVarTab = std::unordered_map<const Variable *, std::vector<const IfThenElse *>>;
 
@@ -62,27 +62,25 @@ class OpDetector : public IRVisitor {
 
   void Visit_(const Realize *op) final {
     inRealize_ = true;
-    IRVisitor::Visit_(op);
-    inRealize_ = false;
-  }
-
-  void Visit_(const ProducerConsumer *op) final {
     if (memBufferTab_.count(op->func->func_name()) == 0) {
       memBufferTab_[op->func->func_name()] = 0;
     } else {
       memBufferTab_[op->func->func_name()]++;
     }
-    return IRVisitor::Visit_(op);
+    IRVisitor::Visit_(op);
+    inRealize_ = false;
   }
 
   void Visit_(const For *op) final {
+    for_stk.push(op);
     if (inRealize_) {
       if (tab_.count(op->loop_var.get()) == 0) {
         std::vector<const IfThenElse *> value;
         tab_[op->loop_var.get()] = value;
       }
     }
-    return IRVisitor::Visit_(op);
+    IRVisitor::Visit_(op);
+    for_stk.pop();
   }
 
   std::vector<const Variable *> GetExprSpecVar(const Expr &expr) {
@@ -106,14 +104,14 @@ class OpDetector : public IRVisitor {
   void Visit_(const IfThenElse *op) final {
     CHECK(op);
     auto emptyCase = op->else_case;
+    auto checkTOfTensor = [](const Expr &e, const std::unordered_map<std::string, int> &table) {
+      if (isType<Call>(e) && table.count(e.as<Call>()->name) > 0) {
+        return true;
+      }
+      return false;
+    };
     if (emptyCase == Stmt() && isType<EQ>(op->condition)) {
       const auto equation = op->condition.as<EQ>();
-      auto checkTOfTensor = [](const Expr &e, const std::unordered_map<std::string, int> &table) {
-        if (isType<Call>(e) && table.count(e.as<Call>()->name) > 0) {
-          return true;
-        }
-        return false;
-      };
       if (checkTOfTensor(equation->a, memBufferTab_) || checkTOfTensor(equation->b, memBufferTab_)) {
         type_ = OP_TYPE::T_TENSOR_OF_TENSOR;
         std::vector<const Variable *> vars;
@@ -125,17 +123,100 @@ class OpDetector : public IRVisitor {
         }
         return;
       }
+    } else if (emptyCase == Stmt() && isType<And>(op->condition)) {
+      auto and_op = op->condition.as<And>();
+      if (isType<EQ>(and_op->a) && isType<EQ>(and_op->b)) {
+        auto eq_first = and_op->a.as<EQ>();
+        auto eq_second = and_op->b.as<EQ>();
+        if ((checkTOfTensor(eq_first->a, memBufferTab_) || checkTOfTensor(eq_first->b, memBufferTab_)) &&
+            (checkTOfTensor(eq_second->a, memBufferTab_) || checkTOfTensor(eq_second->b, memBufferTab_))) {
+          type_ = T_TENSOR_OF_TENSOR_ACCUM;
+          elim_if_ = op;
+          if (checkTOfTensor(eq_first->a, memBufferTab_)) {
+            tensor_map_[eq_first->b.as<Variable>()] = eq_first->a;
+          } else {
+            tensor_map_[eq_first->a.as<Variable>()] = eq_first->b;
+          }
+          if (checkTOfTensor(eq_second->a, memBufferTab_)) {
+            tensor_map_[eq_second->b.as<Variable>()] = eq_second->a;
+          } else {
+            tensor_map_[eq_second->a.as<Variable>()] = eq_second->b;
+          }
+          int count = tensor_map_.size();
+          auto tmp_for_stk = for_stk;
+          while (count > 0) {
+            auto current_for = tmp_for_stk.top();
+            if (tensor_map_.count(current_for->loop_var.get()) > 0 && elim_for_set_.count(current_for) == 0) {
+              elim_for_set_.insert(current_for);
+              count--;
+            }
+            tmp_for_stk.pop();
+          }
+          return;
+        }
+      }
     }
     return IRVisitor::Visit_(op);
   }
 
   OP_TYPE type_{OP_TYPE::T_OUTOF_LIB};
   TensorVarTab tab_;
+  std::unordered_set<const For *> elim_for_set_;
+  std::unordered_map<const Variable *, Expr> tensor_map_;
+  const IfThenElse *elim_if_;
 
  private:
   bool inRealize_{false};
+  std::stack<const For *> for_stk;
   std::unordered_map<std::string, int> memBufferTab_;
 };
+
+/***********************************************************************
+ * This pass eliminate the IR transformed by PASS RewriteTensorIdx 
+   for (aa, 0, 4) {
+    for (cc1, 0, 192) {
+      for (cc0, 0, 192) {
+        if((cc0 == input_3(aa)) && (cc1 == input_3(aa))){
+          res(aa, cc0) = res(aa, cc1) + whatever 
+        }
+      }
+    }
+   }
+    |
+    v
+   for (aa, 0, 4) {
+     res(aa, input_3(aa)) = res(aa, input_3(aa)) + whatever
+   }
+ *
+ ***************************************************************/
+
+class ElimTensorIdx : public IRMutator {
+ public:
+  ElimTensorIdx(std::unordered_set<const For *> &elim_for_set, std::unordered_map<const Variable *, Expr> &tensor_map,
+                const IfThenElse *elim_if)
+      : elim_for_set_(elim_for_set), tensor_map_(tensor_map), elim_if_(elim_if) {}
+  ~ElimTensorIdx() override = default;
+
+  Stmt run(const Stmt &s) { return this->Mutate(s); }
+  Stmt Mutate_(const For *op, const Stmt &s) final {
+    if (elim_for_set_.find(op) != elim_for_set_.end()) {
+      return this->Mutate(op->body);
+    }
+    return IRMutator::Mutate_(op, s);
+  }
+  Stmt Mutate_(const IfThenElse *op, const Stmt &s) final {
+    if (op == elim_if_) {
+      return Substitute(op->then_case, tensor_map_);
+    }
+    return IRMutator::Mutate_(op, s);
+  }
+
+ private:
+  std::unordered_set<const For *> elim_for_set_;
+  std::unordered_map<const Variable *, Expr> tensor_map_;
+  const IfThenElse *elim_if_;
+};
+
 /***********************************************************************
  * This pass used to remove pass_down attr and move down the marked axis
     for (cc9, 0, 56) {
@@ -159,6 +240,7 @@ class OpDetector : public IRVisitor {
    }
  *
  ***************************************************************/
+
 class PassDownForAxis : public IRMutator {
  public:
   PassDownForAxis() {}
@@ -621,6 +703,8 @@ Stmt DavinciHalideOptimizer(const Stmt &s, bool dynamicShape = false) {
       return PassDownForAxis().run(stmt);
     case OPERATOR_TYPE::T_TENSOR_OF_TENSOR:
       return GatherTransform(detector.tab_).run(stmt);
+    case OPERATOR_TYPE::T_TENSOR_OF_TENSOR_ACCUM:
+      return ElimTensorIdx(detector.elim_for_set_, detector.tensor_map_, detector.elim_if_).run(stmt);
     default:
       return stmt;
   }

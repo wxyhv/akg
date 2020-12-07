@@ -161,7 +161,9 @@ class ArithInfo {
       return;
     }
     if (insn_type == "unknown") {
-      CHECK(0) << "\nUnknown Intrinsic Type";
+      LOG(INFO) << "Unknown Intrinsic Type, using crossing by default";
+      insn_type = "crossing";
+      return;
     }
   }
 
@@ -680,10 +682,11 @@ class AlignAttach : public IRMutator {
 
   Expr Mutate_(const Load *op, const Expr &e) {
     int align = 1;
+    auto index = this->Mutate(op->index);
     if (m_map_.count(op->buffer_var.get())) {
       align = m_map_[op->buffer_var.get()]->m_alignment;
     }
-    return Load::make(op->type, op->buffer_var, op->index, align);
+    return Load::make(op->type, op->buffer_var, index, align);
   }
 
  private:
