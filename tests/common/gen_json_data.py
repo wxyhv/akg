@@ -197,6 +197,24 @@ def trans_data_dsl(inputs, output, attr):
     return res
 
 
+def batchmatmul_str(inputs, output, attr):
+    trans_a = get_attr(attr, "transpose_a")
+    trans_b = get_attr(attr, "transpose_b")
+    if trans_a and trans_b:
+        res = "%s = np.matmul(np.swapaxes(%s, -1, -2), np.swapaxes(%s, -1, -2))" %\
+              (output[0]['tensor_name'], get_input(inputs[0][0]), get_input(inputs[1][0]))
+    elif trans_a:
+        res = "%s = np.matmul(np.swapaxes(%s, -1, -2), %s)" %\
+              (output[0]['tensor_name'], get_input(inputs[0][0]), get_input(inputs[1][0]))
+    elif trans_b:
+        res = "%s = np.matmul(%s, np.swapaxes(%s, -1, -2))" %\
+              (output[0]['tensor_name'], get_input(inputs[0][0]), get_input(inputs[1][0]))
+    else:
+        res = "%s = np.matmul(%s, %s)" %\
+              (output[0]['tensor_name'], get_input(inputs[0][0]), get_input(inputs[1][0]))
+    return res
+
+
 op_dsl = {
     "ReduceSum": lambda inputs, output, attr: reduce_str(inputs, output, attr, "sum"),
     "ReduceMax": lambda inputs, output, attr: reduce_str(inputs, output, attr, "max"),
@@ -283,6 +301,7 @@ op_dsl = {
     "Transpose": lambda inputs, output, attr: transpose_str(inputs, output, attr),
     "TransData": trans_data_dsl,
     "BroadcastTo": lambda inputs, output, attr: broadcast_str(inputs, output, attr),
+    "BatchMatMul": lambda inputs, output, attr: batchmatmul_str(inputs, output, attr),
 }
 
 
