@@ -302,33 +302,27 @@ class ConditionExprMod : public air::ir::IRMutator {
   ~ConditionExprMod() override = default;
 
   Expr Mutate_(const And *op, const Expr &e) override {
+    auto o_a = op->a;
+    auto o_b = op->b;
     auto a = air::ir::IRMutator::Mutate(op->a);
     auto b = air::ir::IRMutator::Mutate(op->b);
-    if (!a.defined() && !b.defined()) {
-      return Expr();
-    }
-    if (!a.defined()) {
-      return b;
-    }
-    if (!b.defined()) {
-      return a;
-    }
-    return e;
+    if (!a.defined() && !b.defined()) return Expr();
+    if (!a.defined()) return b;
+    if (!b.defined()) return a;
+    if (o_a.same_as(a) && o_b.same_as(b)) return e;
+    return And::make(a, b);
   }
 
   Expr Mutate_(const Or *op, const Expr &e) override {
+    auto o_a = op->a;
+    auto o_b = op->b;
     auto a = air::ir::IRMutator::Mutate(op->a);
     auto b = air::ir::IRMutator::Mutate(op->b);
-    if (!a.defined() && !b.defined()) {
-      return Expr();
-    }
-    if (!a.defined()) {
-      return b;
-    }
-    if (!b.defined()) {
-      return a;
-    }
-    return e;
+    if (!a.defined() && !b.defined()) return Expr();
+    if (!a.defined()) return b;
+    if (!b.defined()) return a;
+    if (o_a.same_as(a) && o_b.same_as(b)) return e;
+    return Or::make(a, b);
   }
 
   Expr Mutate_(const EQ *op, const Expr &e) override {
@@ -339,9 +333,7 @@ class ConditionExprMod : public air::ir::IRMutator {
     bool lh_block = false;
     if (b.as<IntImm>()) {
       auto v = b.as<IntImm>();
-      if (v->value == 0) {
-        rh_zero = true;
-      }
+      if (v->value == 0) rh_zero = true;
     }
 
     if (a.as<Variable>()) {
@@ -351,9 +343,7 @@ class ConditionExprMod : public air::ir::IRMutator {
       }
     }
 
-    if (rh_zero && lh_block) {
-      return Expr();
-    }
+    if (rh_zero && lh_block) return Expr();
     return e;
   }
 };

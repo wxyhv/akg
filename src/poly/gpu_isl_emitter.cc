@@ -839,6 +839,11 @@ Stmt GpuIslEmitter::EmitIf(const isl::ast_node_if &node) {
       cond_expr = ConditionExprMod().Mutate(cond_expr);
     }
   }
+
+  if (!cond_expr.defined()) {
+    return then_case;
+  }
+
   return IfThenElse::make(cond_expr, then_case, else_case);
 }
 
