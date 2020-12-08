@@ -482,10 +482,13 @@ void GpuStrategy::InitMappingLimit() {
   std::stringstream ss;
   ss << "Use template " << template_map_[template_];
   analyzer_->logger_.AppendLog(GPU_MAPPING, ss);
+  bool need_reverse = analyzer_->scop_info_.user_config_.GetEnableAkgReduceLib() &&
+                      analyzer_->scop_info_.analysis_result_.GetReduceDirection() == Y_DIRECTION;
   if (template_ == Template::CUSTOM_CONFIG) {
     auto thread_config = analyzer_->scop_info_.user_config_.GetThreadConfig();
     for (size_t i = 0; i < thread_config->bound; ++i) {
-      thread_limit_.emplace_back(thread_config->GetAt(i).second);
+      auto idx = need_reverse ? thread_config->bound - 1 - i : i;
+      thread_limit_.emplace_back(thread_config->GetAt(idx).second);
     }
   } else if (template_ == Template::REDUCTION || template_ == Template::BITWISE_REDUCTION) {
     thread_limit_ = {max_num_threads_, max_num_threads_};
@@ -515,7 +518,8 @@ void GpuStrategy::InitMappingLimit() {
   if (template_ == Template::CUSTOM_CONFIG) {
     auto block_config = analyzer_->scop_info_.user_config_.GetBlockConfig();
     for (int i = block_config->bound - 1; i >= 0; --i) {
-      block_limit_.emplace_back(block_config->GetAt(i).second);
+      auto idx = need_reverse ? block_config->bound - 1 - i : i;
+      block_limit_.emplace_back(block_config->GetAt(idx).second);
     }
   } else if (template_ <= Template::REDUCTION) {
     block_limit_ = {max_num_blocks_, max_num_blocks_, max_num_blocks_};
@@ -696,37 +700,50 @@ void GpuStrategy::SetMappingConfig() {
   if (block_cfg_.empty()) {
     block_cfg_.emplace_back(1);
   }
-  std::string block_str = block_count_ == 0 ? "1" : "";
-  for (int i = block_cfg_.size() - 1; i >= 0; --i) {
-    if (i >= block_count_) {
-      continue;
-    }
-    block_str += (std::to_string(block_cfg_[i]) + " ");
-  }
   bool reverse_binding = (analyzer_->scop_info_.user_config_.GetEnableAkgReduceLib() &&
                           analyzer_->scop_info_.analysis_result_.GetReduceDirection() == Y_DIRECTION);
+  std::string block_str = "";
   std::string thread_str = "";
   if (reverse_binding) {
+    for (int i = 0; i < static_cast<int>(block_cfg_.size()); ++i) {
+      if (i >= block_count_) {
+        continue;
+      }
+      block_str += (std::to_string(block_cfg_[i]) + " ");
+    }
     // pad binding to at least two dim to bind reduce axis at thread y
     for (size_t i = thread_cfg_.size(); i < 2; ++i) {
       thread_cfg_.emplace_back(1);
     }
+
     for (int i = thread_cfg_.size() - 1; i >= 0; --i) {
       thread_str += (std::to_string(thread_cfg_[i]) + " ");
     }
   } else {
+    // pad binding to at least two dim to bind reduce axis at block y
+    for (size_t i = block_cfg_.size(); i < 2; ++i) {
+      block_cfg_.emplace_back(1);
+    }
+    for (int i = block_cfg_.size() - 1; i >= 0; --i) {
+      if (i >= block_count_) {
+        continue;
+      }
+      block_str += (std::to_string(block_cfg_[i]) + " ");
+    }
     for (const auto &size : thread_cfg_) {
       thread_str += (std::to_string(size) + " ");
     }
   }
 
-  analyzer_->scop_info_.user_config_.SetBlockConfig(block_str);
-  analyzer_->scop_info_.user_config_.SetThreadConfig(thread_str);
-
   ss << "Block config = " << block_str;
   analyzer_->logger_.AppendLog(GPU_MAPPING, ss);
   ss << "Thread config = " << thread_str;
   analyzer_->logger_.AppendLog(GPU_MAPPING, ss);
+  if (template_ == Template::CUSTOM_CONFIG) {
+    return;
+  }
+  analyzer_->scop_info_.user_config_.SetBlockConfig(block_str);
+  analyzer_->scop_info_.user_config_.SetThreadConfig(thread_str);
 }
 
 int64_t GpuStrategy::GetThreadSize(const int64_t rest_threads, size_t inner_dim, const int64_t shape,
