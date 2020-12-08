@@ -161,13 +161,15 @@ isl::schedule Scop::Transform(const isl::schedule &input_schedule) {
     final_schedule = mgr.Run(input_schedule, gpu_strategy);
     if (mgr.need_restart_) {
       info_.user_config_.SetConsiderCoincidence(false);
-      auto block_cfg = info_.user_config_.GetBlockConfig();
-      if (block_cfg) {
-        block_cfg->Reset();
-      }
-      auto thread_cfg = info_.user_config_.GetThreadConfig();
-      if (thread_cfg) {
-        thread_cfg->Reset();
+      if (info_.analysis_result_.GetEnabledAutoTiling()) {
+        auto block_cfg = info_.user_config_.GetBlockConfig();
+        if (block_cfg) {
+          block_cfg->Reset();
+        }
+        auto thread_cfg = info_.user_config_.GetThreadConfig();
+        if (thread_cfg) {
+          thread_cfg->Reset();
+        }
       }
       GPUMgrStrategy scalar_strategy(info_);
       final_schedule = mgr.Run(input_schedule, scalar_strategy);

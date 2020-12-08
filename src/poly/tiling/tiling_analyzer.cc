@@ -1355,6 +1355,8 @@ void TilingAnalyzer::AddPostTilingConstraints() {
   if (scop_info_.user_config_.GetTarget() == TARGET_CUDA) {
     ReduceStrategy reduce_strategy(this);
     actived_strategies.push_back(&reduce_strategy);
+    ModStrategy mod_strategy(this);
+    actived_strategies.push_back(&mod_strategy);
 
     GpuDmaAnalysisStrategy dma_analysis_strategy(this);
     GpuStrategy gpu_strategy(this);

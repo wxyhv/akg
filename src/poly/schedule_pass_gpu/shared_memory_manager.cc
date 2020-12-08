@@ -26,6 +26,9 @@ namespace ir {
 namespace poly {
 
 isl::schedule SharedMemoryManager::Run(isl::schedule sch) {
+  if (!scop_info_.user_config_.UseSharedMemory()) {
+    return sch;
+  }
   schedule_ = sch;
   auto root = sch.get_root();
   UpdateDepth(root);

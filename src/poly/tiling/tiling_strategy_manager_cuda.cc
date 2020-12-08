@@ -30,6 +30,142 @@ void GpuDmaAnalysisStrategy::AddGpuConstraint() {
 
 void CastStrategy::AddGpuConstraint() { MarkDataSize(); }
 
+void ModStrategy::AddGpuConstraint() {
+  if (!analyzer_->GetAxesOfAttr(AT_REDUCE_AXIS).empty()) {
+    return;
+  }
+  size_t depth = 0;
+  analyzer_->ForEachAxisTopDown([this, &depth](TileAxis *axis) {
+    if (axis == analyzer_->RootAxis() || axis->range_extent.as<IntImm>() == nullptr) {
+      return;
+    }
+    ++depth;
+    fused_size_ = axis->range_extent.as<IntImm>()->value;
+  });
+  // Only deal with broadcast + elemwise cases that all axes are fused into one.
+  auto interested_info = GetInterestedInfo(interested_attr_key);
+  if (depth != 1 || interested_info.size() > 1U) {
+    return;
+  }
+
+  // Disable share and local promotion since isl cannot perfectly handle fusion cases.
+  analyzer_->scop_info_.user_config_.SetUseSharedMemory(false);
+  analyzer_->scop_info_.user_config_.SetUseRegisterMemory(false);
+  if (interested_info.empty()) {
+    GpuScalarBroadcastStrategy();
+  } else {
+    GpuVectorBroadcastStrategy();
+  }
+}
+
+void ModStrategy::GpuScalarBroadcastStrategy() {
+  auto broadcast_axes = analyzer_->GetAxesContainsAttr(AT_BROADCAST);
+  if (broadcast_axes.empty()) {
+    return;
+  }
+  if (fused_size_ < max_num_threads_ * 2) {
+    analyzer_->scop_info_.user_config_.SetUseSharedMemory(false);
+    analyzer_->logger_.AppendLine(GPU_MAPPING, "Fused size is too small, disable shared memory.");
+  }
+}
+
+void ModStrategy::GpuVectorBroadcastStrategy() {
+  auto interested_info = GetInterestedInfo(interested_attr_key);
+  for (auto it : interested_info) {
+    TileAxis *axis = it.first;
+    std::stringstream ss;
+
+    // Reconstruct original shape from fused axis
+    std::vector<int> mod_values;
+    for (const auto &attr : it.second) {
+      CHECK(!attr.attr_value.empty());
+      mod_values.emplace_back(static_cast<int>(std::strtol(attr.attr_value.c_str(), nullptr, 10)));
+    }
+    std::sort(mod_values.begin(), mod_values.end());
+
+    ss << "original shape before fused (in reversed order) :[";
+    std::vector<int> original_shape;
+    int prev_mod = 1;
+    for (const auto m : mod_values) {
+      CHECK_NE(prev_mod, 0);
+      original_shape.emplace_back(m / prev_mod);
+      ss << original_shape.back() << ", ";
+      prev_mod = m;
+    }
+    CHECK_NE(prev_mod, 0);
+    original_shape.emplace_back(fused_size_ / prev_mod);
+    ss << original_shape.back() << "]";
+    analyzer_->logger_.AppendLog(GPU_MAPPING, ss);
+
+    // Analyse the indice of broadcast axes
+    std::unordered_set<int> broadcast_idx;
+    for (const auto &attr : analyzer_->RootAxis()->attrs) {
+      if (attr.attr_key.find(AT_BROADCAST) == std::string::npos) {
+        continue;
+      }
+      auto op_types = common::Split(attr.attr_key, "_");
+      for (const auto type : op_types) {
+        if (type.find(AT_BROADCAST) == std::string::npos) {
+          continue;
+        }
+        auto info = common::Split(type, "|");
+        if (info.size() < 2U) {
+          for (int i = 0; i < static_cast<int>(original_shape.size()) - 1; ++i) {
+            broadcast_idx.insert(i);
+          }
+          break;
+        } else {
+          CHECK_EQ(info.size(), 2U);
+          CHECK(!info[1].empty());
+          broadcast_idx.insert(static_cast<int>(std::strtol(info[1].c_str(), nullptr, 10)));
+        }
+      }
+    }
+
+    // Mapping strategy specialized for broadcast + elementwise case
+    int possible_threads = 1;
+    int coalesced_size = 0;
+    int total_injective_size = 1;
+    for (size_t i = 0; i < original_shape.size(); ++i) {
+      if (original_shape[i] * possible_threads <= max_num_threads_) {
+        possible_threads *= original_shape[i];
+      }
+      auto rev_idx = original_shape.size() - 1 - i;
+      if (broadcast_idx.find(rev_idx) == broadcast_idx.end()) {
+        total_injective_size *= original_shape[i];
+        coalesced_size = coalesced_size == 0 ? original_shape[i] : coalesced_size;
+      } else if (coalesced_size == 0) {
+        auto prev_extent = axis->thread_constraints.map_extent_ > 0 ? axis->thread_constraints.map_extent_ : 1;
+        axis->thread_constraints.map_extent_ =
+          prev_extent * original_shape[i] <= max_num_threads_ ? prev_extent * original_shape[i] : prev_extent;
+        possible_threads = axis->thread_constraints.map_extent_;
+      }
+      coalesced_size = coalesced_size == 0 ? 1 : coalesced_size;
+    }
+    coalesced_size = std::min(coalesced_size, possible_threads);
+    ss << "possible_threads: " << possible_threads << ", coalesced_size: " << coalesced_size
+       << ", total_injective_size: " << total_injective_size;
+    analyzer_->logger_.AppendLog(GPU_MAPPING, ss);
+
+    int elem_per_thread = 8;
+    int elem_per_block = std::max<int>(32 / (max_num_threads_ / possible_threads), 1);
+    int min_block = coalesced_size < warp_sizes_ ? 1024 : 512;
+    if (coalesced_size >= warp_sizes_) {
+      axis->thread_constraints.item_process_ =
+        std::min(elem_per_thread, std::max<int>((fused_size_ / possible_threads / min_block + 1) / 2 * 2, 1));
+      ss << "thread for-loop speedup = " << axis->thread_constraints.item_process_;
+    } else if (total_injective_size > min_block) {
+      auto proposal_blocks = std::max(min_block, std::max<int>(fused_size_ / possible_threads / elem_per_block, 1));
+      proposal_blocks = std::min(proposal_blocks, std::max<int>(total_injective_size / elem_per_block, 1));
+      axis->block_constraints.map_extent_ = proposal_blocks;
+      ss << "block for-loop speedup = " << axis->block_constraints.map_extent_;
+    } else {
+      ss << "default mapping.";
+    }
+    analyzer_->logger_.AppendLog(GPU_MAPPING, ss);
+  }
+}
+
 void ReduceStrategy::AddGpuConstraint() {
   // TODO: compare XLA's reduction tiling/mapping strategy with current strategy
   reduce_axes_ = analyzer_->GetAxesOfAttr(AT_REDUCE_AXIS);
@@ -737,8 +873,6 @@ void GpuStrategy::AdjustThreadMappingLimit() {
 }
 
 // No constraint found in cuda
-
-void ModStrategy::AddGpuConstraint() {}
 
 void CustomTilingStrategy::AddGpuConstraint() {}
 

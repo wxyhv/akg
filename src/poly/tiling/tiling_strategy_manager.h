@@ -122,6 +122,9 @@ class ModStrategy : public TilingStrategy {
   void AddDavinciConstraint();
   void AddGpuConstraint();
 
+  void GpuScalarBroadcastStrategy();
+  void GpuVectorBroadcastStrategy();
+  int64_t fused_size_{1};
   std::string interested_attr_key = AT_MOD;
 };
 

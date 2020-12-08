@@ -354,6 +354,8 @@ class UserConfig {
 
   bool UseRegisterMemory() { return use_register_memory_; }
   bool UseSharedMemory() { return use_shared_memory_; }
+  void SetUseSharedMemory(bool use_shared_memory) { use_shared_memory_ = use_shared_memory; }
+  void SetUseRegisterMemory(bool use_register_memory) { use_register_memory_ = use_register_memory; }
   int GetRegisterDepth() { return register_depth_; }
   int GetSharedDepth() { return shared_depth_; }
   std::string GetSharedTensors() { return shared_tensors_; }
@@ -697,6 +699,8 @@ class AnalysisResult {
   std::vector<isl::id> GetReduceInitIds() const { return reduce_init_ids_; }
   std::unordered_map<isl::id, Expr, isl::IslIdIslHash> GetReduceInitValueMap() { return reduce_init_value_map_; }
   std::unordered_map<isl::id, Type, isl::IslIdIslHash> GetReduceWriteDtypeMap() { return reduce_write_dtype_map_; }
+  bool GetEnabledAutoTiling() const { return enabled_auto_tiling_; }
+  void SetEnableAutoTiling(bool enabled_auto_tiling) { enabled_auto_tiling_ = enabled_auto_tiling; }
 
  public:
   std::vector<std::pair<std::string, STMT_OP_TYPE>> stmt_type_;
@@ -744,6 +748,7 @@ class AnalysisResult {
 
   std::vector<AtomicInfo> atomic_tensors_;
   std::unordered_set<std::string> reduce_out_tensors_;
+  bool enabled_auto_tiling_{false};
 };
 
 class CubeInfo {
