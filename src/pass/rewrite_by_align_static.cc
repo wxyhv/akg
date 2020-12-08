@@ -289,7 +289,7 @@ class RewriteAllocateAndIndex : public IRMutator {
 
   Expr Mutate_(const Load *op, const Expr &e) final {
     int64_t align = GetIntConst(op->predicate);
-    if (in_insn_ && align > 0 && IsUbBuffer(op->buffer_var->name_hint)) {
+    if ((in_insn_ || in_condition_) && align > 0 && IsUbBuffer(op->buffer_var->name_hint)) {
       int64_t blk_sz = GetUbBlkSize(op->type);
       auto index = this->Mutate(op->index);
       index = FixIndex(index, align, blk_sz);
