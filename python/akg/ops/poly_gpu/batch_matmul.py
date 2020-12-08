@@ -18,10 +18,10 @@ from akg.topi.cuda import schedule_batch_matmul
 from akg.ops.math_gpu import batch_matmul
 
 @akg.schedule(schedule_batch_matmul)
-def batch_matmul_manual(x, y, layout1="NHDT", layout2="NHDT", layout_out="NHDT"):
+def batch_matmul_manual(x, y, bias, layout1="NHDT", layout2="NHDT", layout_out="NHDT"):
     """BatchMatmul with manual schedule."""
-    return batch_matmul.batch_matmul(x, y, layout1, layout2, layout_out)
+    return batch_matmul.batch_matmul(x, y, bias, layout1, layout2, layout_out)
 
-def batch_matmul_auto(x, y, layout1="NHDT", layout2="NHDT", layout_out="NHDT"):
+def batch_matmul_auto(x, y, bias, layout1="NHDT", layout2="NHDT", layout_out="NHDT"):
     """BatchMatmul with auto poly."""
-    return batch_matmul.batch_matmul(x, y, layout1, layout2, layout_out)
+    return batch_matmul.batch_matmul(x, y, bias, layout1, layout2, layout_out)
