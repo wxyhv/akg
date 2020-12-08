@@ -43,7 +43,8 @@ class LoopsCompacter : public IRMutator {
 
   Stmt Mutate_(const AttrStmt *op, const Stmt &s) final {
     if (op->attr_key == "pragma_ub_gm" || (op->attr_key == "pragma_emit_insn" && op->value->IsInstance<StringImm>() &&
-                                           !exclude_align_analyze_list.count(op->value.as<StringImm>()->value))) {
+                                           (!exclude_align_analyze_list.count(op->value.as<StringImm>()->value) ||
+                                            op->value.as<StringImm>()->value == "dma_atomic_add"))) {
       stores_ = Array<NodeRef>();
       loads_ = Array<NodeRef>();
       GetStoreAndLoads(op->body, stores_, loads_);

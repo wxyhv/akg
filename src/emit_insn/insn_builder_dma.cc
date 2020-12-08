@@ -171,8 +171,19 @@ Stmt DmaInsnBuilder::CopyIntrinBody(const Map<std::string, Expr> &args, const Ex
     auto tail_copy = new_buffer.vstore({i_var}, value);
     auto ub_src = GetAccessPtr(new_buffer, "r", Expr(0));
     auto gm_dst = GetAccessPtr(dst_buffer_id, "w", dst_offset_fixed + tmp_offset);
-
-    auto tail_block_copy = For::make(i_var, Expr(0), block_size_, ForType::Serial, DeviceAPI::None, tail_copy);
+    Stmt tail_block_copy;
+    if (is_atomic_add_) {
+      auto tail_len = real_burst_size % block_size_;
+      auto i_var_zero = VarExpr("tail_index_zero");
+      auto tail_copy_zero = new_buffer.vstore({i_var_zero}, make_zero(d_type));
+      auto tail_block_copy_zero = For::make(i_var_zero, Expr(0), block_size_ - tail_len,
+                                            ForType::Serial, DeviceAPI::None, tail_copy_zero);
+      auto tail_block_copy_src = For::make(i_var, block_size_ - tail_len, tail_len,
+                                           ForType::Serial, DeviceAPI::None, tail_copy);
+      tail_block_copy = Block::make(tail_block_copy_zero, tail_block_copy_src);
+    } else {
+      tail_block_copy = For::make(i_var, Expr(0), block_size_, ForType::Serial, DeviceAPI::None, tail_copy);
+    }
     // tail store with tail alignment
     auto tail_store = EmitCceCopyIntrin({{"dst", gm_dst},
                                          {"src", ub_src},
