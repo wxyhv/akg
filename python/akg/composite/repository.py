@@ -746,4 +746,16 @@ TensorAdd12.InplaceAssign1516.InplaceAssign11220.1721': {
             },
         },
     },
+
+    # ClipByNormNoDivSum_RealDiv
+    '2.Greater2.Select13.Sqrt1.Select135.Maximum1.RealDiv16.7': {
+        'metadata': {
+            'attrs': {
+                'enable_mark_multi_core': True,
+                'pragma_remove_invariant_dependence': True,
+                'multicore_scalar_rearrange': True,
+                'enable_rewrite_scalar_compute': True,
+            },
+        },
+    },
 }
