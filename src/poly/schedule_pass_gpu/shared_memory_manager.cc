@@ -309,7 +309,6 @@ void SharedMemoryManager::CreateClusterList(const isl::schedule_node &node, cons
     if (promoted_info.footprints_cluster != nullptr) {
       promoted_info.footprint_cluster_map.emplace_back(std::make_pair(node, promoted_info.footprints_cluster));
       scop_info_.analysis_result_.buffer_def_infos_.push_back(promoted_info);
-      GatherBufferFootprintDefInfo(node, promoted_info);
     }
   }
 }
@@ -377,6 +376,7 @@ isl::schedule_node SharedMemoryManager::HoistClusters(const isl::schedule_node &
           !CoalescingAccessWay(root_node, res_node, *fp_cluster)) {
         continue;
       }
+      GatherBufferFootprintDefInfo(res_node, buffer_info);
       res_node = HoistToBlockThreadMemory(res_node, GpuMemType::SHARED, id, *(fp_cluster), true);
       remaining_memory -= memory_requirement;
 

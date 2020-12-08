@@ -832,7 +832,7 @@ isl::schedule MakeScheduleTreeHelper(const NodeRef &s, ScopInfo &scop_info, cons
             call->func->func_name() == op->func->func_name() || call->args.empty()) {
           return;
         }
-        for (size_t i = call->args.size() - 1; i >= 0; --i){
+        for (int i = static_cast<int>(call->args.size() - 1); i >= 0; --i){
           auto last_axis = call->args[i];
           auto mod = last_axis.as<FloorMod>();
           if (mod != nullptr) {
