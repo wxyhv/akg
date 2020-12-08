@@ -13,4 +13,4 @@ AKG_REDUCE is a reduction algorithms library for NVIDIA-GPU (currently) in AKG. 
 ## 3. Usages
 
 - The things you need to do are calling the function "AkgReduce" with kernel informations (reduce direction, all-reduce or 2D-reduce, reduction operator, etc) and "AkgAtomicReturn" for multi-block-reduce return. 
-- See the "./test" for more informations.
+- See the "./test" for more informations. ("test_reduce1D.cu" for all-reduce; "test_reduce2D.cu" for reduce-X and reduce-Y)

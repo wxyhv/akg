@@ -1,6 +1,21 @@
+/**
+ * Copyright 2020 Huawei Technologies Co., Ltd
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ * http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
 #include "../utils/util.cuh"
 #include "../algorithm/shared_reduce.cuh"
-// #include "../algorithm/reduce_impl.cuh"
 #include "../store/store.cuh"
 #include "../reduce.cuh"
 #include <cstdlib>
@@ -56,29 +71,35 @@ __global__ void ComputeResultSingleThread1D(int x_len, T *arr, T *output) {
 
 template <typename T, typename ReduceOp>
 __global__ void ComputeResultGPUSingleBlock1D(int x_len, T *arr, T *output, int item_per_thread, ReduceOp op) {
-  T temp_rf = 0;
+  T temp_rf = 0.0;
   __shared__ T red_buf[64];
   __shared__ T temp_output[1];
+  temp_output[0] = (T)0.0;
   for (int k = 0; k < item_per_thread; ++k) {
     if ((int)threadIdx.x + k * blockDim.x < x_len) {
       temp_rf += arr[(int)threadIdx.x + k * blockDim.x];
     }
   }
+  __syncthreads();
   AkgReduce<T, ReduceOp, 64, ALL_REDUCE>(op, &temp_output[0], red_buf, temp_rf);
+  __syncthreads();
   output[0] = temp_output[0];
 }
 
 template <typename T, typename ReduceOp>
 __global__ void ComputeResultGPUMultiBlock1D(int x_len, T *arr, T *output, int item_per_thread, ReduceOp op) {
-  T temp_rf = 0;
+  T temp_rf = 0.0;
   __shared__ T red_buf[32];
   __shared__ T temp_output[1];  // temp storage for output
+  temp_output[0] = (T)0.0;
   for (int k = 0; k < item_per_thread; ++k) {
     if (threadIdx.x + k * blockDim.x + blockIdx.x * blockDim.x * item_per_thread < x_len) {
       temp_rf += arr[threadIdx.x + k * blockDim.x + blockIdx.x * blockDim.x * item_per_thread];
     }
   }
+  __syncthreads();
   AkgReduce<T, ReduceOp, 32, ALL_REDUCE>(op, &temp_output[0], red_buf, temp_rf);
+  __syncthreads();
   if (threadIdx.x == 0) {
     AkgAtomicReturn<T, ReduceOp>(temp_output[0], &output[0], op);
   }

@@ -1,3 +1,19 @@
+/**
+ * Copyright 2020 Huawei Technologies Co., Ltd
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ * http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
 #include "../utils/util.cuh"
 #include "../algorithm/shared_reduce.cuh"
 #include "../reduce.cuh"
@@ -77,13 +93,15 @@ __global__ void ComputeResultAlongXGPUSingleBlock(int x_len, int y_len, T *arr, 
   T T_red_rf = 0.0;
   __shared__ T red_buf[32];
   __shared__ T temp_output[1];  // temp storage for output
-
+  temp_output[0] = (T) 0.0;
   for (int k = 0; k < item_per_thread; ++k) {
     if (threadIdx.x + k * blockDim.x < x_len && threadIdx.y + blockDim.y * blockIdx.x < y_len) {
       T_red_rf += arr[threadIdx.x + k * blockDim.x + threadIdx.y * x_len + blockIdx.y * blockDim.y * x_len];
     }
   }
+  __syncthreads();
   AkgReduce<T, ReduceOp, 32, REDUCE2D_X>(op, &temp_output[0], red_buf, T_red_rf);
+  __syncthreads();
   if (threadIdx.x == 0) {
     output[blockIdx.y * blockDim.y + threadIdx.y] = temp_output[0];
   }
@@ -95,6 +113,7 @@ __global__ void ComputeResultAlongXGPUMultiBlock(int x_len, int y_len, T *arr, T
   T T_red_rf = 0.0;
   __shared__ T red_buf[32];
   __shared__ T temp_output[1];  // temp storage for output
+  temp_output[0] = (T) 0.0;
   for (int k = 0; k < item_per_thread; ++k) {
     if (threadIdx.x + k * blockDim.x + blockIdx.x * blockDim.x * item_per_thread < x_len &&
         threadIdx.y + blockDim.y * blockIdx.y < y_len) {
@@ -102,7 +121,9 @@ __global__ void ComputeResultAlongXGPUMultiBlock(int x_len, int y_len, T *arr, T
                       blockIdx.y * blockDim.y * x_len];
     }
   }
+  __syncthreads();
   AkgReduce<T, ReduceOp, 32, REDUCE2D_X>(op, &temp_output[0], red_buf, T_red_rf);
+  __syncthreads();
   if (threadIdx.x == 0) {
     AkgAtomicReturn<T, ReduceOp>(temp_output[0], &output[blockIdx.y * blockDim.y + threadIdx.y], op);
   }
@@ -114,12 +135,15 @@ __global__ void ComputeResultAlongYGPUSingleBlock(int x_len, int y_len, T *arr, 
   T T_red_rf = 0.0;
   __shared__ T red_buf[32];
   __shared__ T temp_output[1];  // temp storage for output, size is blockDimx.x
+  temp_output[0] = (T) 0.0;
   for (int k = 0; k < item_per_thread; ++k) {
     if (threadIdx.x + blockIdx.x * blockDim.x < x_len && threadIdx.y + blockDim.y * k < y_len) {
       T_red_rf += arr[threadIdx.x + blockIdx.x * blockDim.x + threadIdx.y * x_len + k * blockDim.y * x_len];
     }
   }
+  __syncthreads();
   AkgReduce<T, ReduceOp, 32, REDUCE2D_Y>(op, &temp_output[threadIdx.x], red_buf, T_red_rf, sharedmem_x);
+  __syncthreads();
   if (threadIdx.y == 0) {
     AkgAtomicReturn<T, ReduceOp>(temp_output[threadIdx.x], &output[blockIdx.x * blockDim.x + threadIdx.x], op);
   }
@@ -131,6 +155,7 @@ __global__ void ComputeResultAlongYGPUMultiBlock(int x_len, int y_len, T *arr, T
   T T_red_rf = 0.0;
   __shared__ T red_buf[32];
   __shared__ T temp_output[1];  // temp storage for output, size is blockDimx.x
+  temp_output[0] = (T) 0.0;
   for (int k = 0; k < item_per_thread; ++k) {
     if (threadIdx.x + blockIdx.x * blockDim.x < x_len &&
         threadIdx.y + blockDim.y * k + blockIdx.y * blockDim.y * item_per_thread < y_len) {
@@ -138,7 +163,9 @@ __global__ void ComputeResultAlongYGPUMultiBlock(int x_len, int y_len, T *arr, T
                       blockIdx.y * blockDim.y * item_per_thread * x_len];
     }
   }
+  __syncthreads();
   AkgReduce<T, ReduceOp, 32, REDUCE2D_Y>(op, &temp_output[threadIdx.x], red_buf, T_red_rf, sharedmem_x);
+  __syncthreads();
   if (threadIdx.y == 0) {
     AkgAtomicReturn<T, ReduceOp>(temp_output[threadIdx.x], &output[blockIdx.x * blockDim.x + threadIdx.x], op);
   }
