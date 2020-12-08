@@ -32,6 +32,9 @@ std::tuple<std::string, picojson::array, picojson::array, picojson::array> Parse
       CHECK(item.second.is<std::string>());
       kernel_name = item.second.get<std::string>();
     } else if (item.first == "input_desc") {
+      if (item.second.is<picojson::null>()) {
+        continue;
+      }
       CHECK(item.second.is<picojson::array>());
       input_desc = item.second.get<picojson::array>();
     } else if (item.first == "output_desc") {
@@ -418,6 +421,49 @@ class FusionMutator : public IRMutator {
   std::string fusion_op_name_;
 };
 
+class BroadcastInserter : public IRMutator {
+ public:
+  Stmt Mutate_(const AttrStmt *op, const Stmt &s) override {
+    if (op->attr_key == "attrs" && op->body.as<Provide>()) {
+      const Provide* provide = op->body.as<Provide>();
+      CHECK(provide);
+      auto call = provide->value.as<Call>();
+      CHECK(call);
+      auto it = broadcast_ops_.find(call->name);
+      if (it != broadcast_ops_.end()) {
+        for (size_t i = 0; i < call->args.size(); ++i) {
+          if (!(it->second & (1u << i))) {
+            continue;
+          }
+          Expr e = call->args[i];
+          if (e.as<IntImm>() || e.as<UIntImm>() || e.as<FloatImm>()) {
+            Stmt first, second;
+            std::string name = "broadcast_" + std::to_string(name_idx_++);
+            Tensor t = placeholder(provide->args, call->type, name);
+            first = Provide::make(t->op, 0,
+                  Call::make(Int(32), "BroadcastTo", {e}, Call::CallType::PureIntrinsic), t->shape);
+            Map<std::string, NodeRef> attrs = Downcast<Map<std::string, NodeRef>>(op->node);
+            attrs.Set("shape", t->shape);
+            first = AttrStmt::make(attrs, "attrs", Expr(1), first);
+            auto args = call->args;
+            args.Set(i, Call::make(t->dtype, t->op->name, t->shape, Call::CallType::Halide, t->op));
+            second = Provide::make(provide->func, provide->value_index,
+                  Call::make(call->type, call->name, args, call->call_type), provide->args);
+            second = AttrStmt::make(op->node, op->attr_key, op->value, second);
+            return Block::make(first, second);
+          }
+        }
+      }
+    }
+    return IRMutator::Mutate_(op, s);
+  }
+
+ private:
+  int name_idx_ = 0;
+  std::unordered_map<std::string, unsigned> broadcast_ops_ = {{"Equal", -1},
+                                                              {"Cast", -1}};
+};
+
 Stmt Optimize(Stmt &s, BuildInfoOpt &opt, const FuncRefSet &input_funcs, const FuncRefSet &output_funcs) {
   // reshape optimize
   s = ReshapeTensor(s);
@@ -427,6 +473,8 @@ Stmt Optimize(Stmt &s, BuildInfoOpt &opt, const FuncRefSet &input_funcs, const F
   s = ElimTransformOp(s, input_funcs, output_funcs, opt);
   // inplace_assign
   s = InplaceAssignMutator(opt).Mutate(s);
+  // insert broadcast
+  s = BroadcastInserter().Mutate(s);
   return s;
 }
 
