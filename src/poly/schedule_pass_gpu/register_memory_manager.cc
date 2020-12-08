@@ -309,7 +309,7 @@ size_t RegisterMemoryManager::UpdateDepth(const isl::schedule_node &node) {
       }
     }
   }
-  return band.n_member();
+  return band.n_member() + node.schedule_depth();
 }
 
 isl::schedule RegisterMemoryManager::HoistRegisterMemory(isl::schedule_node root, size_t depth) {
@@ -332,6 +332,30 @@ isl::schedule RegisterMemoryManager::HoistRegisterMemory(isl::schedule_node root
   return tmp_sch;
 }
 
+isl::schedule_node RegisterMemoryManager::GetRegisterPromotedNode(isl::schedule_node &root) {
+  isl::schedule_node hoist_register_node = root;
+  root.foreach_descendant_top_down([&hoist_register_node](const isl::schedule_node &node) -> bool {
+    if (auto sequence_node = node.as<isl::schedule_node_sequence>()) {
+      if (sequence_node.parent().isa<isl::schedule_node_extension>() &&
+          sequence_node.parent().parent().isa<isl::schedule_node_band>()) {
+        hoist_register_node = sequence_node.parent().parent();
+        return false;
+      } else if (sequence_node.parent().isa<isl::schedule_node_band>()) {
+        hoist_register_node = sequence_node.parent();
+        return false;
+      }
+    }
+    if (auto mark_node = node.as<isl::schedule_node_mark>()) {
+      if (mark_node.get_id().get_name() == THREAD_MARKER && mark_node.parent().isa<isl::schedule_node_band>()) {
+        hoist_register_node = mark_node.parent();
+        return false;
+      }
+    }
+    return true;
+  });
+  return hoist_register_node;
+}
+
 isl::schedule RegisterMemoryManager::Run(isl::schedule sch) {
   if (!scop_info_.user_config_.UseRegisterMemory()) {
     return sch;
@@ -340,7 +364,7 @@ isl::schedule RegisterMemoryManager::Run(isl::schedule sch) {
   schedule_ = sch;
   auto root = sch.get_root();
 
-  auto res_node = GetOuterBand(root);
+  auto res_node = GetRegisterPromotedNode(root);
   if (res_node.isa<isl::schedule_node_band>()) {
     auto depth = UpdateDepth(res_node);
     if (scop_info_.user_config_.GetRegisterDepth() >= 0) {
