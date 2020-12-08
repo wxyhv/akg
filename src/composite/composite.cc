@@ -392,7 +392,6 @@ class FusionMutator : public IRMutator {
         auto stmt =
           Provide::make(op->func, op->value_index,
                         Call::make(Int(32), str_list[0], fusion_inputs, Call::CallType::PureIntrinsic), op->args);
-        output_with_inputs_.clear();
         fusion_op_name_.clear();
         return stmt;
       }
