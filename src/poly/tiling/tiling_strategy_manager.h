@@ -346,9 +346,11 @@ class GpuStrategy : public TilingStrategy {
   int block_count_{0};  // number of mapped blocks
   int64_t elem_per_thread_[3]{SpItemPerThread::AUTO};
   int64_t min_elem_for_io_bound_ = 2;
-  std::unordered_map<int, std::string> template_map_ = {{0, "DEFAULT"},     {1, "PURE_ELEM"},         {2, "REDUCTION"},
-                                                        {3, "ALL_REDUCE"},  {4, "BITWISE_REDUCTION"}, {5, "MATMUL"},
-                                                        {6, "TRANSPOSE_OP"}};
+  size_t depth_{0};
+  bool need_reverse_{false};
+  std::unordered_map<int, std::string> template_map_ = {{0, "DEFAULT"},      {1, "PURE_ELEM"},         {2, "REDUCTION"},
+                                                        {3, "ALL_REDUCE"},   {4, "BITWISE_REDUCTION"}, {5, "MATMUL"},
+                                                        {6, "TRANSPOSE_OP"}, {7, "CUSTOM_CONFIG"}};
 };
 
 class MulticoreStrategy {
