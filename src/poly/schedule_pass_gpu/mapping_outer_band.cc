@@ -280,6 +280,9 @@ isl::schedule_node MappingOuterBand::DoThreadSynchronization(const isl::schedule
     sync_node = sync_manager.InsertExtensionNode(target, sync.level, true).parent().parent();
   }
 
+  auto next = head->next.release();
+  delete next;
+
   return sync_node;
 }
 
