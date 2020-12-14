@@ -482,12 +482,16 @@ void GpuStrategy::InitMappingLimit() {
   std::stringstream ss;
   ss << "Use template " << template_map_[template_];
   analyzer_->logger_.AppendLog(GPU_MAPPING, ss);
-  bool need_reverse = analyzer_->scop_info_.user_config_.GetEnableAkgReduceLib() &&
-                      analyzer_->scop_info_.analysis_result_.GetReduceDirection() == Y_DIRECTION;
+  need_reverse_ = analyzer_->scop_info_.user_config_.GetEnableAkgReduceLib() &&
+                  analyzer_->scop_info_.analysis_result_.GetReduceDirection() == Y_DIRECTION;
+
   if (template_ == Template::CUSTOM_CONFIG) {
     auto thread_config = analyzer_->scop_info_.user_config_.GetThreadConfig();
     for (size_t i = 0; i < thread_config->bound; ++i) {
-      auto idx = need_reverse ? thread_config->bound - 1 - i : i;
+      auto idx = need_reverse_ ? thread_config->bound - 1 - i : i;
+      if (idx >= depth_) {
+        continue;
+      }
       thread_limit_.emplace_back(thread_config->GetAt(idx).second);
     }
   } else if (template_ == Template::REDUCTION || template_ == Template::BITWISE_REDUCTION) {
@@ -518,8 +522,10 @@ void GpuStrategy::InitMappingLimit() {
   if (template_ == Template::CUSTOM_CONFIG) {
     auto block_config = analyzer_->scop_info_.user_config_.GetBlockConfig();
     for (int i = block_config->bound - 1; i >= 0; --i) {
-      auto idx = need_reverse ? block_config->bound - 1 - i : i;
-      block_limit_.emplace_back(block_config->GetAt(idx).second);
+      if (i >= static_cast<int>(depth_)) {
+        continue;
+      }
+      block_limit_.emplace_back(block_config->GetAt(i).second);
     }
   } else if (template_ <= Template::REDUCTION) {
     block_limit_ = {max_num_blocks_, max_num_blocks_, max_num_blocks_};
@@ -669,7 +675,9 @@ void GpuStrategy::InnerThreadOuterBlock() {
     TileAxis *axis;
     int64_t shape;
     std::tie(axis, shape) = pending_axes_[i];
-    auto rest_blocks = std::min(max_num_blocks_ / activated_blocks, block_limit_[pending_axes_.size() - 1 - i]);
+    auto idx = pending_axes_.size() - 1 - i;
+    idx = need_reverse_ ? block_limit_.size() - 1 - idx : idx;
+    auto rest_blocks = std::min(max_num_blocks_ / activated_blocks, block_limit_[idx]);
     rest_blocks = std::min(rest_blocks, axis->block_constraints.map_extent_);
     ss << "axis " << axis->index << "_" << axis->dim_axis << " shape = " << shape << ", rest blocks = " << rest_blocks;
     if (block_count_ >= static_cast<int>(block_dim)) {
@@ -793,17 +801,48 @@ int64_t GpuStrategy::TileAfterThreadMapping(TileAxis *axis, size_t inner_dim, in
       }
     }
   }
-  if (template_ == Template::CUSTOM_CONFIG && tile < thread_size) {
-    tile = thread_size;
-    ss << "use custom config, tile = thread size";
+
+  if (template_ == Template::CUSTOM_CONFIG) {
+    if (!analyzer_->scop_info_.user_config_.GetEnableAtomicAdd() &&
+        (axis->HasAttr(AT_REDUCE_AXIS) || axis->mc_sup == 0)) {
+      tile = shape;
+      ss << "tile = shape to disable atomic add, ";
+    } else if (tile < thread_size) {
+      tile = thread_size;
+      ss << "tile = thread size, ";
+    } else {
+      auto block_dim = need_reverse_ ? inner_dim : block_limit_.size() - 1 - inner_dim;
+      int64_t least_blocks;
+      if (block_dim >= 0 && block_dim < block_limit_.size()) {
+        least_blocks = block_limit_[block_dim];
+      } else {
+        least_blocks = std::accumulate(block_limit_.begin(), block_limit_.end(), 1, std::multiplies<int>());
+      }
+      auto max_tile = shape / least_blocks;
+      if (shape % thread_size == 0) {
+        tile = analyzer_->FindDivisibleTilingFactor(max_tile, shape);  // ensure no if condition in thread for-loop
+      } else {
+        tile =
+          analyzer_->FindDivisibleTilingFactor(max_tile, thread_size);  // ensure thread for-loop bound has no min/max
+      }
+      ss << "reduce tile size to enable at least " << least_blocks << " blocks, ";
+    }
   }
   ss << "axis " << axis->index << "_" << axis->dim_axis << " elem_per_thread = " << item << ", tile = " << tile;
   analyzer_->logger_.AppendLog(GPU_MAPPING, ss);
-  axis->TileRestrainToSingleValue(CastInt64ToExpr(tile), TileLevel::LEVEL1);
+  axis->TileRestrainLower(CastInt64ToExpr(tile), TileLevel::LEVEL1);
   return tile;
 }
 
 void GpuStrategy::DetermineTemplate() {
+  size_t depth = 0;
+  analyzer_->ForEachAxisTopDown([this, &depth](TileAxis *axis) {
+    if (axis == analyzer_->RootAxis()) {
+      return;
+    }
+    ++depth;
+  });
+  depth_ = depth;
   if (analyzer_->scop_info_.user_config_.GetThreadConfig() != nullptr &&
       analyzer_->scop_info_.user_config_.GetBlockConfig() != nullptr &&
       analyzer_->scop_info_.user_config_.GetThreadConfig()->bound > 0 &&
@@ -842,14 +881,6 @@ void GpuStrategy::DetermineTemplate() {
     template_ = has_transpose ? Template::TRANSPOSE_OP : Template::PURE_ELEM;
     return;
   }
-
-  size_t depth = 0;
-  analyzer_->ForEachAxisTopDown([this, &depth](TileAxis *axis) {
-    if (axis == analyzer_->RootAxis()) {
-      return;
-    }
-    ++depth;
-  });
 
   template_ = reduce_axes_.size() == depth ? Template::ALL_REDUCE : Template::REDUCTION;
 }

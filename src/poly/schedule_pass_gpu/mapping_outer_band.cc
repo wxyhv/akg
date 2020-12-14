@@ -674,6 +674,10 @@ bool MappingOuterBand::NeedAtomicAdd(const isl::schedule_node_band &band, size_t
   }
 
   auto non_coin_start_idx = CountConsecutiveCoincident(band);
+  bool is_all_reduce = band.n_member() == 1 && scop_info_.analysis_result_.GetReduceDirection() == X_DIRECTION && non_coin_start_idx == 1;
+  if (is_all_reduce) {
+    non_coin_start_idx = 0;  // Compare block size of position 0 to enable atomic add for all reduce ops
+  }
   if (n_block_map < non_coin_start_idx) {
     return false;
   }
