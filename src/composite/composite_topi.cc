@@ -168,6 +168,7 @@ void CommonSelect(NodeRef a, NodeRef b, NodeRef c, NodeRef d, TVMRetValue *rv, b
   Tensor d_tensor;
   auto shape = Downcast<Tensor>(c_is_tensor ? c : d)->shape;
   auto dtype = Downcast<Tensor>(c_is_tensor ? c : d)->dtype;
+  auto orig_dtype = dtype;
   c_tensor =
     c_is_tensor ? Downcast<Tensor>(c) : compute(shape, [&](const Array<Var> &indices) { return Downcast<Expr>(c); });
   if (d_is_tensor) {
@@ -188,13 +189,14 @@ void CommonSelect(NodeRef a, NodeRef b, NodeRef c, NodeRef d, TVMRetValue *rv, b
     b_tensor = topi::broadcast_to(Downcast<Tensor>(b), shape);
   }
 
-  if (dtype == Float(16)) {
+  if (orig_dtype == Float(16)) {
     a_tensor = topi::cast(a_tensor, Float(32));
     b_tensor = topi::cast(b_tensor, Float(32));
     c_tensor = topi::cast(c_tensor, Float(32));
     if (d_tensor.defined()) {
       d_tensor = topi::cast(d_tensor, Float(32));
     }
+    dtype = Float(32);
   }
 
   Tensor cmp_value;
@@ -228,7 +230,7 @@ void CommonSelect(NodeRef a, NodeRef b, NodeRef c, NodeRef d, TVMRetValue *rv, b
     res = topi::multiply(c_tensor, cmp_value);
   }
 
-  if (dtype == Float(16)) {
+  if (orig_dtype == Float(16)) {
     res = topi::cast(res, Float(16));
   }
 
