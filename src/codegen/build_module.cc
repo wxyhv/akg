@@ -456,10 +456,12 @@ void DumpIr(const std::string &name, const BuildConfig &config, bool lower_list)
   }
 }
 
-NodeRef LowerStmt(Schedule sch, const Array<NodeRef> &in_args, const Array<NodeRef> &shape_vars, const std::string &name,
-               const Map<Tensor, Buffer> &in_binds, const Map<std::string, NodeRef> &in_attrs, bool simple_mode,
-               bool polyhedral, bool tuning, const std::string &target, const BuildConfig &config, Array<NodeRef> *args,
-               Array<NodeRef> *arg_list_0, Map<Tensor, Buffer> *binds, Map<Tensor, Buffer> *binds_0, bool lower_list) {
+NodeRef LowerStmt(Schedule sch, const Array<NodeRef> &in_args, const Array<NodeRef> &shape_vars,
+                  const std::string &name, const Map<Tensor, Buffer> &in_binds,
+                  const Map<std::string, NodeRef> &in_attrs, bool simple_mode, bool polyhedral, bool tuning,
+                  const std::string &target, const BuildConfig &config, Array<NodeRef> *args,
+                  Array<NodeRef> *arg_list_0, Map<Tensor, Buffer> *binds, Map<Tensor, Buffer> *binds_0,
+                  bool lower_list) {
   ir::TestExprCompuationSimplify();
   CHECK(sch.defined()) << "sch is not defined.";
   CHECK(!name.empty()) << "name is empty.";
@@ -500,9 +502,17 @@ NodeRef LowerStmt(Schedule sch, const Array<NodeRef> &in_args, const Array<NodeR
       stmt = NEXT_PASS(RewriteMultiValueFunc, stmt);
       Map<Tensor, Tensor> replace;
       RenameBinds(*binds_0, config, *args, *arg_list_0, replace);
-      PassMgr::SetArgs(*arg_list_0);
       stmt = NEXT_PASS(RenameRealize, stmt, *binds_0, replace);
-
+      
+      Array<NodeRef> arg_list_1;
+      Map<Tensor, Buffer> binds_1;
+      GetFlattenedBinds(*args, *binds_0, config, arg_list_1, binds_1, false);
+      Stmt stmt1 = NEXT_PASS(ElementwiseFlatten, stmt, *binds_0, binds_1);
+      if (stmt1.get() != stmt.get()) {
+        stmt = stmt1;
+        *arg_list_0 = arg_list_1;
+        *binds_0 = binds_1;
+      }
       if (global_attrs.GetBoolAttr(kEnableFuseAxis, false)) {
         Array<NodeRef> fuse_axis_res = NEXT_PASS(FuseAxis, stmt, *arg_list_0, *binds_0);
         CHECK_EQ(fuse_axis_res.size(), 3);
@@ -510,6 +520,7 @@ NodeRef LowerStmt(Schedule sch, const Array<NodeRef> &in_args, const Array<NodeR
         *arg_list_0 = air::Downcast<Array<NodeRef>>(fuse_axis_res[1]);
         *binds_0 = air::Downcast<Map<Tensor, Buffer>>(fuse_axis_res[2]);
       }
+      PassMgr::SetArgs(*arg_list_0);
 
       int level = global_attrs.GetIntAttr(kHelpTiling, -1);
       if (tuning || level > help_tiling_level["None"]) {
@@ -593,7 +604,7 @@ NodeRef Lower(Schedule sch, const Array<NodeRef> &in_args, const Array<NodeRef> 
   Map<Tensor, Buffer> binds_0;
   PassTimer *pass_timer = PassTimer::GetInstance();
   NodeRef tmp = LowerStmt(sch, in_args, shape_vars, name, in_binds, in_attrs, simple_mode, polyhedral, tuning, target,
-                        config, &args, &arg_list_0, &binds, &binds_0);
+                          config, &args, &arg_list_0, &binds, &binds_0);
   if (target == "cuda" && tuning) {
     return tmp;
   }
