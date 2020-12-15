@@ -82,7 +82,8 @@ class OptPragma : public IRMutator {
 
   bool IsLastDimBroadcast(const Store *op) {
     bool flag = false;
-    if (op->value.as<Load>() && op->buffer_var.get() && op->value.as<Load>()->buffer_var.get() &&
+    bool isAxisMeets = (GetVarsInExpr(op->index).size() == GetVarsInExpr(op->value.as<Load>()->index).size() + 1);
+    if (op->value.as<Load>() && op->buffer_var.get() && op->value.as<Load>()->buffer_var.get() && isAxisMeets &&
         GetBufScope(op->buffer_var->name_hint) == SCOPE_UBUF &&
         GetBufScope(op->value.as<Load>()->buffer_var->name_hint) == SCOPE_UBUF) {
       int block_size = GetUbBlkSize(op->value.type());
