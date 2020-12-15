@@ -98,8 +98,8 @@ def cast_str(inputs, output, attr):
 def broadcast_str(inputs, output, attr):
     """gen broadcast string"""
     dst_shape = get_attr(attr, "shape")
-    s = "%s = np.ones(%s) * %s" % (
-        output[0]["tensor_name"], dst_shape, get_input(inputs[0][0]))
+    s = "%s = np.broadcast_to(%s, %s)" % (
+        output[0]["tensor_name"], get_input(inputs[0][0]), dst_shape)
     return s
 
 
