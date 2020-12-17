@@ -19,8 +19,8 @@ import json
 import os
 import numpy as np
 from multiprocessing import Process
-from .xgb_cost_model import XgbCostModel
-from .sa_model_optimizer import SimulatedAnnealingOptimizer
+from tvm.autotvm.tuner.xgboost_cost_model import XgbCostModel
+from tvm.autotvm.tuner.sa_model_optimizer import SimulatedAnnealingOptimizer
 from .space import ConfigSpace
 from .runner import KernelRunner
 

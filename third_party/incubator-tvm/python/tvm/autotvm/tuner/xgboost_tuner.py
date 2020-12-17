@@ -14,10 +14,11 @@
 # KIND, either express or implied.  See the License for the
 # specific language governing permissions and limitations
 # under the License.
+# 2020.12.17 - Fit for AKG tuning model.
 """Tuner that uses xgboost as cost model"""
 
 from .model_based_tuner import ModelBasedTuner, ModelOptimizer
-from .xgboost_cost_model import XGBoostCostModel
+# from .xgboost_cost_model import XGBoostCostModel
 from .sa_model_optimizer import SimulatedAnnealingOptimizer
 
 class XGBTuner(ModelBasedTuner):
