@@ -90,7 +90,8 @@ isl::schedule RegisterMemoryManager::HoistRegisterMemoryOnDepth(isl::schedule_no
 
     auto partial_sched_mupa = ShortScheduleMupa(root_node, tmp_node);
     auto partial_sched_with_block = isl::union_map::from(partial_sched_mupa).intersect_domain(block_mapping);
-    partial_sched_mupa = partial_sched_mupa.flat_range_product(block_schedule);
+    partial_sched_mupa = partial_sched_mupa.flat_range_product(block_schedule).flat_range_product(thread_schedule);
+
     for (size_t index = 0; index < scop_info_.analysis_result_.buffer_def_infos_.size(); index++) {
       BufferDefInfo &buffer_info = scop_info_.analysis_result_.buffer_def_infos_[index];
 
@@ -110,8 +111,6 @@ isl::schedule RegisterMemoryManager::HoistRegisterMemoryOnDepth(isl::schedule_no
       if (box_sizes.size() == 0) {
         LOG(FATAL) << "Can not manage a scalar tensor in register memory promotion";
       }
-
-      partial_sched_mupa = partial_sched_mupa.flat_range_product(thread_schedule);
 
       if (!IsPromote(*fp_cluster, partial_sched_mupa, thread_schedule)) {
         continue;
