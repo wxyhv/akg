@@ -758,4 +758,18 @@ TensorAdd12.InplaceAssign1516.InplaceAssign11220.1721': {
             },
         },
     },
+
+    # Cast_RealDiv_Mul_TensorAdd
+    '4.Cast1.RealDiv35.Mul15.TensorAdd13.57': {
+        '4_1024_1.1024.4_1024_1024.1024.4_1024_1024-': {
+            'float16--.float32.float16-': {
+                'metadata': {
+                    'attrs': {
+                        'enable_mark_multi_core': True,
+                        'dim': '0 0 32 1 0 1 32 1 0 2 32 1',
+                    },
+                },
+            },
+        },
+    },
 }
