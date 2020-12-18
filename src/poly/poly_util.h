@@ -191,6 +191,8 @@ isl::multi_union_pw_aff ShortScheduleMupaImpl(const isl::schedule_node &root, co
 void GetAffOffsetAndNumVars(const isl::aff &aff, int &offset, int &num_vars);
 bool IsAffVarPlusOffset(const isl::aff &aff);
 bool IsAffNonZeroConst(const isl::aff &aff);
+isl::union_map ScheduleTensorMapping(const isl::multi_union_pw_aff &outer_schedule,
+                                     const isl::union_map &tensor_access);
 
 class ConsolidateExprMutator : public IRMutator {
  public:

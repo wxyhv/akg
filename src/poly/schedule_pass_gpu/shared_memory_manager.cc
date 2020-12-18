@@ -18,6 +18,7 @@
 #include "poly/schedule_tree_util.h"
 #include "poly/scop.h"
 #include "poly/dma_inject.h"
+#include "poly/poly_util.h"
 #include <vector>
 #include <numeric>
 
@@ -541,9 +542,16 @@ isl::schedule_node SharedMemoryManager::HoistToBlockThreadMemory(isl::schedule_n
 
 bool SharedMemoryManager::ReuseTensorCluster(const TensorFootprintCluster &cluster,
                                              const isl::multi_union_pw_aff &outer_pw_aff) {
-  isl::union_map out_schedule = isl::union_map::from(outer_pw_aff);
-  out_schedule = out_schedule.range_product(cluster.OrigianlAccessRelations());
-  return !out_schedule.is_injective();
+  isl::union_map state_schedule_mapping = ScheduleTensorMapping(outer_pw_aff, cluster.OrigianlAccessRelations());
+  /* Here we use the property of bijective to decide whether promote this tensor to shared.
+   * For element wise operator, S -> tensor_schedule is bijective.
+   * It should not be promoted to shared memory.
+   * For reduced operator, S -> tensor_schedule is not bijective.
+   * It should be promoted to shared memory.
+   * For stencil operator in sciencetific computing, S -> tensor_schedule is not bijective.
+   * It should be promoted to shared memory.
+   * *******************************************************************************************/
+  return !(state_schedule_mapping.is_bijective());
 }
 
 bool SharedMemoryManager::CoalescingAccessWay(const isl::schedule_node &root, const isl::schedule_node &node,
