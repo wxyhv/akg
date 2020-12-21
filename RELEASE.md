@@ -1,3 +1,26 @@
+# Release 1.1.0
+## Major Features and Improvements
+* GPU operators improvements
+  * Propose a new strategy to handle the reduction operators: The reduce axises would be detected and rescheduled as a seperated band in the schedule tree and then mapping to blocks, then it will call the akg_reduce_lib which using atomic operation to do reduction in the codegen pass. The experimental results show that AKG improves the execution performance relative to cudnn in the large shape cases;
+  * Optimize the auto-tiling algorithms which can improve the performance of reduction operators dramatically in most scenarios.
+* Support AutoTuning for composite operators on GPU;
+* Refactor composite framework to enable optimization in DSL level;
+* Enhance CSE to support eliminating redundant vmadd on Ascend;
+* Update scipy to 1.5.3.
+
+## Bugfixes
+* TensorAdd support FRACTAL_NZ and DefaultFormat(!228).
+* GPU fix cast: fp32 -> uint8(!216).
+* bugfix: Fix bug in opt_broadcast(!272).
+* fix vadds for int32(!250).
+
+## Contributors
+Thanks goes to these wonderful people:
+
+chengyun, chendeshi, chenlei_autodiff, gaoxiong, gengzhen, guanxiaowei, hanhuifeng, laekov, luoyin, lvwenyuan, liuchang, lishanni513, lingyunli63, polyhedral, shiliang, wYann, wangrao124, xiaruijie, xixixian, xuhui, 要术甲杰, yiyanzhi_akane, yangshuo, yangsijia, zhangzhaochuang, zhengzuohe, zhangrenwei, zengzitao
+
+Contributions of any kind are welcome!
+
 # Release 1.0.0
 ## Major Features and Improvements
 * GPU Support
