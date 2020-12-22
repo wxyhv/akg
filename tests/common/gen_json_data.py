@@ -81,9 +81,10 @@ def reduce_str(inputs, output, attr, op_type):
             output[0]['tensor_name'], op_type, get_input(inputs[0][0]), get_input(inputs[0][0]),
             get_input(inputs[0][0]), keepdims, get_input(inputs[0][0]))
     else:
-        s = "%s = np.%s(%s.astype(np.float32) if %s.dtype == np.float16 else %s, axis=tuple(%s), keepdims=%s).astype(%s.dtype)" %\
+        s = "%s = np.%s(%s.astype(np.float32) if %s.dtype == np.float16 else %s, axis=tuple(%s), keepdims=%s).astype(%s.dtype); %s = np.reshape(%s, %s) " %\
             (output[0]['tensor_name'], op_type, get_input(inputs[0][0]), get_input(inputs[0][0]),
-             get_input(inputs[0][0]), axis, keepdims, get_input(inputs[0][0]))
+             get_input(inputs[0][0]), axis, keepdims, get_input(inputs[0][0]),
+             output[0]['tensor_name'], output[0]['tensor_name'], output[0]['shape'])
     return s
 
 
