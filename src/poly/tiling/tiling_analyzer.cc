@@ -1278,10 +1278,16 @@ std::vector<TileAxis *> TilingAnalyzer::GetAxesOfAttr(const AttrInfo attr_info) 
   return axes;
 }
 
-bool TileAxis::HasAttr(const std::string &attr_key) const {
+bool TileAxis::HasAttr(const std::string &attr_key, const bool partial_match) const {
   for (const auto &a : this->attrs) {
-    if (a.attr_key == attr_key) {
-      return true;
+    if (partial_match) {
+      if (a.attr_key.find(attr_key) != std::string::npos) {
+        return true;
+      }
+    } else {
+      if (a.attr_key == attr_key) {
+        return true;
+      }
     }
   }
   return false;
@@ -1296,9 +1302,9 @@ bool TileAxis::HasAttr(const AttrInfo &attr) const {
   return false;
 }
 
-bool TileAxis::HasAnyAttr(const std::unordered_set<std::string> &attr_keys) const {
+bool TileAxis::HasAnyAttr(const std::unordered_set<std::string> &attr_keys, const bool partial_match) const {
   for (const auto &key : attr_keys) {
-    if (this->HasAttr(key)) {
+    if (this->HasAttr(key, partial_match)) {
       return true;
     }
   }

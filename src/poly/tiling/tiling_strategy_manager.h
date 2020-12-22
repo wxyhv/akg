@@ -122,9 +122,6 @@ class ModStrategy : public TilingStrategy {
   void AddDavinciConstraint();
   void AddGpuConstraint();
 
-  void GpuScalarBroadcastStrategy();
-  void GpuVectorBroadcastStrategy();
-  int64_t fused_size_{1};
   std::string interested_attr_key = AT_MOD;
 };
 
@@ -313,7 +310,15 @@ class GpuStrategy : public TilingStrategy {
  private:
   void DetermineTemplate();
   void AdjustThreadMappingLimit();
+  
   void InjectiveSpeedup();
+
+  void BroadcastSpeedup();
+  std::unordered_set<int> broadcast_idx_;
+
+  void AnalyzeBroadcastIdx();
+  void GpuScalarBroadcastStrategy();
+  void GpuVectorBroadcastStrategy();
 
   // Step 0. Init mapping limit according to operation type.
   void InitMappingLimit();
@@ -352,6 +357,7 @@ class GpuStrategy : public TilingStrategy {
   int64_t min_elem_for_io_bound_ = 2;
   size_t depth_{0};
   bool need_reverse_{false};
+  int64_t fused_size_{1};
   std::unordered_map<int, std::string> template_map_ = {{0, "DEFAULT"},   {1, "PURE_ELEM"},    {2, "BROADCAST_OP"},
                                                         {3, "REDUCTION"}, {4, "ALL_REDUCE"},   {5, "BITWISE_REDUCTION"},
                                                         {6, "MATMUL"},    {7, "TRANSPOSE_OP"}, {8, "CUSTOM_CONFIG"}};
