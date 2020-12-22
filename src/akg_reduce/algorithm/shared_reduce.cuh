@@ -30,34 +30,78 @@ namespace akg_reduce {
  * \par
  * - When blockDim.x is power of two, using completely unrolled strategy within warp.
  * - Supports 1D or 2D reduction computation. The reduction direction is along x-axis.
+ * - Exclude cases when T == signed char, since shfl.sync funcs only support 16 bits,
+ * - 32 bits and 64 bits.
  *
+ * \tparam ReduceOp          Reduce operator type.
+ * \tparam blockSize_x       block size along x axis.
  * \tparam T                 Output type of reduction.
+ **/
+template <typename ReduceOp, size_t blockSize_x, typename T>
+__device__ __forceinline__ void WarpReduceUnroll(T *shared_buf,  // shared memory buffer.
+                                                 ReduceOp op     // reduce operator.
+) {
+  int tid = threadIdx.y * blockDim.x + threadIdx.x;
+  T local_sum = shared_buf[tid];
+  if (blockSize_x >= 32) {
+    local_sum = op(local_sum, __shfl_down_sync(0xFFFFFFFF, local_sum, 16));
+  }
+  if (blockSize_x >= 16) {
+    local_sum = op(local_sum, __shfl_down_sync(0xFFFFFFFF, local_sum, 8));
+  }
+  if (blockSize_x >= 8) {
+    local_sum = op(local_sum, __shfl_down_sync(0xFFFFFFFF, local_sum, 4));
+  }
+  if (blockSize_x >= 4) {
+    local_sum = op(local_sum, __shfl_down_sync(0xFFFFFFFF, local_sum, 2));
+  }
+  if (blockSize_x >= 2) {
+    local_sum = op(local_sum, __shfl_down_sync(0xFFFFFFFF, local_sum, 1));
+  }
+  if (threadIdx.x == 0) {
+    shared_buf[tid] = local_sum;
+  }
+}
+
+/**
+ * \brief Reduction within Warp for signed char. Using unroll strategy.
+ *
+ * \par
+ * - When blockDim.x is power of two, using completely unrolled strategy within warp.
+ * - Supports 1D or 2D reduction computation. The reduction direction is along x-axis.
+ *
  * \tparam ReduceOp          Reduce operator type.
  * \tparam blockSize_x       block size along x axis.
  **/
-template <typename T, typename ReduceOp, size_t blockSize_x>
-__device__ __forceinline__ void WarpReduceUnroll(volatile T *shared_buf,  // shared memory buffer.
-                                                 T *reg_buf,              // register buffer.
-                                                 ReduceOp op              // reduce operator.
+template <typename ReduceOp, size_t blockSize_x>
+__device__ __forceinline__ void WarpReduceUnroll(signed char *shared_buf,  // shared memory buffer.
+                                                 ReduceOp op               // reduce operator.
 ) {
   int tid = threadIdx.y * blockDim.x + threadIdx.x;
-  if (blockSize_x >= 64) {
-    shared_buf[tid] = op(static_cast<T>(shared_buf[tid]), static_cast<T>(shared_buf[tid + 32]));
-  }
   if (blockSize_x >= 32) {
-    if (threadIdx.x < 16) shared_buf[tid] = op(static_cast<T>(shared_buf[tid]), static_cast<T>(shared_buf[tid + 16]));
+    if (threadIdx.x < 16)
+      ((volatile signed char *)shared_buf)[tid] =
+        op(((volatile signed char *)shared_buf)[tid], ((volatile signed char *)shared_buf)[tid + 16]);
   }
   if (blockSize_x >= 16) {
-    if (threadIdx.x < 8) shared_buf[tid] = op(static_cast<T>(shared_buf[tid]), static_cast<T>(shared_buf[tid + 8]));
+    if (threadIdx.x < 8)
+      ((volatile signed char *)shared_buf)[tid] =
+        op(((volatile signed char *)shared_buf)[tid], ((volatile signed char *)shared_buf)[tid + 8]);
   }
   if (blockSize_x >= 8) {
-    if (threadIdx.x < 4) shared_buf[tid] = op(static_cast<T>(shared_buf[tid]), static_cast<T>(shared_buf[tid + 4]));
+    if (threadIdx.x < 4)
+      ((volatile signed char *)shared_buf)[tid] =
+        op(((volatile signed char *)shared_buf)[tid], ((volatile signed char *)shared_buf)[tid + 4]);
   }
   if (blockSize_x >= 4) {
-    if (threadIdx.x < 2) shared_buf[tid] = op(static_cast<T>(shared_buf[tid]), static_cast<T>(shared_buf[tid + 2]));
+    if (threadIdx.x < 2)
+      ((volatile signed char *)shared_buf)[tid] =
+        op(((volatile signed char *)shared_buf)[tid], ((volatile signed char *)shared_buf)[tid + 2]);
   }
   if (blockSize_x >= 2) {
-    if (threadIdx.x < 1) shared_buf[tid] = op(static_cast<T>(shared_buf[tid]), static_cast<T>(shared_buf[tid + 1]));
+    if (threadIdx.x < 1)
+      ((volatile signed char *)shared_buf)[tid] =
+        op(((volatile signed char *)shared_buf)[tid], ((volatile signed char *)shared_buf)[tid + 1]);
   }
 }
 
@@ -70,13 +114,12 @@ __device__ __forceinline__ void WarpReduceUnroll(volatile T *shared_buf,  // sha
  * - The first tid upper bound is reduce_align_upper, which is less than reduce_align. The operation avoids to access
  *illegal memory.
  *
- * \tparam T                 Output type of reduction.
  * \tparam ReduceOp          Reduce operator type.
+ * \tparam T                 Output type of reduction.
  *
  **/
-template <typename T, typename ReduceOp>
+template <typename ReduceOp, typename T>
 __device__ __forceinline__ void WarpReduce(volatile T *shared_buf,  // shared memory buffer
-                                           T *reg_buf,              // register buffer
                                            ReduceOp op,             // reduce operator
                                            int reduce_align,        // reduce align, which is power of two
                                            int reduce_align_upper)  // less than reduce_align, depending on blockDim.x
@@ -103,14 +146,13 @@ __device__ __forceinline__ void WarpReduce(volatile T *shared_buf,  // shared me
  * - when blockDim.x is power of two, completely unrolling the reduction.
  * - support 1D or 2D reduction.
  *
- * \tparam T                 Output type of reduction.
  * \tparam ReduceOp          Reduce operator type.
  * \tparam blockSize_x       block size along x axis.
+ * \tparam T                 Output type of reduction.
  *
  **/
-template <typename T, typename ReduceOp, size_t blockSize_x>
+template <typename ReduceOp, size_t blockSize_x, typename T>
 __device__ __forceinline__ void ReduceXUnroll(T *shared_buf,  // shared memory buffer.
-                                              T *reg_buf,     // register buffer.
                                               ReduceOp op     // reduce operator.
 ) {
   int tid = threadIdx.y * blockDim.x + threadIdx.x;
@@ -138,8 +180,13 @@ __device__ __forceinline__ void ReduceXUnroll(T *shared_buf,  // shared memory b
     }
     __syncthreads();
   }
+  if (blockSize_x >= 64) {
+    if (threadIdx.x < 32) {
+      shared_buf[tid] = op(shared_buf[tid], shared_buf[tid + 32]);
+    }
+  }
   if (threadIdx.x < 32) {
-    WarpReduceUnroll<T, ReduceOp, blockSize_x>(shared_buf, reg_buf, op);
+    WarpReduceUnroll<ReduceOp, blockSize_x>(shared_buf, op);
   }
   __syncthreads();
 }
@@ -157,9 +204,8 @@ __device__ __forceinline__ void ReduceXUnroll(T *shared_buf,  // shared memory b
  * \tparam blockSize_y       block size along y axis.
  *
  **/
-template <typename T, typename ReduceOp, size_t blockSize_y>
+template <typename ReduceOp, size_t blockSize_y, typename T>
 __device__ __forceinline__ void ReduceYUnroll(T *shared_buf,   // shared memory buffer.
-                                              T *reg_buf,      // register buffer.
                                               ReduceOp op,     // reduce operator.
                                               int sharedmem_x  // shared memory size of x axis.
 ) {
@@ -233,12 +279,12 @@ __device__ __forceinline__ void ReduceYUnroll(T *shared_buf,   // shared memory 
  * - support single-block reduction and multi-block reduction.
  * - support 1D reduction.
  *
- * \tparam T                 Output type of reduction.
  * \tparam ReduceOp          Reduce operator type.
  * \tparam blockSize_x       block size along x axis.
+ * \tparam T                 Output type of reduction.
  *
  **/
-template <typename T, typename ReduceOp, size_t blockSize_x>
+template <typename ReduceOp, size_t blockSize_x, typename T>
 __device__ __forceinline__ void HalvedReduce1D(T *shared_buf, T *reg_buf, ReduceOp op) {
   int reduce_extent = blockDim.x;
 
@@ -254,7 +300,7 @@ __device__ __forceinline__ void HalvedReduce1D(T *shared_buf, T *reg_buf, Reduce
   int tid = threadIdx.x;
   if (IsPowOfTwo(blockSize_x)) {
     // Using unroll strategy.
-    ReduceXUnroll<T, ReduceOp, blockSize_x>(shared_buf, reg_buf, op);
+    ReduceXUnroll<ReduceOp, blockSize_x>(shared_buf, op);
   } else {
     // Using iteration to compute.
     int reduce_align = 1;
@@ -271,16 +317,15 @@ __device__ __forceinline__ void HalvedReduce1D(T *shared_buf, T *reg_buf, Reduce
     while (reduce_align > WARPSIZE) {
       if (threadIdx.x < reduce_align_upper) {
         int tid_new = tid + reduce_align;
-        shared_buf[tid] = op(static_cast<T>(shared_buf[tid]), static_cast<T>(shared_buf[tid_new]));
+        shared_buf[tid] = op(shared_buf[tid], shared_buf[tid_new]);
       }
       __syncthreads();
       reduce_align = reduce_align >> 1;
       reduce_align_upper = reduce_align;
     }
     // Do warp reduce.
-    WarpReduce<T, ReduceOp>(shared_buf, reg_buf, op, reduce_align, reduce_align_upper);
+    WarpReduce<ReduceOp>(shared_buf, op, reduce_align, reduce_align_upper);
     __syncthreads();
-
   }
 }
 
@@ -292,13 +337,13 @@ __device__ __forceinline__ void HalvedReduce1D(T *shared_buf, T *reg_buf, Reduce
  * - support single-block reduction and multi-block reduction.
  * - support 2D reduction.
  *
- * \tparam T                 Output type of reduction.
  * \tparam ReduceOp          Reduce operator type.
  * \tparam blockSize_x       block size along x axis.
+ * \tparam T                 Output type of reduction.
  *
  **/
 
-template <typename T, typename ReduceOp, size_t blockSize_x>
+template <typename ReduceOp, size_t blockSize_x, typename T>
 __device__ __forceinline__ void HalvedReduce2DX(T *shared_buf, T *reg_buf, ReduceOp op) {
   int reduce_extent = blockDim.x;
 
@@ -312,7 +357,7 @@ __device__ __forceinline__ void HalvedReduce2DX(T *shared_buf, T *reg_buf, Reduc
   }
 
   if (IsPowOfTwo(blockSize_x)) {
-    ReduceXUnroll<T, ReduceOp, blockSize_x>(shared_buf, reg_buf, op);
+    ReduceXUnroll<ReduceOp, blockSize_x>(shared_buf, op);
   } else {
     int reduce_align = 1;
     while (reduce_extent > reduce_align) {
@@ -330,8 +375,8 @@ __device__ __forceinline__ void HalvedReduce2DX(T *shared_buf, T *reg_buf, Reduc
       reduce_align = reduce_align >> 1;
       reduce_align_upper = reduce_align;
     }
-    WarpReduce<T, ReduceOp>(shared_buf, reg_buf, op, reduce_align, reduce_align_upper);
-  __syncthreads();
+    WarpReduce<ReduceOp>(shared_buf, op, reduce_align, reduce_align_upper);
+    __syncthreads();
   }
 }
 
@@ -350,7 +395,7 @@ __device__ __forceinline__ void HalvedReduce2DX(T *shared_buf, T *reg_buf, Reduc
  *
  **/
 
-template <typename T, typename ReduceOp, size_t blockSize_y>
+template <typename ReduceOp, size_t blockSize_y, typename T>
 __device__ __forceinline__ void HalvedReduce2DY(T *shared_buf, T *reg_buf, ReduceOp op, int sharedmem_x) {
   int reduce_extent = blockDim.y;
 
@@ -365,7 +410,7 @@ __device__ __forceinline__ void HalvedReduce2DY(T *shared_buf, T *reg_buf, Reduc
   }
 
   if (IsPowOfTwo(blockSize_y)) {
-    ReduceYUnroll<T, ReduceOp, blockSize_y>(shared_buf, reg_buf, op, sharedmem_x);
+    ReduceYUnroll<ReduceOp, blockSize_y>(shared_buf, op, sharedmem_x);
   } else {
     int reduce_align = 1;
 
@@ -389,4 +434,4 @@ __device__ __forceinline__ void HalvedReduce2DY(T *shared_buf, T *reg_buf, Reduc
 }
 }  // namespace akg_reduce
 
-#endif // AKG_REDUCE_SHARED_REDUCE_H
+#endif  // AKG_REDUCE_SHARED_REDUCE_H
