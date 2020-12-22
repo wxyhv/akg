@@ -269,10 +269,8 @@ Stmt GenHalide(ScopInfo &info, const isl::schedule &sch, bool used_for_tile_out_
     }
   } else {
     if (info.user_config_.GetTarget() == TARGET_CCE) {
-      PrintHeader("CCEIslEmitter");
       stmt = CCEIslEmitter(info, node_info_repo, iters).Emit(ast_node);
     } else if (info.user_config_.GetTarget() == TARGET_CUDA) {
-      PrintHeader("GpuIslEmitter");
       stmt = GpuIslEmitter(info, node_info_repo, iters).Emit(ast_node);
     }
   }
