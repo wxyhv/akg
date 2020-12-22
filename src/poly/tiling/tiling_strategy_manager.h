@@ -298,6 +298,7 @@ class GpuStrategy : public TilingStrategy {
   enum Template {
     DEFAULT = 0,
     PURE_ELEM,
+    BROADCAST_OP,
     REDUCTION,
     ALL_REDUCE,
     BITWISE_REDUCTION,
@@ -312,6 +313,7 @@ class GpuStrategy : public TilingStrategy {
  private:
   void DetermineTemplate();
   void AdjustThreadMappingLimit();
+  void InjectiveSpeedup();
 
   // Step 0. Init mapping limit according to operation type.
   void InitMappingLimit();
@@ -343,14 +345,16 @@ class GpuStrategy : public TilingStrategy {
   std::vector<int64_t> thread_limit_;
   std::vector<int64_t> block_cfg_;
   std::vector<int64_t> thread_cfg_;
+  int64_t max_x_y_dim_thread_ = 1024;
+  int64_t max_z_dim_thread_ = 64;
   int block_count_{0};  // number of mapped blocks
   int64_t elem_per_thread_[3]{SpItemPerThread::AUTO};
   int64_t min_elem_for_io_bound_ = 2;
   size_t depth_{0};
   bool need_reverse_{false};
-  std::unordered_map<int, std::string> template_map_ = {{0, "DEFAULT"},      {1, "PURE_ELEM"},         {2, "REDUCTION"},
-                                                        {3, "ALL_REDUCE"},   {4, "BITWISE_REDUCTION"}, {5, "MATMUL"},
-                                                        {6, "TRANSPOSE_OP"}, {7, "CUSTOM_CONFIG"}};
+  std::unordered_map<int, std::string> template_map_ = {{0, "DEFAULT"},   {1, "PURE_ELEM"},    {2, "BROADCAST_OP"},
+                                                        {3, "REDUCTION"}, {4, "ALL_REDUCE"},   {5, "BITWISE_REDUCTION"},
+                                                        {6, "MATMUL"},    {7, "TRANSPOSE_OP"}, {8, "CUSTOM_CONFIG"}};
 };
 
 class MulticoreStrategy {
