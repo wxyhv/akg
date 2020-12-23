@@ -56,7 +56,10 @@ def get_result(desc, poly, attrs=None):
         reduce_lib_key = "enable_akg_reduce_lib"
         if reduce_lib_key not in attrs.keys():
             attrs[reduce_lib_key] = poly
-    mod = composite.build(desc, attrs, poly=poly)
+    if attrs == {}:
+        mod = composite.build(desc, poly=poly)
+    else:
+        mod = composite.build(desc, attrs, poly=poly)
     output = utils.mod_launch(mod, input_for_mod, output_indexes)
 
     rtol, atol = get_rtol_atol("FUSED", "float32")

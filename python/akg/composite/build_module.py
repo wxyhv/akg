@@ -22,6 +22,7 @@ from akg import tvm
 from akg.tvm import _api_internal
 from akg.topi.cuda.injective_single_kernel import schedule_injective
 from .repository import __all__ as repository
+from .repository_gpu import __all_gpu__ as repository_gpu
 import topi
 
 def generate_trait(desc):
@@ -29,11 +30,13 @@ def generate_trait(desc):
     def generate_compute_trait():
         tensor_idx = {}
         counter = 0
-        for in_desc in desc['input_desc']:
-            tensor_idx[in_desc[0]['tensor_name']] = counter
-            counter += 1
-        traits = [str(len(desc['input_desc']))]
-        for op in desc['op_desc']:
+        traits = []
+        if desc['input_desc'] is not None:
+            for in_desc in desc['input_desc']:
+                tensor_idx[in_desc[0]['tensor_name']] = counter
+                counter += 1
+            traits = [str(len(desc['input_desc']))]
+        for op in desc['op_desc'] if desc['op_desc'] is not None else []:
             input_idx = []
             for input_desc in op['input_desc']:
                 if input_desc[0].get('value', None) is None:
@@ -44,7 +47,7 @@ def generate_trait(desc):
             tensor_idx[op['output_desc'][0]['tensor_name']] = counter
             counter += 1
         output_idx = []
-        for out_desc in desc['output_desc']:
+        for out_desc in desc['output_desc'] if desc['output_desc'] is not None else []:
             output_idx.append(tensor_idx[out_desc['tensor_name']])
         output_idx.sort()
         traits.append(''.join([str(i) for i in output_idx]))
@@ -58,20 +61,20 @@ def generate_trait(desc):
 
     def generate_shape_trait():
         traits = []
-        for in_desc in desc['input_desc']:
+        for in_desc in desc['input_desc'] if desc['input_desc'] is not None else []:
             shape_s = '_'.join([str(i) for i in in_desc[0]['shape']])
             append_trait(traits, shape_s)
-        for out_desc in desc['output_desc']:
+        for out_desc in desc['output_desc'] if desc['output_desc'] is not None else []:
             shape_s = '_'.join([str(i) for i in out_desc['shape']])
             append_trait(traits, shape_s)
         return '.'.join(traits)
 
     def generate_dtype_trait():
         traits = []
-        for in_desc in desc['input_desc']:
+        for in_desc in desc['input_desc'] if desc['input_desc'] is not None else []:
             dtype = in_desc[0]['data_type']
             append_trait(traits, dtype)
-        for out_desc in desc['output_desc']:
+        for out_desc in desc['output_desc'] if desc['output_desc'] is not None else []:
             dtype = out_desc['data_type']
             append_trait(traits, dtype)
         return '.'.join(traits)
@@ -118,10 +121,45 @@ def _build_to_func(desc_s, desc_d, attr=None):
     func = tvm.get_global_func("composite_with_json_to_func")
     return func(desc_s, attr)
 
+def _build_to_gpu_func(desc_s, desc_d, attr=None, poly=False):
+    """
+    build kernel with compute description in json format
+    Args:
+       desc_s : str of compute description
+       desc_d : dict of compute description
+       attr   : dict of build attributes
+
+    Returns:
+       Module.
+    """
+    def get_repo(keys, default=None):
+        repo = repository_gpu
+        for key in keys:
+            repo = repo.get(key)
+            if not repo:
+                return default
+        return repo
+    if attr is None:
+        attr = {'dim': ''}
+    compute, shape, dtype = generate_trait(desc_d)
+    repo_attr = get_repo([compute, shape, dtype, 'metadata', 'attrs'], {})
+    if not repo_attr:
+        repo_attr = get_repo([compute, 'metadata', 'attrs'], {})
+    for a in repo_attr:
+        if not attr.get(a):
+            attr[a] = repo_attr[a]
+    attr_list = ['dim', 'bind_block', 'bind_thread']
+    for item in attr_list:
+        if attr.get(item) in (None, ''):
+            value = get_repo([compute, shape, dtype, item])
+            if value:
+                attr[item] = value
+    func = tvm.get_global_func("composite_with_json")
+    return func(desc_s, attr, poly)
+
 def _build(desc_s, desc_d, attrs=None, poly=False):
     if desc_d['process'] == 'cuda':
-        func = tvm.get_global_func("composite_with_json")
-        return func(desc_s, attrs, poly)
+        return _build_to_gpu_func(desc_s, desc_d, attrs, poly)
     rst = _build_to_func(desc_s, desc_d, attrs)
     return _api_internal._BuildToModule(rst)
 

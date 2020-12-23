@@ -303,6 +303,7 @@ op_dsl = {
     "TransData": trans_data_dsl,
     "BroadcastTo": lambda inputs, output, attr: broadcast_str(inputs, output, attr),
     "BatchMatMul": lambda inputs, output, attr: batchmatmul_str(inputs, output, attr),
+    "Assign": lambda inputs, output, attr: "%s = %s" % (output[0]['tensor_name'], get_input(inputs[1][0])),
 }
 
 
@@ -339,7 +340,7 @@ def gen_json_data(op_desc):
             if op["input_desc"][1][0]["tensor_name"] == sum_out:
                 clean_input.append(op["input_desc"][0][0]["tensor_name"])
 
-    for input_desc in desc["input_desc"]:
+    for input_desc in desc["input_desc"] if desc["input_desc"] is not None else []:
         shape = [1] if not input_desc[0]["shape"] else input_desc[0]["shape"]
         dtype = input_desc[0]["data_type"]
         if input_desc[0]["tensor_name"] in clean_input:
