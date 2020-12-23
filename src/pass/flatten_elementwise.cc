@@ -357,14 +357,16 @@ class ShapeCompacter : public IRMutator {
 
   Expr Mutate_(const Call *op, const Expr &e) final {
     if (op->func) {
+      FunctionRef newFunc;
+      CHECK_GT(funcDic_.count(op->name), 0);
+      newFunc = funcDic_[op->name];
+      Array<Expr> new_args;
       if (scalarOpDic_.count(op->name)) {
-        return e;
+        new_args.push_back(0);
       } else {
-        FunctionRef newFunc;
-        CHECK_GT(funcDic_.count(op->name), 0);
-        newFunc = funcDic_[op->name];
-        return Call::make(op->type, op->name, {newVar_}, op->call_type, newFunc);
+        new_args.push_back(newVar_);
       }
+      return Call::make(op->type, op->name, new_args, op->call_type, newFunc);
     } else {
       return IRMutator::Mutate_(op, e);
     }
