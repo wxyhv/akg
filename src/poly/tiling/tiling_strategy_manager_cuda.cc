@@ -30,152 +30,6 @@ void GpuDmaAnalysisStrategy::AddGpuConstraint() {
 
 void CastStrategy::AddGpuConstraint() { MarkDataSize(); }
 
-void ModStrategy::AddGpuConstraint() {
-  if (!analyzer_->GetAxesOfAttr(AT_REDUCE_AXIS).empty()) {
-    return;
-  }
-  size_t depth = 0;
-  analyzer_->ForEachAxisTopDown([this, &depth](TileAxis *axis) {
-    if (axis == analyzer_->RootAxis() || axis->range_extent.as<IntImm>() == nullptr) {
-      return;
-    }
-    ++depth;
-    fused_size_ = axis->range_extent.as<IntImm>()->value;
-  });
-  // Only deal with broadcast + elemwise cases that all axes are fused into one.
-  auto interested_info = GetInterestedInfo(interested_attr_key);
-  if (depth != 1 || interested_info.size() > 1U) {
-    return;
-  }
-
-  // Disable share and local promotion since isl cannot perfectly handle fusion cases.
-  analyzer_->scop_info_.user_config_.SetUseSharedMemory(false);
-  analyzer_->scop_info_.user_config_.SetUseRegisterMemory(false);
-  if (interested_info.empty()) {
-    GpuScalarBroadcastStrategy();
-  } else {
-    GpuVectorBroadcastStrategy();
-  }
-}
-
-void ModStrategy::GpuScalarBroadcastStrategy() {
-  auto broadcast_axes = analyzer_->GetAxesContainsAttr(AT_BROADCAST);
-  if (broadcast_axes.empty()) {
-    return;
-  }
-  if (fused_size_ < max_num_threads_ * 2) {
-    analyzer_->scop_info_.user_config_.SetUseSharedMemory(false);
-    analyzer_->logger_.AppendLine(GPU_MAPPING, "Fused size is too small, disable shared memory.");
-  }
-}
-
-void ModStrategy::GpuVectorBroadcastStrategy() {
-  auto interested_info = GetInterestedInfo(interested_attr_key);
-  for (auto it : interested_info) {
-    TileAxis *axis = it.first;
-    std::stringstream ss;
-
-    // Reconstruct original shape from fused axis
-    std::vector<int> mod_values;
-    for (const auto &attr : it.second) {
-      CHECK(!attr.attr_value.empty());
-      mod_values.emplace_back(static_cast<int>(std::strtol(attr.attr_value.c_str(), nullptr, 10)));
-    }
-    std::sort(mod_values.begin(), mod_values.end());
-
-    ss << "original shape before fused (in reversed order) :[";
-    std::vector<int> original_shape;
-    int prev_mod = 1;
-    for (const auto m : mod_values) {
-      CHECK_NE(prev_mod, 0);
-      original_shape.emplace_back(m / prev_mod);
-      ss << original_shape.back() << ", ";
-      prev_mod = m;
-    }
-    CHECK_NE(prev_mod, 0);
-    original_shape.emplace_back(fused_size_ / prev_mod);
-    ss << original_shape.back() << "]";
-    analyzer_->logger_.AppendLog(GPU_MAPPING, ss);
-
-    // Analyse the indice of broadcast axes
-    std::unordered_set<int> broadcast_idx;
-    for (const auto &attr : analyzer_->RootAxis()->attrs) {
-      if (attr.attr_key.find(AT_BROADCAST) == std::string::npos) {
-        continue;
-      }
-      auto op_types = common::Split(attr.attr_key, "_");
-      for (const auto type : op_types) {
-        if (type.find(AT_BROADCAST) == std::string::npos) {
-          continue;
-        }
-        auto info = common::Split(type, "|");
-        if (info.size() < 2U) {
-          for (int i = 0; i < static_cast<int>(original_shape.size()) - 1; ++i) {
-            broadcast_idx.insert(i);
-          }
-          break;
-        } else {
-          CHECK_EQ(info.size(), 2U);
-          CHECK(!info[1].empty());
-          broadcast_idx.insert(static_cast<int>(std::strtol(info[1].c_str(), nullptr, 10)));
-        }
-      }
-    }
-
-    // Mapping strategy specialized for broadcast + elementwise case
-    int possible_threads = 1;
-    int coalesced_size = 0;
-    int total_injective_size = 1;
-    auto broadcast_innermost = broadcast_idx.find(original_shape.size() - 1) != broadcast_idx.end();
-    for (size_t i = 0; i < original_shape.size(); ++i) {
-      if (original_shape[i] * possible_threads <= max_num_threads_) {
-        possible_threads *= original_shape[i];
-      }
-      auto rev_idx = original_shape.size() - 1 - i;
-      if (broadcast_idx.find(rev_idx) == broadcast_idx.end()) {
-        total_injective_size *= original_shape[i];
-        coalesced_size = coalesced_size == 0 ? original_shape[i] : coalesced_size;
-        if (broadcast_innermost) {
-          auto prev_extent = axis->thread_constraints.map_extent_ > 0 ? axis->thread_constraints.map_extent_ : 1;
-          auto thread_limit = max_num_threads_ / prev_extent;
-          auto coef = analyzer_->FindDivisibleTilingFactor(thread_limit, original_shape[i]);
-          axis->thread_constraints.map_extent_ = prev_extent * coef;
-          possible_threads = axis->thread_constraints.map_extent_;
-        }
-      } else if (broadcast_innermost) {
-        auto prev_extent = axis->thread_constraints.map_extent_ > 0 ? axis->thread_constraints.map_extent_ : 1;
-        axis->thread_constraints.map_extent_ =
-          prev_extent * original_shape[i] <= max_num_threads_ ? prev_extent * original_shape[i] : prev_extent;
-        possible_threads = axis->thread_constraints.map_extent_;
-      }
-      coalesced_size = coalesced_size == 0 ? 1 : coalesced_size;
-    }
-
-    int elem_per_thread = 8;
-    int min_block = coalesced_size < warp_sizes_ ? 1024 : 512;
-    if (coalesced_size >= warp_sizes_) {
-      axis->thread_constraints.item_process_ =
-        std::min(elem_per_thread, std::max<int>((fused_size_ / possible_threads / min_block + 1) / 2 * 2, 1));
-      ss << "thread for-loop speedup = " << axis->thread_constraints.item_process_;
-    } else if (total_injective_size > min_block) {
-      while (possible_threads % warp_sizes_ != 0 && possible_threads < max_num_threads_) {
-        ++possible_threads;
-      }
-      int elem_per_block = std::max<int>(16 / (max_num_threads_ / possible_threads), 1);
-      auto proposal_blocks = std::max(min_block, std::max<int>(fused_size_ / possible_threads / elem_per_block, 1));
-      axis->block_constraints.map_extent_ = proposal_blocks;
-      axis->thread_constraints.map_extent_ = possible_threads;
-      ss << "block for-loop speedup = " << elem_per_block;
-    } else {
-      ss << "default mapping.";
-    }
-    analyzer_->logger_.AppendLog(GPU_MAPPING, ss);
-    ss << "possible_threads: " << possible_threads << ", coalesced_size: " << coalesced_size
-       << ", total_injective_size: " << total_injective_size;
-    analyzer_->logger_.AppendLog(GPU_MAPPING, ss);
-  }
-}
-
 void ReduceStrategy::AddGpuConstraint() {
   // TODO: compare XLA's reduction tiling/mapping strategy with current strategy
   reduce_axes_ = analyzer_->GetAxesOfAttr(AT_REDUCE_AXIS);
@@ -478,6 +332,9 @@ void ReduceStrategy::DealWithPostReduceTensors() {
 
 void GpuStrategy::AddGpuConstraint() {
   InitMappingLimit();
+  if (template_ == Template::BROADCAST_OP) {
+    BroadcastSpeedup();
+  }
   BuildAxesQueue();
   if (analyzer_->scop_info_.user_config_.GetIsTuning()) {
     return;
@@ -493,8 +350,6 @@ void GpuStrategy::InitMappingLimit() {
   max_num_threads_ = analyzer_->scop_info_.user_config_.GetMaxElemPerThread();
   DetermineTemplate();
   std::stringstream ss;
-  ss << "Use template " << template_map_[template_];
-  analyzer_->logger_.AppendLog(GPU_MAPPING, ss);
   need_reverse_ = analyzer_->scop_info_.user_config_.GetEnableAkgReduceLib() &&
                   analyzer_->scop_info_.analysis_result_.GetReduceDirection() == Y_DIRECTION;
 
@@ -723,6 +578,8 @@ void GpuStrategy::InnerThreadOuterBlock() {
 
 void GpuStrategy::SetMappingConfig() {
   std::stringstream ss;
+  ss << "Use template " << template_map_[template_];
+  analyzer_->logger_.AppendLog(GPU_MAPPING, ss);
   if (thread_cfg_.empty()) {
     thread_cfg_.emplace_back(1);
   }
@@ -909,11 +766,8 @@ void GpuStrategy::DetermineTemplate() {
       if (has_transpose) {
         return;
       }
-      for (const auto &attr : axis->attrs) {
-        if (attr.attr_key.find(AT_TRANSPOSE) != std::string::npos) {
-          has_transpose = true;
-        }
-      }
+      has_transpose =
+        axis->HasAttr(AT_TRANSPOSE, true) || (axis->HasAttr(AT_BROADCAST, true) && axis->HasAttr(AT_TRANSFORM, true));
     });
     bool is_pure_elem =
       (analyzer_->GetAxesContainsAttr(AT_BROADCAST).empty() && analyzer_->GetAxesContainsAttr(AT_TRANSFORM).empty());
@@ -960,6 +814,7 @@ void GpuStrategy::AdjustThreadMappingLimit() {
 }
 
 void GpuStrategy::InjectiveSpeedup() {
+  analyzer_->logger_.AppendLine(GPU_MAPPING, "InjectiveSpeedup");
   std::stringstream ss;
   std::vector<TileAxis *> injective_axes;
   analyzer_->ForEachAxisTopDown([this, &injective_axes](TileAxis *axis) {
@@ -982,7 +837,6 @@ void GpuStrategy::InjectiveSpeedup() {
 
   // Step 1. Reduce code complexity by aligning thread size to shape
   auto total_threads = std::accumulate(thread_cfg_.begin(), thread_cfg_.end(), 1, std::multiplies<int>());
-  auto coaleasced_size = 1;
   for (size_t i = 0; i < injective_axes.size(); ++i) {
     auto axis = injective_axes[i];
     auto shape = axis->range_extent.as<IntImm>()->value;
@@ -1009,80 +863,229 @@ void GpuStrategy::InjectiveSpeedup() {
 
       axis->block_constraints.map_extent_ = shape / tile_size;
     }
-    coaleasced_size = axis->thread_constraints.map_extent_;
   }
   WriteConfigBack();
 
   // Step 2. Adjust the ratio of thread for-loop, thread size and block size.
+  auto coaleasced_size = injective_axes.back()->thread_constraints.map_extent_;
   auto proposal_blocks = coaleasced_size >= warp_sizes_ ? 256 : 512;
-  auto proposal_threads = (coaleasced_size >= warp_sizes_ && injective_axes.size() > 1U) ? 128 : 512;
-  if (injective_axes.size() == 1U) {
-    auto axis = injective_axes.back();
-    auto thread = axis->thread_constraints.map_extent_;
-    auto block = axis->block_constraints.map_extent_;
-    if (block / min_elem_for_io_bound_ >= proposal_blocks && thread >= proposal_threads) {
-      axis->block_constraints.map_extent_ /= min_elem_for_io_bound_;
-      ss << "large block, reduce by " << min_elem_for_io_bound_ << " to speed up I/O";
-    } else if (thread / min_elem_for_io_bound_ >= proposal_threads && block >= proposal_blocks) {
-      axis->thread_constraints.map_extent_ /= min_elem_for_io_bound_;
-      ss << "large thread, reduce by " << min_elem_for_io_bound_ << " to speed up I/O";
-    }
-  } else {
-    auto proposal_elem_per_thread = coaleasced_size >= warp_sizes_ ? min_elem_for_io_bound_ : 1;
-    auto total_blocks = std::accumulate(block_cfg_.begin(), block_cfg_.end(), 1, std::multiplies<int>());
-    auto shrinked_threads = total_threads / proposal_threads;
-    auto shrinked_blocks = total_blocks / proposal_blocks;
+  auto proposal_threads = (coaleasced_size >= warp_sizes_ && injective_axes.size() > 1U)
+                            ? 128
+                            : coaleasced_size < max_num_threads_ ? 512 : max_num_threads_;
+  auto total_blocks = std::accumulate(block_cfg_.begin(), block_cfg_.end(), 1, std::multiplies<int>());
+  auto proposal_elem_per_thread =
+    coaleasced_size < warp_sizes_ ? 1 : total_blocks < proposal_blocks * 8 ? min_elem_for_io_bound_ : 8;
+  auto shrinked_threads = total_threads / proposal_threads;
+  auto shrinked_blocks = total_blocks / proposal_blocks;
 
-    auto thread_to_block = shrinked_threads > 0 && total_blocks < proposal_blocks;
-    auto block_to_elem = proposal_elem_per_thread > 0 && shrinked_blocks > 0;
-    auto thread_to_elem = proposal_elem_per_thread > 0 && !block_to_elem && shrinked_threads > 0 &&
-                          total_blocks * shrinked_threads > proposal_blocks * proposal_elem_per_thread;
-    ss << "coaleasced_size = " << coaleasced_size << " total_blocks = " << total_blocks
-       << " total_threads = " << total_threads << " thread_to_block = " << thread_to_block << " block_to_elem "
-       << block_to_elem << " thread_to_elem = " << thread_to_elem;
-    analyzer_->logger_.AppendLog(GPU_MAPPING, ss);
+  auto thread_to_block = shrinked_threads > 0 && total_blocks < proposal_blocks;
+  auto block_to_elem = proposal_elem_per_thread > 0 && shrinked_blocks > 0;
+  auto thread_to_elem = proposal_elem_per_thread > 0 && !block_to_elem && shrinked_threads > 0 &&
+                        total_blocks * shrinked_threads > proposal_blocks * proposal_elem_per_thread;
+  ss << "coaleasced_size = " << coaleasced_size << " total_blocks = " << total_blocks
+     << " total_threads = " << total_threads << " proposal_blocks = " << proposal_blocks
+     << " proposal_threads = " << proposal_threads << " proposal_elem_per_thread = " << proposal_elem_per_thread
+     << " shrinked_threads = " << shrinked_threads << " shrinked_blocks = " << shrinked_blocks;
+  analyzer_->logger_.AppendLog(GPU_MAPPING, ss);
 
-    if (thread_to_block) {
-      for (auto axis : injective_axes) {
-        if (shrinked_threads <= 0) {
-          break;
-        }
-        auto thread_size = axis->thread_constraints.map_extent_;
-        auto block_size = axis->block_constraints.map_extent_;
-        auto tile_size = axis->l1_constraints.tile_extent_.as<IntImm>()->value;
-        auto coef = analyzer_->FindDivisibleTilingFactor(shrinked_threads, thread_size);
-        shrinked_threads /= coef;
-        axis->thread_constraints.map_extent_ = thread_size / coef;
-        axis->block_constraints.map_extent_ = block_size * coef;
-        axis->TileRestrainToSingleValue(tile_size / coef, TileLevel::LEVEL1);
+  if (thread_to_block) {
+    for (auto axis : injective_axes) {
+      if (shrinked_threads <= 0) {
+        break;
       }
-    }
-
-    if (block_to_elem || thread_to_elem) {
-      for (auto axis : injective_axes) {
-        auto shrink_limit = block_to_elem ? shrinked_blocks : shrinked_threads;
-        if (shrink_limit <= 0) {
-          break;
-        }
-        auto tile_size = axis->l1_constraints.tile_extent_.as<IntImm>()->value;
-        auto before_shrink = block_to_elem ? axis->block_constraints.map_extent_ : axis->thread_constraints.map_extent_;
-        auto coef = std::min<int64_t>(proposal_elem_per_thread,
-                                      analyzer_->FindDivisibleTilingFactor(shrink_limit, before_shrink));
-        if (block_to_elem) {
-          block_to_elem /= coef;
-          axis->block_constraints.map_extent_ = before_shrink / coef;
-        } else {
-          thread_to_elem /= coef;
-          axis->thread_constraints.map_extent_ = before_shrink / coef;
-        }
-        axis->TileRestrainToSingleValue(tile_size * coef, TileLevel::LEVEL1);
-      }
+      auto thread_size = axis->thread_constraints.map_extent_;
+      auto block_size = axis->block_constraints.map_extent_;
+      auto tile_size = axis->l1_constraints.tile_extent_.as<IntImm>()->value;
+      auto coef = analyzer_->FindDivisibleTilingFactor(shrinked_threads, thread_size);
+      shrinked_threads /= coef;
+      axis->thread_constraints.map_extent_ = thread_size / coef;
+      axis->block_constraints.map_extent_ = block_size * coef;
+      axis->TileRestrainToSingleValue(tile_size / coef, TileLevel::LEVEL1);
+      ss << "axis " << axis->dim_axis << " before shrink " << thread_size << " shrink size " << coef;
     }
   }
+
+  if (block_to_elem || thread_to_elem) {
+    for (auto axis : injective_axes) {
+      auto shrink_limit = block_to_elem ? shrinked_blocks : shrinked_threads;
+      if (shrink_limit <= 0) {
+        break;
+      }
+      auto tile_size = axis->l1_constraints.tile_extent_.as<IntImm>()->value;
+      auto before_shrink = block_to_elem ? axis->block_constraints.map_extent_ : axis->thread_constraints.map_extent_;
+      auto coef =
+        std::min<int64_t>(proposal_elem_per_thread, analyzer_->FindDivisibleTilingFactor(shrink_limit, before_shrink));
+      auto aligned_coef = coef;
+      while (shrink_limit % aligned_coef != 0) {
+        --aligned_coef;
+      }
+      if (aligned_coef > coef / 2) {
+        coef = aligned_coef;
+      }
+      if (block_to_elem) {
+        shrinked_blocks /= coef;
+        axis->block_constraints.map_extent_ = before_shrink / coef;
+      } else {
+        shrinked_threads /= coef;
+        axis->thread_constraints.map_extent_ = before_shrink / coef;
+      }
+      ss << "axis " << axis->dim_axis << " before shrink " << before_shrink << " shrink size " << coef;
+      axis->TileRestrainToSingleValue(tile_size * coef, TileLevel::LEVEL1);
+    }
+  }
+  analyzer_->logger_.AppendLog(GPU_MAPPING, ss);
+
   WriteConfigBack();
 }
 
+void GpuStrategy::BroadcastSpeedup() {
+  analyzer_->logger_.AppendLine(GPU_MAPPING, "BroadcastSpeedup");
+  size_t depth = 0;
+  analyzer_->ForEachAxisTopDown([this, &depth](TileAxis *axis) {
+    if (axis == analyzer_->RootAxis() || axis->range_extent.as<IntImm>() == nullptr) {
+      return;
+    }
+    ++depth;
+    fused_size_ = axis->range_extent.as<IntImm>()->value;
+  });
+  // Only deal with broadcast + elemwise cases that all axes are fused into one.
+  auto mod_axes = analyzer_->GetAxesContainsAttr(AT_MOD);
+  if (depth != 1 || mod_axes.size() > 1U) {
+    return;
+  }
+
+  AnalyzeBroadcastIdx();
+
+  if (mod_axes.empty() || broadcast_idx_.empty()) {
+    GpuScalarBroadcastStrategy();
+  } else {
+    GpuVectorBroadcastStrategy();
+  }
+}
+
+void GpuStrategy::AnalyzeBroadcastIdx() {
+  for (const auto &attr : analyzer_->RootAxis()->attrs) {
+    if (attr.attr_key.find(AT_BROADCAST) == std::string::npos) {
+      continue;
+    }
+    auto op_types = common::Split(attr.attr_key, "_");
+    for (const auto type : op_types) {
+      if (type.find(AT_BROADCAST) == std::string::npos) {
+        continue;
+      }
+      auto info = common::Split(type, "|");
+      if (info.size() == 2U) {
+        CHECK(!info[1].empty());
+        broadcast_idx_.insert(static_cast<int>(std::strtol(info[1].c_str(), nullptr, 10)));
+      }
+    }
+  }
+  std::stringstream ss;
+  ss << "Broadcast index = [";
+  for (auto idx : broadcast_idx_) {
+    ss << idx << ",";
+  }
+  ss << "]";
+  analyzer_->logger_.AppendLog(GPU_MAPPING, ss);
+}
+
+void GpuStrategy::GpuScalarBroadcastStrategy() {
+  template_ = Template::PURE_ELEM;  // change template to enable injective speed up
+  auto broadcast_axes = analyzer_->GetAxesContainsAttr(AT_BROADCAST);
+  if (broadcast_axes.empty()) {
+    return;
+  }
+  analyzer_->scop_info_.user_config_.SetUseSharedMemory(false);
+}
+
+void GpuStrategy::GpuVectorBroadcastStrategy() {
+  // Disable share and local promotion since isl cannot perfectly handle fusion cases.
+  analyzer_->scop_info_.user_config_.SetUseSharedMemory(false);
+  analyzer_->scop_info_.user_config_.SetUseRegisterMemory(false);
+  auto interested_info = GetInterestedInfo(AT_MOD);
+  for (auto it : interested_info) {
+    TileAxis *axis = it.first;
+    std::stringstream ss;
+
+    // Reconstruct original shape from fused axis
+    std::vector<int> mod_values;
+    for (const auto &attr : it.second) {
+      CHECK(!attr.attr_value.empty());
+      mod_values.emplace_back(static_cast<int>(std::strtol(attr.attr_value.c_str(), nullptr, 10)));
+    }
+    std::sort(mod_values.begin(), mod_values.end());
+
+    ss << "original shape before fused (in reversed order) :[";
+    std::vector<int> original_shape;
+    int prev_mod = 1;
+    for (const auto m : mod_values) {
+      CHECK_NE(prev_mod, 0);
+      original_shape.emplace_back(m / prev_mod);
+      ss << original_shape.back() << ", ";
+      prev_mod = m;
+    }
+    CHECK_NE(prev_mod, 0);
+    original_shape.emplace_back(fused_size_ / prev_mod);
+    ss << original_shape.back() << "]";
+    analyzer_->logger_.AppendLog(GPU_MAPPING, ss);
+
+    // Mapping strategy specialized for broadcast + elementwise case
+    int possible_threads = 1;
+    int coalesced_size = 0;
+    int total_injective_size = 1;
+    auto broadcast_innermost = broadcast_idx_.find(original_shape.size() - 1) != broadcast_idx_.end();
+    for (size_t i = 0; i < original_shape.size(); ++i) {
+      if (original_shape[i] * possible_threads <= max_num_threads_) {
+        possible_threads *= original_shape[i];
+      }
+      auto rev_idx = original_shape.size() - 1 - i;
+      if (broadcast_idx_.find(rev_idx) == broadcast_idx_.end()) {
+        total_injective_size *= original_shape[i];
+        coalesced_size = coalesced_size == 0 ? original_shape[i] : coalesced_size;
+        if (broadcast_innermost) {
+          auto prev_extent = axis->thread_constraints.map_extent_ > 0 ? axis->thread_constraints.map_extent_ : 1;
+          auto thread_limit = max_num_threads_ / prev_extent;
+          auto coef = analyzer_->FindDivisibleTilingFactor(thread_limit, original_shape[i]);
+          axis->thread_constraints.map_extent_ = prev_extent * coef;
+          possible_threads = axis->thread_constraints.map_extent_;
+        }
+      } else if (broadcast_innermost) {
+        auto prev_extent = axis->thread_constraints.map_extent_ > 0 ? axis->thread_constraints.map_extent_ : 1;
+        axis->thread_constraints.map_extent_ =
+          prev_extent * original_shape[i] <= max_num_threads_ ? prev_extent * original_shape[i] : prev_extent;
+        possible_threads = axis->thread_constraints.map_extent_;
+      }
+      coalesced_size = coalesced_size == 0 ? 1 : coalesced_size;
+    }
+
+    int elem_per_thread = 8;
+    int min_block = coalesced_size < warp_sizes_ ? 1024 : 512;
+    if (coalesced_size >= warp_sizes_) {
+      axis->thread_constraints.item_process_ =
+        std::min(elem_per_thread, std::max<int>((fused_size_ / possible_threads / min_block + 1) / 2 * 2, 1));
+      ss << "thread for-loop speedup = " << axis->thread_constraints.item_process_;
+    } else if (total_injective_size > min_block) {
+      while (possible_threads % warp_sizes_ != 0 && possible_threads < max_num_threads_) {
+        ++possible_threads;
+      }
+      int elem_per_block = std::max<int>(16 / (max_num_threads_ / possible_threads), 1);
+      auto proposal_blocks = std::max(min_block, std::max<int>(fused_size_ / possible_threads / elem_per_block, 1));
+      axis->block_constraints.map_extent_ = proposal_blocks;
+      axis->thread_constraints.map_extent_ = possible_threads;
+      ss << "block for-loop speedup = " << elem_per_block;
+    } else {
+      ss << "default mapping.";
+    }
+    analyzer_->logger_.AppendLog(GPU_MAPPING, ss);
+    ss << "possible_threads: " << possible_threads << ", coalesced_size: " << coalesced_size
+       << ", total_injective_size: " << total_injective_size;
+    analyzer_->logger_.AppendLog(GPU_MAPPING, ss);
+  }
+}
+
 // No constraint found in cuda
+
+void ModStrategy::AddGpuConstraint() {}
 
 void CustomTilingStrategy::AddGpuConstraint() {}
 

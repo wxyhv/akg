@@ -211,9 +211,9 @@ class TileAxis {
   void LinkToLoop(const For *loop);
   void MarkWithAttr(const AttrInfo &attr);
 
-  bool HasAttr(const std::string &attr_key) const;
+  bool HasAttr(const std::string &attr_key, const bool partial_match = false) const;
   bool HasAttr(const AttrInfo &attr) const;
-  bool HasAnyAttr(const std::unordered_set<std::string> &attr_keys) const;
+  bool HasAnyAttr(const std::unordered_set<std::string> &attr_keys, const bool partial_match = false) const;
   void RemoveAttr(const std::string &attr_key);
   void RemoveAttr(const AttrInfo &attr);
   std::vector<std::string> GetAttrValue(const std::string &attr_key) const;
