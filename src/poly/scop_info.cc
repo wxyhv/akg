@@ -1366,6 +1366,15 @@ bool AnalysisResult::IsPureReduceSum(const Add *add, const std::string &prov_fun
   return true;
 }
 
+bool AnalysisResult::IsReduceInitStmt(const isl::id id) const {
+  for (const auto &init_id : GetReduceInitIds()) {
+    if (init_id.get_name() == id.get_name()) {
+      return true;
+    }
+  }
+  return false;
+}
+
 void AnalysisResult::RecordReduceWriteDataType(isl::id reduce_stmt) {
   auto init_value_map = GetReduceInitValueMap();
   auto it = init_value_map.find(reduce_stmt);
