@@ -237,8 +237,9 @@ class ReduceSumRewriter : public IRMutator {
 class RedundantCastFinder : public IRVisitor {
  public:
   RedundantCastFinder(const std::unordered_set<FunctionRef, NodeHash, NodeEqual> &cast_from_fp32,
-                      const std::unordered_set<FunctionRef, NodeHash, NodeEqual> &cast_to_fp32)
-      : cast_from_fp32_(cast_from_fp32), cast_to_fp32_(cast_to_fp32) {}
+                      const std::unordered_set<FunctionRef, NodeHash, NodeEqual> &cast_to_fp32,
+                      const Map<Tensor, Buffer> &extern_buffer)
+      : cast_from_fp32_(cast_from_fp32), cast_to_fp32_(cast_to_fp32), extern_buffer_(extern_buffer) {}
   ~RedundantCastFinder() override = default;
 
   void Visit_(const Provide *op) final {
@@ -305,6 +306,16 @@ class RedundantCastFinder : public IRVisitor {
         }
       }
     }
+
+    // Do not eliminate real outputs
+    for (const auto &it : extern_buffer_) {
+      FunctionRef func = it.first->op;
+      while (copy_.count(func) != 0) {
+        auto value = copy_[func];
+        copy_.erase(func);
+        func = value;
+      }
+    }
   }
 
   std::unordered_map<FunctionRef, FunctionRef, NodeHash, NodeEqual> copy_;
@@ -314,6 +325,7 @@ class RedundantCastFinder : public IRVisitor {
   std::unordered_set<FunctionRef, NodeHash, NodeEqual> cast_to_fp32_;
   std::unordered_map<FunctionRef, const Cast *, NodeHash, NodeEqual> all_cast_;
   std::unordered_map<FunctionRef, int, NodeHash, NodeEqual> cast_count_;
+  Map<Tensor, Buffer> extern_buffer_;
 };
 
 class RemoveRedundantCast : public IRMutator {
@@ -387,7 +399,7 @@ Stmt HalfReduceSumRewrite(Stmt stmt, const Map<Tensor, Buffer> &extern_buffer) {
   if (rewriter.cast_from_fp32_.size() == 0 && rewriter.cast_to_fp32_.size() == 0) {
     return stmt;
   }
-  RedundantCastFinder finder(rewriter.cast_from_fp32_, rewriter.cast_to_fp32_);
+  RedundantCastFinder finder(rewriter.cast_from_fp32_, rewriter.cast_to_fp32_, extern_buffer);
   finder.Visit(stmt);
   finder.FindRedundantCast();
 
