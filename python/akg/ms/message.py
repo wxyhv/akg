@@ -34,12 +34,12 @@ from . import op_build
 
 
 def _should_use_poly(kernel_info):
-    if os.getenv('MS_AKG_USE_POLY') == "on":
-        return True
     for desc in kernel_info['op_desc']:
         if desc['name'].startswith('Reduce'):
             return True
-    return False
+    if os.getenv('MS_AKG_USE_POLY') == "off":
+        return False
+    return True
 
 
 def _enable_atomic_add(kernel_info):
