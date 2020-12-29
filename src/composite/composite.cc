@@ -20,17 +20,21 @@
 #include "composite/optimize/optimize.h"
 
 namespace akg {
-std::tuple<std::string, picojson::array, picojson::array, picojson::array> ParseInputJson(
+std::tuple<std::string, std::string, picojson::array, picojson::array, picojson::array> ParseInputJson(
   const picojson::value &input_json) {
   picojson::array input_desc;
   picojson::array output_desc;
   picojson::array op_desc;
   std::string kernel_name;
+  std::string target;
   const picojson::value::object &input_obj = input_json.get<picojson::object>();
   for (const auto &item : input_obj) {
     if (item.first == "op") {
       CHECK(item.second.is<std::string>());
       kernel_name = item.second.get<std::string>();
+    } else if (item.first == "process") {
+      CHECK(item.second.is<std::string>());
+      target = item.second.get<std::string>();
     } else if (item.first == "input_desc") {
       if (item.second.is<picojson::null>()) {
         continue;
@@ -45,7 +49,7 @@ std::tuple<std::string, picojson::array, picojson::array, picojson::array> Parse
       op_desc = item.second.get<picojson::array>();
     }
   }
-  return std::make_tuple(kernel_name, input_desc, output_desc, op_desc);
+  return std::make_tuple(kernel_name, target, input_desc, output_desc, op_desc);
 }
 
 struct OpDesc {
@@ -463,7 +467,55 @@ class BroadcastInserter : public IRMutator {
                                                               {"Cast", -1}};
 };
 
-Stmt Optimize(Stmt &s, BuildInfoOpt &opt, const FuncRefSet &input_funcs, const FuncRefSet &output_funcs) {
+class TypeCastInserter : public IRMutator {
+ public:
+  Stmt Mutate_(const AttrStmt *op, const Stmt &s) override {
+    if (op->attr_key == "attrs" && op->body.as<Provide>()) {
+      const Provide* provide = op->body.as<Provide>();
+      CHECK(provide);
+      auto call = provide->value.as<Call>();
+      CHECK(call);
+      auto it = typecast_ops_.find(call->name);
+      if (it != typecast_ops_.end() && call->type == Int(32)) {
+        CHECK_EQ(call->args.size(), 2);
+        auto input0 = call->args[0];
+        auto input1 = call->args[1];
+        Tensor t0 = placeholder(provide->args, Float(32), "equal_input1");
+        Tensor t1 = placeholder(provide->args, Float(32), "equal_input2");
+        Tensor t2 = placeholder(provide->args, Float(32), "equal_output");
+        Map<std::string, NodeRef> attrs0, attrs1, attrs2, attrs3;
+        attrs0.Set("dst_type", StringImm::make("float32"));
+        attrs1.Set("dst_type", StringImm::make("float32"));
+        attrs3.Set("dst_type", StringImm::make("float32"));
+
+        auto arg0 = Call::make(t0->dtype, t0->op->name, t0->shape, Call::CallType::Halide, t0->op);
+        auto arg1 = Call::make(t1->dtype, t1->op->name, t1->shape, Call::CallType::Halide, t1->op);
+        auto arg2 = Call::make(t2->dtype, t2->op->name, t2->shape, Call::CallType::Halide, t2->op);
+        auto cast0 = Call::make(Int(32), "Cast", {input0}, Call::CallType::Intrinsic);
+        auto cast1 = Call::make(Int(32), "Cast", {input1}, Call::CallType::Intrinsic);
+        auto equal_op = Call::make(Float(32), "Equal", {arg0, arg1}, Call::CallType::Intrinsic);
+        auto assign_cast0 = Provide::make(t0->op, 0, cast0, provide->args);
+        auto assign_cast1 = Provide::make(t1->op, 0, cast1, provide->args);
+        auto assign_equal = Provide::make(t2->op, 0, equal_op, provide->args);
+        auto value_int32 = Call::make(Float(32), "Cast", {arg2}, Call::CallType::Intrinsic);
+        auto new_provide = Provide::make(provide->func, provide->value_index, value_int32, provide->args);
+        auto new_attr0 = AttrStmt::make(attrs0, "attrs", Expr(1), assign_cast0);
+        auto new_attr1 = AttrStmt::make(attrs1, "attrs", Expr(1), assign_cast1);
+        auto new_attr2 = AttrStmt::make(attrs2, "attrs", Expr(1), assign_equal);
+        auto new_attr3 = AttrStmt::make(attrs3, "attrs", Expr(1), new_provide);
+        auto new_body = Block::make(Block::make(new_attr0, new_attr1), Block::make(new_attr2, new_attr3));
+        auto new_attr = AttrStmt::make(op->node, op->attr_key, op->value, new_body);
+        return new_attr;
+      }
+    }
+    return IRMutator::Mutate_(op, s);
+  }
+
+ private:
+  std::unordered_map<std::string, unsigned> typecast_ops_ = {{"Equal", -1},};
+};
+
+Stmt Optimize(Stmt &s, BuildInfoOpt &opt, const FuncRefSet &input_funcs, const FuncRefSet &output_funcs, const std::string &target) {
   // reshape optimize
   s = ReshapeTensor(s);
     // fusion
@@ -474,6 +526,10 @@ Stmt Optimize(Stmt &s, BuildInfoOpt &opt, const FuncRefSet &input_funcs, const F
   s = InplaceAssignMutator(opt).Mutate(s);
   // insert broadcast
   s = BroadcastInserter().Mutate(s);
+  // insert cast for equal(int32) in ascend
+  if (target == "aicore") {
+    s = TypeCastInserter().Mutate(s);
+  }
   return s;
 }
 
@@ -657,8 +713,9 @@ void ExtractBuildInfo(const picojson::value &input_json, BuildInfo &info) {
   picojson::array output_desc;
   picojson::array op_descs;
   std::string kernelname;
+  std::string target;
   // 1. parse input json
-  std::tie(kernelname, input_desc, output_desc, op_descs) = ParseInputJson(input_json);
+  std::tie(kernelname, target, input_desc, output_desc, op_descs) = ParseInputJson(input_json);
   info.kernel_name = kernelname;
   std::vector<std::string> input_tensors;
   ParseInputTensors(input_desc, input_tensors);
@@ -672,7 +729,7 @@ void ExtractBuildInfo(const picojson::value &input_json, BuildInfo &info) {
   LOG(INFO) << "\n========STMT START========\n" << stmt << "\n========STMT END========\n";
   // 4. optimize stmt
   BuildInfoOpt opt;
-  stmt = Optimize(stmt, opt, parser.input_funcs_, parser.output_funcs_);
+  stmt = Optimize(stmt, opt, parser.input_funcs_, parser.output_funcs_, target);
   LOG(INFO) << "\n========OPTIMIZED STMT START========\n" << stmt << "\n========OPTIMIZED STMT END========\n";
   // 5. emit stmt by topi
   FuncTensorMap tensor_map;
