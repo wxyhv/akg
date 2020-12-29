@@ -57,7 +57,7 @@ class ReplaceSeparatorMutator : public IRMutator {
         return Realize::make(MutateComputeOp(compute), op->value_index, op->type, op->bounds, op->condition, body);
       }
     }
-    return IRMutator::Mutate_(op, s);
+    return Realize::make(op->func, op->value_index, op->type, op->bounds, op->condition, body);
   }
 
   Stmt Mutate_(const ProducerConsumer *op, const Stmt &s) override {
@@ -67,7 +67,7 @@ class ReplaceSeparatorMutator : public IRMutator {
         return ProducerConsumer::make(MutateComputeOp(compute), op->is_producer, body);
       }
     }
-    return IRMutator::Mutate_(op, s);
+    return ProducerConsumer::make(op->func, op->is_producer, body);
   }
 
   Stmt Mutate_(const Provide *op, const Stmt &s) override {
