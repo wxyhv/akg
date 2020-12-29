@@ -775,8 +775,6 @@ Stmt GpuIslEmitter::EmitFor(const isl::ast_node_for &node) {
   if (iter_expr.get() != iter_expr_new.get()) {
     iter_map_ssa_[iter_expr.get()] = iter_expr_new.get();
   }
-  std::stringstream ss;
-  ss << iter_expr_new;
   PushIter(iter_expr.get());
 
   Expr init_expr = Interpret(node.get_init());
@@ -799,8 +797,6 @@ Stmt GpuIslEmitter::EmitFor(const isl::ast_node_for &node) {
     cond_expr = ModifyTheCondExpr(cond_expr, static_cast<int>(inc));
     Expr modify_iter = ModifyTheIterExpr(iter_expr_new, static_cast<int>(inc), original_init_expr);
     stride_modify_iter_map_[iter_expr_new.get()] = modify_iter;
-    std::stringstream ss;
-    ss << modify_iter;
   }
 
   if (isl_cond.as<isl::ast_expr_op_le>()) {
@@ -812,6 +808,7 @@ Stmt GpuIslEmitter::EmitFor(const isl::ast_node_for &node) {
 
   if (!body_stmt.defined()) {
     PopIter(iter_expr.get());
+    iter_map_ssa_.erase(iter_expr.get());
     return Stmt();
   }
 
@@ -819,6 +816,7 @@ Stmt GpuIslEmitter::EmitFor(const isl::ast_node_for &node) {
     stride_modify_iter_map_.erase(iter_expr_new.get());
   }
   PopIter(iter_expr.get());
+  iter_map_ssa_.erase(iter_expr.get());
   return For::make(iter_expr_new, init_expr, cond_expr, ForType::Serial, DeviceAPI::None, body_stmt);
 }
 
