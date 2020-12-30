@@ -15,9 +15,11 @@
  */
 
 #include "mapping_outer_band.h"
+
+#include <numeric>
+
 #include "poly/schedule_tree_util.h"
 #include "poly/sync_manager.h"
-
 #include "poly/scop.h"
 
 namespace akg {
@@ -615,6 +617,81 @@ isl::schedule MappingOuterBand::InsertReduceMarker(const isl::schedule &sch, con
   return final_schedule;
 }
 
+std::pair<std::string, std::string> MappingOuterBand::GetL1L0BlockConfig(size_t n_block_map, int member_size) {
+  auto block_cfg = scop_info_.user_config_.GetBlockConfig();
+  CHECK(block_cfg != nullptr) << "block config is null";
+  auto title_size = static_cast<int>(pass_info_.tile_sizes_.size());
+  auto dim_num = (member_size <= title_size) ? member_size : title_size;
+  std::vector<int> l1_tile_size = GetTileSizeOfLevel(member_size, dim_num, L1, pass_info_.tile_sizes_);
+  std::vector<int> l0_tile_size = GetTileSizeOfLevel(member_size, dim_num, L0, pass_info_.tile_sizes_);
+  CHECK_EQ(l1_tile_size.size(), l0_tile_size.size());
+
+  for (size_t i = 0; i < l1_tile_size.size(); ++i) {
+    auto l0 = l0_tile_size[i] <= 0 ? 1 : l0_tile_size[i];
+    l0_tile_size[i] = std::max(1, l1_tile_size[i] / l0);
+  }
+  std::string l1_cfg = "";
+  std::string l0_cfg = "";
+  std::vector<int> l1_cfg_list;
+  std::vector<int> l0_cfg_list;
+  if (std::accumulate(l0_tile_size.begin(), l0_tile_size.end(), 1, std::multiplies<int>()) > 1) {
+    for (size_t i = 0; i < n_block_map; ++i) {
+      auto l0 = i < l0_tile_size.size() ? l0_tile_size[i] : 1;
+      l0_cfg_list.emplace_back(l0);
+      auto block_idx = scop_info_.analysis_result_.GetReduceDirection() == Y_DIRECTION ? i : n_block_map - 1 - i;
+      auto l1 = block_cfg->GetAt(block_idx).second / l0;
+      l1_cfg_list.emplace_back(l1);
+    }
+    if (scop_info_.analysis_result_.GetReduceDirection() != Y_DIRECTION) {
+      std::reverse(l1_cfg_list.begin(), l1_cfg_list.end());
+      std::reverse(l0_cfg_list.begin(), l0_cfg_list.end());
+    }
+    scop_info_.user_config_.SetL0BlockSize(l0_cfg_list);
+    for (size_t i = 0; i < n_block_map; ++i) {
+      l1_cfg += (std::to_string(l1_cfg_list[i]) + " ");
+      l0_cfg += (std::to_string(l0_cfg_list[i]) + " ");
+    }
+  }
+  return std::make_pair(l1_cfg, l0_cfg);
+}
+
+isl::schedule_node MappingOuterBand::MapBlockHelper(const isl::schedule_node &orig_node, MappingCfg *block_cfg,
+                                                    size_t n_block_map, bool check_extent) {
+  auto node = orig_node;
+  auto band_node = node.as<isl::schedule_node_band>();
+  if (!band_node || !band_node.permutable()) {
+    LOG(WARNING) << "No permutable outer band node to map block.";
+    return node;
+  }
+
+  auto partial_schedule = band_node.get_partial_schedule();
+  auto upa_list = partial_schedule.get_union_pw_aff_list();
+
+  if (check_extent) {
+    auto domain = band_node.get_schedule().get_domain();
+    isl::union_pw_aff_list range_aff_list(band_node.ctx(), static_cast<int>(upa_list.size()));
+    for (int i = upa_list.size() - 1; i >= 0; --i) {
+      auto idx = scop_info_.analysis_result_.GetReduceDirection() == Y_DIRECTION ? upa_list.size() - 1 - i : i;
+      auto range = upa_list.get_at(idx).intersect_domain(domain);
+      range_aff_list = range_aff_list.add(range);
+    }
+    node = CheckMapSizeAndApplyTile(node, range_aff_list, block_cfg, false);
+  }
+
+  upa_list = upa_list.drop(n_block_map, upa_list.size() - n_block_map).reverse();
+  if (scop_info_.analysis_result_.GetReduceDirection() == Y_DIRECTION) {
+    upa_list = upa_list.reverse();
+  }
+  node = node.insert_mark(isl::id(node.ctx(), BLOCK_MARKER));
+  node = node.child(0);
+
+  Mapping mapping;
+  node = CreateAndInsertMapFilter(node, false, upa_list, block_cfg, mapping);
+  scop_info_.upa_node_mapping_.emplace_back(std::make_pair(node.parent(), mapping));
+
+  return node;
+}
+
 isl::schedule MappingOuterBand::DoBlockMapping(const isl::schedule &sch) {
   isl::schedule_node root = sch.get_root();
   isl::schedule_node node = GetOuterBand(root);
@@ -634,37 +711,37 @@ isl::schedule MappingOuterBand::DoBlockMapping(const isl::schedule &sch) {
   if (n_block_map < 1) {
     return sch;
   }
+
   if (scop_info_.user_config_.GetEnableAtomicAdd() && NeedAtomicAdd(band_node, n_block_map)) {
     MarkAtomicAddTensor(band_node);
   }
 
-  // Step 2. Map outerband from outer dim to inner dim.
-  auto partial_schedule = band_node.get_partial_schedule();
-  auto upa_list = partial_schedule.get_union_pw_aff_list();
-
-  // Step 3. Checking extent range for mapping.
-  auto domain = band_node.get_schedule().get_domain();
-  isl::union_pw_aff_list range_aff_list(band_node.ctx(), static_cast<int>(upa_list.size()));
-  for (int i = upa_list.size() - 1; i >= 0; --i) {
-    auto idx = scop_info_.analysis_result_.GetReduceDirection() == Y_DIRECTION ? upa_list.size() - 1 - i : i;
-    auto range = upa_list.get_at(idx).intersect_domain(domain);
-    range_aff_list = range_aff_list.add(range);
+  // Step 2. Separate original block config according to tile levels.
+  auto l1_block_cfg = block_cfg;
+  MappingCfg *l0_block_cfg = nullptr;
+  if (scop_info_.user_config_.GetEnableTileL0()) {
+    auto l1_l0_block_cfg = GetL1L0BlockConfig(n_block_map, band_node.n_member());
+    if (!l1_l0_block_cfg.first.empty() && !l1_l0_block_cfg.second.empty()) {
+      scop_info_.user_config_.RecordReplaceConfig(L1, l1_l0_block_cfg.first, MappingType::REPLACE_BLOCKS);
+      scop_info_.user_config_.RecordReplaceConfig(L0, l1_l0_block_cfg.second, MappingType::REPLACE_BLOCKS);
+      auto rep_cfg = scop_info_.user_config_.GetReplaceConfig();
+      l1_block_cfg = &rep_cfg[L1];
+      l0_block_cfg = &rep_cfg[L0];
+    }
   }
-  node = CheckMapSizeAndApplyTile(node, range_aff_list, block_cfg, false);
 
-  // Step 4. Create and insert mapping filter.
-  upa_list = upa_list.drop(n_block_map, upa_list.size() - n_block_map).reverse();
-  if (scop_info_.analysis_result_.GetReduceDirection() == Y_DIRECTION) {
-    upa_list = upa_list.reverse();
-  }
-  node = node.insert_mark(isl::id(node.ctx(), BLOCK_MARKER));
-  node = node.child(0);
-
-  Mapping mapping;
-  node = CreateAndInsertMapFilter(node, false, upa_list, block_cfg, mapping);
-  scop_info_.upa_node_mapping_.emplace_back(std::make_pair(node.parent(), mapping));
-
+  // Step 3. Map outer-most band for l1 tile as usual (and do not check extent when l0 tile is applied manually).
+  auto map_l0_block = l0_block_cfg != nullptr;
+  node = MapBlockHelper(node, l1_block_cfg, n_block_map, !map_l0_block);
   auto final_schedule = node.get_schedule();
+
+  // Step 4. Map middle-level band (i.e. l0 tile band).
+  if (map_l0_block) {
+    isl::schedule_node middle_node = GetOuterBand(final_schedule.get_root()).child(0);
+    middle_node = MapBlockHelper(middle_node, l0_block_cfg, n_block_map, false);
+    final_schedule = middle_node.get_schedule();
+  }
+
   return final_schedule;
 }
 
@@ -674,7 +751,8 @@ bool MappingOuterBand::NeedAtomicAdd(const isl::schedule_node_band &band, size_t
   }
 
   auto non_coin_start_idx = CountConsecutiveCoincident(band);
-  bool is_all_reduce = band.n_member() == 1 && scop_info_.analysis_result_.GetReduceDirection() == X_DIRECTION && non_coin_start_idx == 1;
+  bool is_all_reduce =
+    band.n_member() == 1 && scop_info_.analysis_result_.GetReduceDirection() == X_DIRECTION && non_coin_start_idx == 1;
   if (is_all_reduce) {
     non_coin_start_idx = 0;  // Compare block size of position 0 to enable atomic add for all reduce ops
   }

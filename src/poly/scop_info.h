@@ -36,30 +36,18 @@ constexpr auto kWriteSuffix = "write";
 constexpr auto kIterNamePrefix = "cc";
 constexpr auto kGemmIterNamePrefix = "ee";
 
-struct DimensionInfo {
-  int64_t index;
-  std::string axis;
-  int64_t l1_tiling_size;
-  int64_t l0_tiling_size;
-  int64_t dim_seq;
-  Expr l1_var;
-  Expr l0_var;
-  Expr pragma;
-  bool is_inner{false};
-};
 struct ParamInfo {
   std::string type_key;
   Expr key;
   Expr value;
 };
-using TileSizes = std::vector<DimensionInfo>;
 struct TilingInfo {
   int tiling_flag;  // flag=1, tailing; flag=0, not tailing
   TileSizes dim_infos;
 };
 using Tiles = std::vector<TilingInfo>;
 
-enum MappingType { NONE = -1, BLOCKS, THREADS };
+enum MappingType { NONE = -1, BLOCKS, THREADS, REPLACE_BLOCKS, REPLACE_THREADS };
 struct MappingCfg {
  private:
   std::pair<std::string, int> x;
@@ -72,25 +60,29 @@ struct MappingCfg {
   size_t MaxDim() { return 3; }
   std::string GetPrefix(MappingType type) {
     CHECK_NE(type, MappingType::NONE);
-    if (type == MappingType::BLOCKS) {
+    if (type == MappingType::BLOCKS || type == MappingType::REPLACE_BLOCKS) {
       return "b";
     } else {
       return "t";
     }
   }
-  void BindFromStr(const std::string &cfg) {
+  void BindFromStr(const std::string &cfg, const std::string &id_name = "") {
     std::vector<std::string> res = common::Split(cfg, " ");
     CHECK_LE(res.size(), MaxDim());
     for (size_t i = 0; i < res.size(); ++i) {
       CHECK(!res[i].empty());
       auto size = static_cast<int>(std::strtol(res[i].c_str(), nullptr, 10));
-      BindAt(i, size);
+      BindAt(i, size, id_name);
     }
   }
-  void BindAt(size_t pos, int size) {
+  void BindAt(size_t pos, int size, const std::string &id_name = "") {
     CHECK_LT(pos, MaxDim());
     bound = std::max(bound, pos + 1);
-    auto id = GetPrefix(type) + std::to_string(pos);
+    std::string id = "";
+    if (!id_name.empty()) {
+      id = REPLACE + id_name + "_";
+    }
+    id += GetPrefix(type) + std::to_string(pos);
     if (pos == 0) {
       x.first = id;
       x.second = size;
@@ -215,6 +207,7 @@ class UserConfig {
     ParseStringAttr(attrs, "dump_poly_dir", &dump_poly_dir_);
 
     if (GetTarget() == TARGET_CUDA) {
+      ParseBoolAttr(attrs, "enable_tile_l0", &enable_tile_l0_);
       ParseBoolAttr(attrs, "enable_atomic_add", &enable_atomic_add_);
       ParseBoolAttr(attrs, "enable_akg_reduce_lib", &enable_akg_reduce_lib_);
       ParseBoolAttr(attrs, "use_register_memory", &use_register_memory_);
@@ -244,6 +237,7 @@ class UserConfig {
   // getter for tiling config
   MappingCfg *GetBlockConfig() { return &block_cfg_; }
   MappingCfg *GetThreadConfig() { return &thread_cfg_; }
+  std::unordered_map<std::string, MappingCfg> &GetReplaceConfig() { return replace_cfg_; }
   void SetMaxElemPerThread(int max_elem_per_thread) { max_elem_per_thread_ = max_elem_per_thread; }
   int GetMaxElemPerThread() const { return max_elem_per_thread_; }
   void SetBlockConfig(const std::string &block_cfg) {
@@ -254,6 +248,14 @@ class UserConfig {
     this->thread_cfg_.type = THREADS;
     this->thread_cfg_.BindFromStr(thread_cfg);
   }
+  void RecordReplaceConfig(const std::string id, const std::string replace_cfg_str, const MappingType mapping_type) {
+    MappingCfg replace_cfg;
+    replace_cfg.type = mapping_type;
+    replace_cfg.BindFromStr(replace_cfg_str, id);
+    this->replace_cfg_[id] = replace_cfg;
+  }
+  void SetL0BlockSize(const std::vector<int> l0_block_size) { l0_block_size_ = l0_block_size; }
+  std::vector<int> GetL0BlockSize() { return l0_block_size_; }
   std::vector<NodeRef> GetCustomTiling() { return custom_tiling_; }
   std::string GetBDim() const { return b_dim_; }
   std::string GetElemPerThread() const { return elem_per_thread_; }
@@ -347,6 +349,7 @@ class UserConfig {
   // dump all info
   void DumpScopDataScheduleAttrs(std::ofstream &of);
 
+  bool GetEnableTileL0() { return enable_tile_l0_; }
   bool GetEnableAtomicAdd() { return enable_atomic_add_; }
 
   bool GetEnableAkgReduceLib() { return enable_akg_reduce_lib_; }
@@ -460,6 +463,7 @@ class UserConfig {
   bool tile_size_is_var_{false};
   bool outer_band_need_split_{false};
 
+  bool enable_tile_l0_{false};
   bool enable_atomic_add_{false};
   // lib config
   bool enable_akg_reduce_lib_{false};
@@ -482,6 +486,8 @@ class UserConfig {
   std::string b_dim_;
   MappingCfg block_cfg_;
   MappingCfg thread_cfg_;
+  std::unordered_map<std::string, MappingCfg> replace_cfg_;
+  std::vector<int> l0_block_size_;
   int max_elem_per_thread_{1024};
   std::string elem_per_thread_;
   std::vector<NodeRef> custom_tiling_;

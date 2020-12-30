@@ -356,10 +356,17 @@ isl::schedule_node RegisterMemoryManager::GetRegisterPromotedNode(isl::schedule_
 }
 
 isl::schedule RegisterMemoryManager::Run(isl::schedule sch) {
+  auto node = sch.root().child(0);
+  if (node.isa<isl::schedule_node_context>()) {
+    node = node.del();
+  }
+  node = InsertContextNode(node, scop_info_);
+  sch = node.schedule();
+
   if (!scop_info_.user_config_.UseRegisterMemory()) {
     return sch;
   }
-  LOG(INFO) << ">>>>>>>>Register memory promotion<<<<<<<<<<<<<<<";
+
   schedule_ = sch;
   auto root = sch.get_root();
 

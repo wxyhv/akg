@@ -80,20 +80,25 @@ isl::schedule_node InsertContextNode(isl::schedule_node &node, ScopInfo &scop_in
   // step1. get config
   std::unordered_map<isl::id, int, isl::IslIdIslHash> mapping_ids_with_sizes;
   auto block_cfg = scop_info.user_config_.GetBlockConfig();
-  CHECK(block_cfg != nullptr) << "blockconfig is null";
+  CHECK(block_cfg != nullptr) << "block config is null";
 
   auto thread_cfg = scop_info.user_config_.GetThreadConfig();
-  CHECK(thread_cfg != nullptr) << "threadconfig is null";
+  CHECK(thread_cfg != nullptr) << "thread config is null";
 
-  for (size_t i = 0; i < block_cfg->bound; ++i) {
-    std::pair<std::string, int> bi = block_cfg->GetAt(i);
-    auto id = isl::id(node.ctx(), bi.first);
-    mapping_ids_with_sizes.insert({id, bi.second});
-  }
-  for (size_t i = 0; i < thread_cfg->bound; ++i) {
-    std::pair<std::string, int> ti = thread_cfg->GetAt(i);
-    auto id = isl::id(node.ctx(), ti.first);
-    mapping_ids_with_sizes.insert({id, ti.second});
+  auto InsertMappingConfig = [&mapping_ids_with_sizes, node](MappingCfg *mapping_cfg) -> void {
+    for (size_t i = 0; i < mapping_cfg->bound; ++i) {
+      std::pair<std::string, int> pair_i = mapping_cfg->GetAt(i);
+      auto id = isl::id(node.ctx(), pair_i.first);
+      mapping_ids_with_sizes.insert({id, pair_i.second});
+    }
+  };
+
+  InsertMappingConfig(block_cfg);
+  InsertMappingConfig(thread_cfg);
+
+  auto replace_cfg_map = scop_info.user_config_.GetReplaceConfig();
+  for (auto replace_cfg : replace_cfg_map) {
+    InsertMappingConfig(&replace_cfg.second);
   }
 
   // step2. construct context
@@ -307,6 +312,27 @@ bool ReplaceScheduleTree(isl::schedule &schedule, ScopInfo &info) {
   }
   return false;
 }
+
+std::vector<int> GetTileSizeOfLevel(const int member_size, const int dim_size, const std::string &tile_level,
+                                    TileSizes tile_sizes) {
+  std::vector<int> tile_size(member_size, 0);
+  for (auto i = 0; i < member_size; ++i) {
+    if (i >= dim_size) {
+      tile_size[i] = MAX_STRIDE;
+      continue;
+    }
+    // tile_size maybe bigger than dim_num
+    if (tile_level == L0) {
+      tile_size[i] = static_cast<int>(tile_sizes[i].l0_tiling_size);
+    } else if (tile_level == L1) {
+      tile_size[i] = static_cast<int>(tile_sizes[i].l1_tiling_size);
+    } else {
+      // TODO: for tensor core
+    }
+  }
+  return tile_size;
+}
+
 }  // namespace poly
 }  // namespace ir
 }  // namespace akg

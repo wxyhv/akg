@@ -190,8 +190,22 @@ isl::schedule_node SharedMemoryManager::ManageToShareBelow(isl::schedule &root_s
   CHECK(use_config_ || !IsAncestorMapToThread(node)) << "shared memory promotion cannot below thread_marker.";
 
   auto partial_sched = LocalSchedule(node);
+
+  // Collect block config.
   auto cfg = scop_info_.user_config_.GetBlockConfig();
-  auto mapping = GatherMappingsTo(cfg);
+  isl::union_set mapping;
+  for (auto it : scop_info_.user_config_.GetReplaceConfig()) {
+    if (it.second.type == MappingType::REPLACE_BLOCKS) {
+      if (mapping.is_null()) {
+        mapping = GatherMappingsTo(&it.second);
+      } else {
+        mapping = mapping.intersect(GatherMappingsTo(&it.second));
+      }
+    }
+  }
+  if (mapping.is_null()) {
+    mapping = GatherMappingsTo(cfg);
+  }
 
   auto out_sched = partial_sched.intersect_domain(mapping);
   CreateClusterList(node, out_sched);

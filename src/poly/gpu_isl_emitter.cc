@@ -910,7 +910,7 @@ Stmt GpuIslEmitter::Emit(const isl::ast_node &node) {
 
   // iter var node attr emit
   std::map<std::string, VarExpr>::iterator it;
-  for (it = gpuiter_.begin(); it != gpuiter_.end(); it++) {
+  for (it = iter_name_map_.begin(); it != iter_name_map_.end(); it++) {
     IterVar axis = IterVarNode::make(Range(), it->second, air::kThreadIndex, it->second->name_hint);
     stmt = AttrStmt::make(axis, "thread_extent", Expr(GetThreadExtent(it->second->name_hint)), stmt);
   }
@@ -1040,13 +1040,48 @@ Stmt GpuIslEmitter::InsertRealize(Stmt stmt, const isl::id &var) {
   return stmt;
 }
 
-VarExpr GpuIslEmitter::IterNameAdaptor(std::string name) {
+Expr GpuIslEmitter::IterNameAdaptor(std::string name) {
   if (iter_name_map_.find(name) != iter_name_map_.end()) {
-    gpuiter_[name] = iter_name_map_[name];
     return iter_name_map_[name];
+  } else if (name.find(REPLACE) != std::string::npos) {
+    name = name.substr(strlen(REPLACE));
+    if (info_.user_config_.GetEnableTileL0()) {
+      return SingleConfigToMultiBand(name);
+    }
+    return name;
   } else {
     return VarExpr(name);
   }
+}
+
+Expr GpuIslEmitter::SingleConfigToMultiBand(std::string name) {
+  Expr e;
+  VarExpr original_id;
+  int rep_size = 1;
+  auto l0_block_size = info_.user_config_.GetL0BlockSize();
+  if (name.find(B0) != std::string::npos) {
+    original_id = iter_name_map_[B0];
+    rep_size = l0_block_size[0];
+  } else if (name.find(B1) != std::string::npos) {
+    original_id = iter_name_map_[B1];
+    rep_size = l0_block_size[1];
+  } else {
+    original_id = iter_name_map_[B2];
+    rep_size = l0_block_size[2];
+  }
+
+  if (rep_size < 0) {
+    return e;
+  }
+
+  if (name.find(L0) != std::string::npos) {
+    e = Mod::make(original_id, rep_size);
+  } else if (name.find(L1) != std::string::npos) {
+    e = Div::make(original_id, rep_size);
+  } else {
+    LOG(FATAL) << "Unexpected binding id: " << name;
+  }
+  return e;
 }
 
 Expr GpuIslEmitter::Interpret(const isl::ast_expr &e) {

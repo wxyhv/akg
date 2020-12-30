@@ -23,6 +23,9 @@
 namespace akg {
 namespace ir {
 namespace poly {
+
+constexpr auto MAX_STRIDE = 65535;
+
 class SchedulePass {
  public:
   virtual ~SchedulePass() {}
@@ -81,6 +84,9 @@ isl::schedule_node InsertContextNode(isl::schedule_node &node, ScopInfo &scop_in
  * Tile a node band based on given tile sizes.
  */
 isl::schedule_node TileBand(isl::schedule_node node, const isl::multi_val &sizes);
+
+std::vector<int> GetTileSizeOfLevel(const int member_size, const int dim_size, const std::string &tile_level,
+                                    TileSizes tile_sizes);
 
 }  // namespace poly
 }  // namespace ir

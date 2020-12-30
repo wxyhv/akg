@@ -229,14 +229,8 @@ std::vector<isl::schedule_node> BandsSplitAfterDepth(const std::vector<isl::sche
   return MapWithFunc(split_at_depth, bands);
 }
 
-std::pair<isl::schedule_node, isl::schedule_node> MapInnerDimToThreads(const isl::schedule_node &node,
-                                                                       const bool is_promotion, MappingCfg *mapping_cfg,
-                                                                       Mapping &mapping, bool is_y_reduce) {
-  CHECK(mapping_cfg != nullptr) << "thread config is null";
-  isl::schedule_node_band band_node = node.as<isl::schedule_node_band>();
-  size_t n_thread_map = std::min(static_cast<size_t>(band_node.n_member()), mapping_cfg->bound);
-  CHECK_LE(n_thread_map, mapping_cfg->MaxDim()) << "mapping to too many threads.";
-  auto partial_schedule = band_node.get_partial_schedule();
+isl::union_pw_aff_list GetUPAList(const isl::schedule_node &node, isl::multi_union_pw_aff &partial_schedule,
+                                  const bool is_promotion, bool need_coalesce) {
   if (is_promotion) {
     // we need to to get range of promoted band from extension node so that we can correctly fix stride
     auto parent = node;
@@ -250,6 +244,23 @@ std::pair<isl::schedule_node, isl::schedule_node> MapInnerDimToThreads(const isl
   }
 
   auto upa_list = partial_schedule.get_union_pw_aff_list().reverse();
+
+  if (need_coalesce) {
+    upa_list = upa_list.reverse();
+  }
+  return upa_list;
+}
+
+std::pair<isl::schedule_node, isl::schedule_node> MapInnerDimToThreads(const isl::schedule_node &node,
+                                                                       const bool is_promotion, MappingCfg *mapping_cfg,
+                                                                       Mapping &mapping, bool need_coalesce) {
+  CHECK(mapping_cfg != nullptr) << "thread config is null";
+  isl::schedule_node_band band_node = node.as<isl::schedule_node_band>();
+  size_t n_thread_map = std::min(static_cast<size_t>(band_node.n_member()), mapping_cfg->bound);
+  CHECK_LE(n_thread_map, mapping_cfg->MaxDim()) << "mapping to too many threads.";
+  auto partial_schedule = band_node.get_partial_schedule();
+  auto upa_list = GetUPAList(node, partial_schedule, is_promotion, need_coalesce);
+
   // append prefix to partial schedule for tiling
   auto add_prefix_schedule = partial_schedule;
   size_t max_distance_to_filter = 2;
@@ -267,12 +278,11 @@ std::pair<isl::schedule_node, isl::schedule_node> MapInnerDimToThreads(const isl
   }
   auto prefix_upa_list = add_prefix_schedule.get_union_pw_aff_list().reverse();
 
-  if (is_y_reduce) {
-    upa_list = upa_list.reverse();
+  if (need_coalesce) {
     prefix_upa_list = prefix_upa_list.reverse();
   }
 
-  isl::schedule_node fix_node = CheckMapSizeAndApplyTile(node, prefix_upa_list, mapping_cfg, is_y_reduce);
+  isl::schedule_node fix_node = CheckMapSizeAndApplyTile(node, prefix_upa_list, mapping_cfg, need_coalesce);
   bool tiled = !fix_node.is_equal(node);
 
   // drop un-mapped aff after tiling
@@ -356,7 +366,7 @@ isl::schedule_node CreateAndInsertMapFilter(const isl::schedule_node &node, cons
  */
 isl::schedule_node CheckMapSizeAndApplyTile(const isl::schedule_node &mapping_root,
                                             const isl::union_pw_aff_list &aff_list, MappingCfg *mapping_cfg,
-                                            bool is_y_reduce) {
+                                            bool need_coalesce) {
   bool need_tile = false;
   std::vector<int> mapping_sizes;
   CHECK(mapping_cfg != nullptr) << "mapping config is null";
@@ -395,7 +405,7 @@ isl::schedule_node CheckMapSizeAndApplyTile(const isl::schedule_node &mapping_ro
 
   auto len = static_cast<int>(mapping_sizes.size());
   for (auto i = len - 1; i >= 0; --i) {
-    int pos = is_y_reduce ? i : len - 1 - i;
+    int pos = need_coalesce ? i : len - 1 - i;
     tile_size = tile_size.set_val(pos, isl::val(ctx, mapping_sizes[i]));
   }
 

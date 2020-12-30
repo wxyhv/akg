@@ -20,6 +20,8 @@
 #include "poly/schedule_pass/transfer_stmt.h"
 #include "poly/schedule_pass/try_mark_scalar_stmt.h"
 
+#include <cmath>
+
 namespace akg {
 namespace ir {
 namespace poly {
@@ -183,6 +185,8 @@ isl::schedule TileOuterBand::RunCuda(isl::schedule sch) {
   // 1. obtain the outermost tilable band
   isl::schedule_node node = GetOuterBand(root);
 
+  scop_info_.analysis_result_.SetScheduleMapBeforeTile(sch.get_map());
+
   ShowDimInfo();
 
   // 2. Traverse the descendants of "node" (including the node itself)
@@ -198,6 +202,8 @@ isl::schedule TileOuterBand::RunCuda(isl::schedule sch) {
   } else if (sch.plain_is_equal(final_schedule)) {
     pass_info_.tile_check_coincident_ = scop_info_.user_config_.GetTileCheckCoincident();
   }
+  pass_info_.tile_sizes_ = tile_sizes_;
+  
   return final_schedule;
 }
 
@@ -900,22 +906,27 @@ isl::schedule_node TileOuterBand::MarkOuterPermutableCuda(isl::schedule_node nod
   LOG(INFO) << "Domain info: " << outer_band;
 #endif
 
+  // get tile size
+  node = SetTileSizeAndTile(node, L1, 0);
+
+  if (scop_info_.user_config_.GetEnableTileL0()) {
+    node = SetTileSizeAndTile(node.child(0), L0, 0);
+    node = node.parent();
+  }
+
+  return node;
+}
+
+
+
+isl::schedule_node TileOuterBand::SetTileSizeAndTile(const isl::schedule_node &node, const std::string &select_l0_l1,
+                                                     size_t num) {
   const unsigned int n_member = node.as<isl::schedule_node_band>().n_member();
   auto title_size = static_cast<unsigned int>(tile_sizes_.size());
   unsigned int dim_num = (n_member <= title_size) ? n_member : title_size;
-
-  // get tile size
-  std::vector<int> tile_size(n_member, 0);
-  for (size_t j = 0; j < n_member; ++j) {
-    tile_size[j] = MAX_STRIDE;
-    // tile_size maybe bigger than dim_num
-    if (j < dim_num) tile_size[j] = static_cast<int>(tile_sizes_[j].l1_tiling_size);
-  }
-
+  std::vector<int> tile_size = GetTileSizeOfLevel(n_member, dim_num, select_l0_l1, tile_sizes_);
   isl::multi_val sizes = ComputeBandTilesSizes(node, &tile_size[0]);
-  node = TileBand(node, sizes);
-
-  return node;
+  return TileBand(node, sizes);
 }
 
 /***************************************************************************

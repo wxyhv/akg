@@ -23,7 +23,6 @@ namespace akg {
 namespace ir {
 namespace poly {
 
-constexpr auto MAX_STRIDE = 65535;
 /*
  * Tile the outer band accoding to TilingInfo. In this pass, we get the out-most band,
  * decide tile_size depending on the types of operators, and then start tiling.
@@ -87,6 +86,7 @@ class TileOuterBand : public SchedulePass {
   void ComputeWInfo(int &w_base, bool &head, bool &tail, int &w_head, int &w_tail, int &win_w, int &win_cut_w);
   bool NeedIsolate();
   bool BoolNot(bool b) { return !b; }
+  isl::schedule_node SetTileSizeAndTile(const isl::schedule_node &node, const std::string &select_l0_l1, size_t num);
 
  private:
   PassInfo &pass_info_;
