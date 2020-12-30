@@ -33,6 +33,7 @@ def _schedule_reduce(op, sch, is_idx_reduce=False, blocksize=[32, 32], autotune=
         cfg.define_knob("tile_y", [1, 2, 4, 8, 16, 32, 64, 128, 256, 512, 1024])
 
     if is_idx_reduce:
+        data_in = op.input_tensors[0]
         data_out = op.input_tensors[0]
     else:
         data_in = op.input_tensors[0]
