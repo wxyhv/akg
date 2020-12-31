@@ -420,9 +420,31 @@ isl::schedule RegisterMemoryManager::HoistRegisterMemory(isl::schedule_node root
       band = band.child(0);
     }
 
+    if (IsReadOrWriteBand(band)) {
+      continue;
+    }
+
     tmp_sch = HoistRegisterMemoryOnDepth(band, depth);
+    break;
   }
   return tmp_sch;
+}
+
+bool RegisterMemoryManager::IsReadOrWriteBand(isl::schedule_node node) {
+  if (node.parent().isa<isl::schedule_node_filter>()) {
+    auto filter = node.parent().as<isl::schedule_node_filter>();
+
+    isl::union_set uset = filter.get_filter();
+    std::vector<isl::set> vset;
+    uset.foreach_set([&vset](isl::set s) { vset.push_back(s); });
+    if (!vset.empty()) {
+      auto filter_name = vset[0].get_tuple_name();
+      if (filter_name == READ_ID_NAME || filter_name == WRITE_ID_NAME) {
+        return true;
+      }
+    }
+  }
+  return false;
 }
 
 isl::schedule_node RegisterMemoryManager::GetRegisterPromotedNode(isl::schedule_node &root) {
