@@ -53,7 +53,7 @@ struct Select<false, TrueType, FalseType> {
 
 /**
  * @brief the type transform function for test cases
- * 
+ *
  * @tparam T target type
  * @tparam Y original type
  * @param y  original value
@@ -69,8 +69,8 @@ __host__ __device__ T TypeTransform(Y y) {
     return (T)y;
 }
 
-__host__ __device__ bool IsPowOfTwo(unsigned int num) { return !(num & (num - 1));}
+__host__ __device__ bool IsPowOfTwo(unsigned int num) { return !(num & (num - 1)); }
 
 }  // namespace akg_reduce
 
-#endif // AKG_REDUCE_UTIL_H
+#endif  // AKG_REDUCE_UTIL_H

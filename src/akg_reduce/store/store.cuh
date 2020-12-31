@@ -72,4 +72,4 @@ __device__ __forceinline__ void DirectReturn2DY(OutputT *shared_buf, OutputT *ou
 
 }  // namespace akg_reduce
 
-#endif // AKG_REDUCE_STORE_H
+#endif  // AKG_REDUCE_STORE_H
