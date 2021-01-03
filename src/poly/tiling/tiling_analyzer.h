@@ -301,7 +301,6 @@ class TilingAnalyzer {
   // Axis space get from schedule tree.
   std::unordered_map<const For *, TileAxis *> tile_axis_;
 
-  bool is_dynamic_{false};
   std::unordered_map<TilingAnalyzer::BufferEntry *, std::pair<int, int>> buffer_usage_timetable_;
   std::unordered_map<std::string, std::shared_ptr<BufferEntry>> buf_info_;
 
