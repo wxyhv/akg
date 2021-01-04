@@ -725,7 +725,7 @@ Stmt GpuIslEmitter::EmitBlock(const isl::ast_node_block &block_node) {
       CHECK(usr_expr);
       auto stmt_id = usr_expr.get_arg(0).as<isl::ast_expr_id>().get_id();
       if (info_.IsRealize(stmt_id)) {
-        isl::id new_stmt_id = isl::id(stmt_id.ctx(), stmt_id.name().substr(8));
+        isl::id new_stmt_id = isl::id(stmt_id.ctx(), stmt_id.name().substr(REALIZE_PREFIX_LEN));
         int stmt_num = stmts.size();
         CHECK_NE(stmt_num, 0) << "when stmt_num is zero, no realize should be emitted!.";
         if (stmt_num == 1) {
@@ -737,8 +737,8 @@ Stmt GpuIslEmitter::EmitBlock(const isl::ast_node_block &block_node) {
             for (int index = stmt_num - 2 - last_num; index >= 0; --index) {
               auto p_index = static_cast<unsigned int>(index);
               stmts[p_index] = Block::make(stmts[p_index], stmts[p_index + 1]);
-              stmts[p_index] = InsertRealize(stmts[p_index], new_stmt_id);
             }
+            stmts[0] = InsertRealize(stmts[0], new_stmt_id);
           }
         }
         last_num = stmt_num - 1;

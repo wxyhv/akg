@@ -115,7 +115,7 @@ namespace poly {
   X(pow)                          \
   X(isnan)                        \
   X(load3d_l1_ub)                 \
-  X(tanh)                         \
+  X(tanh)
 
 #define GENERATE_ENUM(ENUM) ENUM,
 
@@ -315,6 +315,8 @@ constexpr auto ATOMIC_COND_CLEAN = "atomic_cond_clean";
 
 constexpr auto UBL0 = "UBL0";
 constexpr auto REALIZE_ = "realize_";
+constexpr auto REALIZE_PREFIX = "REALIZE_";
+constexpr auto REALIZE_PREFIX_LEN = 8;
 
 constexpr auto B0 = "b0";
 constexpr auto B1 = "b1";
