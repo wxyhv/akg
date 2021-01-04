@@ -158,7 +158,9 @@ class GpuIslEmitter : public IslEmitter {
   std::string FindRealizeScopeToString(const isl::id &var);
   Stmt InsertRealize(Stmt stmt, const isl::id &var);
 
-  VarExpr IterNameAdaptor(std::string name);
+  Expr IterNameAdaptor(std::string name);
+  Expr SingleConfigToMultiBand(std::string name);
+
   int GetThreadExtent(const std::string &name);
 
   // func to modify the stride

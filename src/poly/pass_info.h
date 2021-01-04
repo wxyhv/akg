@@ -16,6 +16,8 @@
 #ifndef POLY_PASS_INFO_H_
 #define POLY_PASS_INFO_H_
 
+#include <tvm/expr.h>
+
 #include <vector>
 #include <map>
 #include <unordered_map>
@@ -24,6 +26,20 @@
 namespace akg {
 namespace ir {
 namespace poly {
+
+struct DimensionInfo {
+  int64_t index;
+  std::string axis;
+  int64_t l1_tiling_size;
+  int64_t l0_tiling_size;
+  int64_t dim_seq;
+  air::Expr l1_var;
+  air::Expr l0_var;
+  air::Expr pragma;
+  bool is_inner{false};
+};
+using TileSizes = std::vector<DimensionInfo>;
+
 using ReduceStmtMap = std::unordered_map<isl::id, std::vector<std::string>, isl::IslIdIslHash>;
 class Dependency {
  private:
@@ -58,6 +74,8 @@ class PassInfo {
 
   isl::schedule_constraints constraints_;
 
+  TileSizes tile_sizes_;
+
   bool coincident_{true};
 
   isl::union_map dependences_;
@@ -69,7 +87,6 @@ class PassInfo {
   bool has_invariant_dependence_{false};
 
   bool restart_{false};
-
 };
 
 }  // namespace poly

@@ -332,7 +332,7 @@ void ReduceStrategy::DealWithPostReduceTensors() {
 
 void GpuStrategy::AddGpuConstraint() {
   InitMappingLimit();
-  if (template_ == Template::BROADCAST_OP) {
+  if (template_ == Template::BROADCAST_OP || template_ == Template::CUSTOM_CONFIG) {
     BroadcastSpeedup();
   }
   BuildAxesQueue();
@@ -990,7 +990,9 @@ void GpuStrategy::AnalyzeBroadcastIdx() {
 }
 
 void GpuStrategy::GpuScalarBroadcastStrategy() {
-  template_ = Template::PURE_ELEM;  // change template to enable injective speed up
+  if (template_ != Template::CUSTOM_CONFIG) {
+    template_ = Template::PURE_ELEM;  // change template to enable injective speed up
+  }
   auto broadcast_axes = analyzer_->GetAxesContainsAttr(AT_BROADCAST);
   if (broadcast_axes.empty()) {
     return;
