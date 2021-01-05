@@ -327,6 +327,8 @@ constexpr auto T2 = "t2";
 constexpr auto L1 = "l1";
 constexpr auto L0 = "l0";
 constexpr auto REPLACE = "replace_";
+constexpr auto COMPUTE = "compute";
+constexpr auto PROMOTE = "promote_";
 constexpr auto BLOCK_IDX_X = "blockIdx.x";
 constexpr auto BLOCK_IDX_Y = "blockIdx.y";
 constexpr auto BLOCK_IDX_Z = "blockIdx.z";
@@ -361,6 +363,7 @@ constexpr auto ALLOC_REALIZE_OUT = "alloc_out";
 constexpr auto CALL_IM2COL_UB = "cce_img2col_ub";
 constexpr auto ATTR_IM2COL_KEY = "im2colKey";
 
+constexpr auto PROMOTE_VECTORIZATION = "promote_vectorization";
 constexpr auto THREAD_MARKER = "thread_marker";
 constexpr auto BLOCK_MARKER = "block_marker";
 constexpr auto REDUCE_MARKER = "reduce_marker_";

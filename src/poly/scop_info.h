@@ -213,11 +213,13 @@ class UserConfig {
       ParseBoolAttr(attrs, "use_register_memory", &use_register_memory_);
       ParseBoolAttr(attrs, "use_shared_memory", &use_shared_memory_);
       ParseBoolAttr(attrs, "enable_bank_conflict_opt", &enable_bank_conflict_);
+      ParseBoolAttr(attrs, "enable_one_dim_thread", &enable_one_dim_thread_);
       ParseIntAttr(attrs, "register_memory_depth", &register_depth_);
       ParseIntAttr(attrs, "shared_memory_depth", &shared_depth_);
       ParseStringAttr(attrs, "shared_memory_tensors", &shared_tensors_);
       ParseStringAttr(attrs, "reduce_lib_type", &reduce_lib_type_);
       ParseStringAttr(attrs, "local_memory_tensors", &local_tensors_);
+      ParseVectorLoadTypeAttr(attrs, "vector_load_type", &vector_load_type_);
     }
 
     if (force_remove_self_dependence_) {
@@ -236,7 +238,7 @@ class UserConfig {
 
   // getter for tiling config
   MappingCfg *GetBlockConfig() { return &block_cfg_; }
-  MappingCfg *GetThreadConfig() { return &thread_cfg_; }
+  MappingCfg *GetThreadConfig();
   std::unordered_map<std::string, MappingCfg> &GetReplaceConfig() { return replace_cfg_; }
   void SetMaxElemPerThread(int max_elem_per_thread) { max_elem_per_thread_ = max_elem_per_thread; }
   int GetMaxElemPerThread() const { return max_elem_per_thread_; }
@@ -244,9 +246,12 @@ class UserConfig {
     this->block_cfg_.type = BLOCKS;
     this->block_cfg_.BindFromStr(block_cfg);
   }
-  void SetThreadConfig(const std::string &thread_cfg) {
-    this->thread_cfg_.type = THREADS;
-    this->thread_cfg_.BindFromStr(thread_cfg);
+  void SetThreadConfig(const std::string &thread_cfg);
+  void RecordReplaceConfig(const std::string id, const std::string replace_cfg_str) {
+    MappingCfg replace_cfg;
+    replace_cfg.type = REPLACE_THREADS;
+    replace_cfg.BindFromStr(replace_cfg_str, id);
+    this->replace_cfg_[id] = replace_cfg;
   }
   void RecordReplaceConfig(const std::string id, const std::string replace_cfg_str, const MappingType mapping_type) {
     MappingCfg replace_cfg;
@@ -355,6 +360,9 @@ class UserConfig {
   bool GetEnableAkgReduceLib() { return enable_akg_reduce_lib_; }
   void SetEnableAkgReduceLib(bool enable_akg_reduce_lib) { enable_akg_reduce_lib_ = enable_akg_reduce_lib; }
 
+  bool GetEnableOneDimThread() { return enable_one_dim_thread_; }
+  void SetEnableOneDimThread(bool enable_one_dim_thread) { enable_one_dim_thread_ = enable_one_dim_thread; }
+
   bool UseRegisterMemory() { return use_register_memory_; }
   bool UseSharedMemory() { return use_shared_memory_; }
   void SetUseSharedMemory(bool use_shared_memory) { use_shared_memory_ = use_shared_memory; }
@@ -366,6 +374,7 @@ class UserConfig {
   std::string GetLocalTensors() { return local_tensors_; }
   void SetEnableBankConflict(bool enable_bank_conflict) { enable_bank_conflict_ = enable_bank_conflict; }
   bool GetEnableBankConflict() { return enable_bank_conflict_; }
+  int GetVectorLoadType() { return vector_load_type_; }
 
  private:
   // tools for parsing user config
@@ -443,6 +452,22 @@ class UserConfig {
     }
   }
 
+  static void ParseVectorLoadTypeAttr(const Map<std::string, NodeRef> &attrs, const std::string &attr_name,
+                                      int *attr_to_set) {
+    std::string str_cfg = "";
+    ParseStringAttr(attrs, attr_name, &str_cfg);
+    // Vectorization only supports float1/float2/float3/float4
+    std::string support_type = "float";
+    if (str_cfg.size() != support_type.size() + 1 || str_cfg.find(support_type) != 0) {
+      return;
+    }
+    int type_num = std::stoi(str_cfg.substr(support_type.size()));
+    if (type_num < 1 || type_num > 4) {
+      return;
+    }
+    *attr_to_set = type_num * (Float(32).bits());
+  }
+
  private:
   isl::ctx ctx_{isl_ctx_alloc()};
   std::string target_;
@@ -481,6 +506,9 @@ class UserConfig {
   std::string reduce_lib_type_{"origin"};
   // local memory tensor list
   std::string local_tensors_;
+  // vectorization
+  int vector_load_type_{0};
+  bool enable_one_dim_thread_{false};
 
   // tiling config
   std::string b_dim_;
@@ -614,6 +642,10 @@ class AnalysisResult {
   void RecordReduceOutTensors(const std::string &tensor_name) { reduce_out_tensors_.insert(tensor_name); }
   void RecordContextParams(const isl::set &context_params) { context_params_ = context_params; }
   isl::set GetContextParams() { return context_params_; }
+  void RecoreSharedTensorBitsMap(const std::string tensor_name, const int tensor_bits) {
+    shared_tensor_bits_map_.emplace(tensor_name, tensor_bits);
+  }
+  std::unordered_map<std::string, int> GetSharedTensorBitsMap() const { return shared_tensor_bits_map_; }
   std::vector<AtomicInfo> GetAtomicTensors() { return atomic_tensors_; }
   std::unordered_set<std::string> GetReduceOutTensors() { return reduce_out_tensors_; }
   isl::union_map GetReads() const { return reads_; }
@@ -755,6 +787,7 @@ class AnalysisResult {
   std::vector<AtomicInfo> atomic_tensors_;
   std::unordered_set<std::string> reduce_out_tensors_;
   bool enabled_auto_tiling_{false};
+  std::unordered_map<std::string, int> shared_tensor_bits_map_;
 };
 
 class CubeInfo {

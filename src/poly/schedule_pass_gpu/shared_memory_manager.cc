@@ -144,11 +144,33 @@ isl::schedule_node SharedMemoryManager::MapCopiesToThreads(isl::schedule_node &r
           has_split = true;
         }
 
-        // TODO: CHECK <<"no copy band"
+        auto mapping_cfg = thread_cfg;
+        if (scop_info_.user_config_.GetVectorLoadType()) {
+          scop_info_.user_config_.SetEnableOneDimThread(true);
+        }
+        if (scop_info_.user_config_.GetEnableAkgReduceLib()) {
+          scop_info_.user_config_.SetEnableOneDimThread(false);
+        }
+        if (scop_info_.user_config_.GetEnableOneDimThread()) {
+          mapping_cfg = GetCurrentConfig(band_node);
 
-        // TODO: CHECK <<"attempted to map memory copies to threads below another thread mapping"
+          bool use_thread_cfg = true;
+          if (mapping_cfg != nullptr && mapping_cfg->bound != thread_cfg->bound) {
+            use_thread_cfg = false;
+          } else if (mapping_cfg != nullptr && mapping_cfg->bound == thread_cfg->bound) {
+            for (size_t i = 0; i < mapping_cfg->bound; ++i) {
+              if (mapping_cfg->GetAt(i).second != thread_cfg->GetAt(i).second) {
+                use_thread_cfg = false;
+                break;
+              }
+            }
+          }
+          if (use_thread_cfg) {
+            mapping_cfg = thread_cfg;
+          }
+        }
         Mapping mapping;
-        auto after_map_pair = MapInnerDimToThreads(band_node, true, thread_cfg, mapping, false);
+        auto after_map_pair = MapInnerDimToThreads(band_node, true, mapping_cfg, mapping, false);
         band_node = after_map_pair.first;
         auto InsertAtomicMarker = [atomic_type, this](isl::schedule_node atomic_node) -> isl::schedule_node {
           if (atomic_type != "" && atomic_node.has_children() &&
@@ -181,6 +203,93 @@ isl::schedule_node SharedMemoryManager::MapCopiesToThreads(isl::schedule_node &r
   };
 
   return root.map_descendant_bottom_up(CollectReadWriteFilter);
+}
+
+MappingCfg *SharedMemoryManager::GetCurrentConfig(isl::schedule_node &node) {
+  std::string id_name = "";
+  for (size_t i = 0; i < scop_info_.analysis_result_.buffer_def_infos_.size(); ++i) {
+    auto tensor_id = scop_info_.analysis_result_.buffer_def_infos_[i].tensor_id;
+    isl::union_set id_domain = node.as<isl::schedule_node_band>().get_partial_schedule().domain();
+    id_domain.foreach_set([tensor_id, &id_name](const isl::set &s) -> void {
+      if (s.to_str().find(tensor_id.get_name()) != std::string::npos) {
+        id_name = tensor_id.get_name();
+      }
+    });
+
+    if (!id_name.empty()) {
+      break;
+    }
+  }
+
+  bool enable_vectorization = true;
+  auto vector_load_type = scop_info_.user_config_.GetVectorLoadType();
+  if (vector_load_type == 0) {
+    enable_vectorization = false;
+  }
+
+  auto shares_tensor_bits_map = scop_info_.analysis_result_.GetSharedTensorBitsMap();
+  if (enable_vectorization && !shares_tensor_bits_map.count(id_name)) {
+    enable_vectorization = false;
+  }
+
+  int vectorization_loop = 0;
+  if (enable_vectorization) {
+    vectorization_loop = vector_load_type / shares_tensor_bits_map[id_name];
+  }
+
+  auto replace_cfg_map = scop_info_.user_config_.GetReplaceConfig();
+  id_name = PROMOTE + id_name;
+  if (replace_cfg_map.count(id_name) == 0) {
+    auto partial_schedule = node.as<isl::schedule_node_band>().get_partial_schedule();
+    auto upa_list = GetUPAList(node, partial_schedule, true, false);
+
+    auto thread_cfg = scop_info_.user_config_.GetThreadConfig();
+    CHECK(thread_cfg != nullptr) << "thread config is null";
+
+    int total_thread = 1;
+    for (size_t i = 0; i < thread_cfg->bound; ++i) {
+      total_thread *= thread_cfg->GetAt(i).second;
+    }
+
+    std::string new_cfg = "";
+    int mapping_dim = std::min(static_cast<int>(upa_list.size()), static_cast<int>(thread_cfg->MaxDim()));
+    for (int i = 0; i < mapping_dim; ++i) {
+      auto extend = upa_list.get_at(i).max_val().get_num_si() + 1;
+      if (extend > total_thread || (i == mapping_dim - 1 && extend < total_thread)) {
+        new_cfg += (std::to_string(total_thread) + " ");
+        break;
+      }
+
+      if (i == 0 && enable_vectorization) {
+        extend /= vectorization_loop;
+      }
+      total_thread /= extend;
+      new_cfg += (std::to_string(extend) + " ");
+    }
+
+    if (new_cfg.empty()) {
+      return nullptr;
+    }
+    scop_info_.user_config_.RecordReplaceConfig(id_name, new_cfg);
+  }
+  auto mapping_cfg = &(scop_info_.user_config_.GetReplaceConfig()[id_name]);
+
+  if (enable_vectorization) {
+    isl::multi_val tile_size;
+    auto ctx = node.ctx();
+    auto space = node.as<isl::schedule_node_band>().get_space();
+    tile_size = isl::multi_val::zero(space);
+
+    auto n_member = node.as<isl::schedule_node_band>().n_member();
+    for (size_t i = 0; i < n_member - 1; ++i) {
+      tile_size = tile_size.set_val(i, isl::val(ctx, 1));
+    }
+    tile_size = tile_size.set_val(n_member - 1, isl::val(ctx, vectorization_loop));
+
+    node = TileBand(node, tile_size).child(0);
+    node = node.insert_mark(PROMOTE_VECTORIZATION).parent();
+  }
+  return mapping_cfg;
 }
 
 isl::schedule_node SharedMemoryManager::ManageToShareBelow(isl::schedule &root_sch, isl::schedule_node &node,
@@ -353,6 +462,10 @@ void SharedMemoryManager::GatherBufferFootprintDefInfo(const isl::schedule_node 
   Tensor tensor = placeholder(shapes, type, cluster_id.get_name());
   const Buffer buffer = decl_buffer(shapes, scop_info_.GetDtypeOf(tensor_id), cluster_id.get_name());
   scop_info_.user_config_.SetBind(tensor, buffer);
+  if (scop_info_.user_config_.GetVectorLoadType()) {
+    scop_info_.analysis_result_.RecoreSharedTensorBitsMap(tensor_id.get_name(),
+                                                          scop_info_.GetDtypeOf(tensor_id).bits());
+  }
 
   tensor_info.sizes = sizes;
   tensor_info.tensor = tensor;

@@ -84,6 +84,9 @@ const std::map<std::string, std::string> normal_data_type_adapter{{"float32", "f
                                                                   {"uint64x2", "longlong"}};
 const std::map<std::string, std::string> unique_data_type_adapter{{"bool", "signed char"}};
 
+// add for one dimension mapping
+constexpr auto ORIGIN_THREAD_DIM_X = "bind_thread_x";
+
 struct ReduceEmitInfo {
   // output tensor info
   std::string output_tensor_name_;
@@ -161,6 +164,7 @@ class GpuIslEmitter : public IslEmitter {
   Expr IterNameAdaptor(std::string name);
   Expr SingleConfigToMultiBand(std::string name);
 
+  Expr AdaptPolyNewVar(std::string name);
   int GetThreadExtent(const std::string &name);
 
   // func to modify the stride

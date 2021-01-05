@@ -49,6 +49,8 @@ class SharedMemoryManager : public SchedulePass {
 
   isl::schedule_node MapCopiesToThreads(isl::schedule_node &root, bool unroll);
 
+  MappingCfg *GetCurrentConfig(isl::schedule_node &node);
+
   isl::schedule_node ManageToShareBelow(isl::schedule &root, isl::schedule_node &node, size_t &remaining_memory);
 
   void CreateClusterList(const isl::schedule_node &node, const isl::union_map &outer_sch);

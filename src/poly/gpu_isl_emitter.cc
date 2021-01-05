@@ -895,6 +895,10 @@ int GpuIslEmitter::GetThreadExtent(const std::string &name) {
   if (name == THREAD_IDX_X || name == THREAD_IDX_Y || name == THREAD_IDX_Z) {
     auto thread_cfg = info_.user_config_.GetThreadConfig();
     CHECK(thread_cfg) << "thread config is null.";
+    if (info_.user_config_.GetEnableOneDimThread()) {
+      return name == THREAD_IDX_X ? (thread_cfg->GetX().second * thread_cfg->GetY().second * thread_cfg->GetZ().second)
+                                  : 1;
+    }
     return name == THREAD_IDX_X ? thread_cfg->GetX().second
                                 : (name == THREAD_IDX_Y ? thread_cfg->GetY().second : thread_cfg->GetZ().second);
   }
@@ -911,8 +915,16 @@ Stmt GpuIslEmitter::Emit(const isl::ast_node &node) {
   // iter var node attr emit
   std::map<std::string, VarExpr>::iterator it;
   for (it = iter_name_map_.begin(); it != iter_name_map_.end(); it++) {
-    IterVar axis = IterVarNode::make(Range(), it->second, air::kThreadIndex, it->second->name_hint);
-    stmt = AttrStmt::make(axis, "thread_extent", Expr(GetThreadExtent(it->second->name_hint)), stmt);
+    if (GetThreadExtent(it->second->name_hint) != 1) {
+      IterVar axis = IterVarNode::make(Range(), it->second, air::kThreadIndex, it->second->name_hint);
+      stmt = AttrStmt::make(axis, "thread_extent", Expr(GetThreadExtent(it->second->name_hint)), stmt);
+    }
+  }
+
+  // attr for one dimension mapping
+  if (info_.user_config_.GetEnableOneDimThread()) {
+    stmt =
+      AttrStmt::make(Expr(""), ORIGIN_THREAD_DIM_X, Expr(info_.user_config_.GetThreadConfig()->GetX().second), stmt);
   }
 
   bool emit_attr = AddAttrCheck().Run(stmt);
@@ -1048,7 +1060,7 @@ Expr GpuIslEmitter::IterNameAdaptor(std::string name) {
     if (info_.user_config_.GetEnableTileL0()) {
       return SingleConfigToMultiBand(name);
     }
-    return name;
+    return AdaptPolyNewVar(name);
   } else {
     return VarExpr(name);
   }
@@ -1080,6 +1092,39 @@ Expr GpuIslEmitter::SingleConfigToMultiBand(std::string name) {
     e = Div::make(original_id, rep_size);
   } else {
     LOG(FATAL) << "Unexpected binding id: " << name;
+  }
+  return e;
+}
+
+// if new var is added in poly process, modify the logic here.
+// another modify pos is IterNameAdaptor interface
+Expr GpuIslEmitter::AdaptPolyNewVar(std::string name) {
+  Expr e;
+  std::string t0_string = T0;
+  int suffix_len = t0_string.size() + 1;
+  auto tensor_name = name.substr(0, name.size() - suffix_len);
+  if (!info_.user_config_.GetReplaceConfig().count(tensor_name)) {
+    return e;
+  }
+  auto mapping_cfg = &(info_.user_config_.GetReplaceConfig()[tensor_name]);
+  CHECK(mapping_cfg) << "mapping config is null.";
+  int mx = mapping_cfg->GetX().second;
+  int my = mapping_cfg->GetY().second;
+  int mz = mapping_cfg->GetZ().second;
+  if (name.find(T0) != std::string::npos) {
+    e = Mod::make(iter_name_map_[T0], mx);
+    return e;
+  } else if (name.find(T1) != std::string::npos) {
+    e = Div::make(iter_name_map_[T0], mx);
+    if (mz == 1) {
+      return e;
+    }
+    e = Mod::make(e, my);
+    return e;
+  } else if (name.find(T2) != std::string::npos) {
+    e = Div::make(iter_name_map_[T0], mx);
+    e = Div::make(e, my);
+    return e;
   }
   return e;
 }
