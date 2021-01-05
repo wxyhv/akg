@@ -463,8 +463,7 @@ class BroadcastInserter : public IRMutator {
 
  private:
   int name_idx_ = 0;
-  std::unordered_map<std::string, unsigned> broadcast_ops_ = {{"Equal", -1},
-                                                              {"Cast", -1}};
+  std::unordered_map<std::string, unsigned> broadcast_ops_ = {{"Equal", -1}, {"Select", -1}, {"Cast", -1}};
 };
 
 class TypeCastInserter : public IRMutator {
