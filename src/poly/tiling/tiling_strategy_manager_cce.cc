@@ -173,8 +173,15 @@ void ModStrategy::AddDavinciConstraint() {
 void CastStrategy::AddDavinciConstraint() { MarkDataSize(); }
 
 void ReduceStrategy::AddDavinciConstraint() {
+  if (analyzer_->scop_info_.user_config_.GetIsDynamic() || !global_attrs.GetStringAttr(kErrorInfo, "").empty()) {
+    return;
+  }
   for (auto axis : analyzer_->GetAxesOfAttr(AT_REDUCE_DST_LAST)) {
-    axis->l1_constraints.tile_min_ = CastInt64ToExpr(GetMaxAlignBytes(axis->data_size));
+    auto min_size_to_align = GetMaxAlignBytes(axis->data_size);
+    if (axis->range_extent.as<IntImm>() == nullptr || axis->range_extent.as<IntImm>()->value < min_size_to_align) {
+      continue;
+    }
+    axis->l1_constraints.tile_min_ = CastInt64ToExpr(min_size_to_align);
   }
 }
 
@@ -202,6 +209,9 @@ void VectorizedStrategy::AddDavinciConstraint() {
 }
 
 void DmaAlignStrategy::AddDavinciConstraint() {
+  if (analyzer_->scop_info_.user_config_.GetIsDynamic() || !global_attrs.GetStringAttr(kErrorInfo, "").empty()) {
+    return;
+  }
   for (auto axis : analyzer_->GetAxesContainsAttr(AT_ALIGN)) {
     for (const auto &attr : axis->attrs) {
       if ((attr.attr_key.find(AT_ALIGN) == std::string::npos) || (attr.attr_key.find(AT_DMA) == std::string::npos)) {
@@ -328,7 +338,7 @@ void ConvStrategy::AddDavinciConstraint() {
       } else if (attr.attr_value.find("C0") != std::string::npos || attr.attr_value == "kh" ||
                  attr.attr_value == "kw") {
         axis->TileRestrainEntire(LEVEL1);
-      } else if (attr.attr_value == "C1_in" && analyzer_->is_dynamic_) {
+      } else if (attr.attr_value == "C1_in" && analyzer_->scop_info_.user_config_.GetIsDynamic()) {
         // dynamic case
         axis->TileRestrainEntire(LEVEL1);
       }

@@ -455,7 +455,6 @@ void ScheduleTreeAnalyzer::AnalyzeHalide(const Stmt &stmt) {
   // Step 3: Calculate loop's possible range (considering shift).
   AddLoopRangeFromBand();
   AddLoopRangeFromIfs();
-  analyzer_->is_dynamic_ = !loop_dynamic_range_map_.empty();
 
   // Step 4: Mark loop with data size by tensor which use the index of loop.
   AddLoopDataSize();

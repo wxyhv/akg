@@ -282,7 +282,8 @@ Expr InequalitySolver::SolveMemoryConstraint(const Array<Expr> &memory_constrain
     cons_on_var.push_back(CanonicalSimplify(mc));
   }
 
-  if (!analyzer_.is_dynamic_ && cons_on_var.size() == 1U && ContainVar(cons_on_var[0], tiling_var)) {
+  if (!analyzer_.scop_info_.user_config_.GetIsDynamic() && cons_on_var.size() == 1U &&
+      ContainVar(cons_on_var[0], tiling_var)) {
     result = ExprSimplifier().ReduceInequality(cons_on_var[0], tiling_var, true, false);
     ss << "ReduceInequality Result: " << result;
     // When result of reduce is not like form `var <= something`, use inferbound instead.
@@ -574,8 +575,9 @@ int64_t InequalitySolver::DetermineTileForStatic(TileAxis *axis, const Expr &mem
       }
     }
 
-    if (analyzer_.scop_info_.user_config_.GetPragmaAnalyzeMulticore() && !analyzer_.is_dynamic_ &&
-        analyzer_.op_type_ == VECTOR_OP && analyzer_.scop_info_.user_config_.GetTarget() != TARGET_CUDA) {
+    if (analyzer_.scop_info_.user_config_.GetPragmaAnalyzeMulticore() &&
+        !analyzer_.scop_info_.user_config_.GetIsDynamic() && analyzer_.op_type_ == VECTOR_OP &&
+        analyzer_.scop_info_.user_config_.GetTarget() != TARGET_CUDA) {
       MulticoreStrategy mc_strategy_ = MulticoreStrategy(cand_, analyzer_.logger_.GetDumpDir());
       final_factor = mc_strategy_.AdjustTilingAccordingToMulticoreConstraint(axis, final_factor);
     }
@@ -1016,44 +1018,76 @@ bool TraverseSolver::DoTiling(const TileInfo *info) {
   std::stringstream ss;
   ss << "start to tile from " << init << " to " << dst;
   analyzer_.logger_.AppendLog(DO_TILING, ss);
-  for (int64_t t = init; t <= dst; ++t) {
-    if ((axis->forbid_iso && dst % t != 0) || (check_mod && t % mod != 0)) {
-      continue;
-    }
+  if (init == dst && !is_retry_) {
+    best_no_iso_val = init;
+    best_val = init;
+  }
+  auto UpdateTile = [this, &info, &axis](int64_t tile_size) {
     if (info->level == LEVEL1) {
-      cand_.UpdateConstTile(axis, t);
+      cand_.UpdateConstTile(axis, tile_size);
     } else {
-      cand_.UpdateConstTile(axis, cand_.GetConstTileVal(axis).first, t);
+      cand_.UpdateConstTile(axis, cand_.GetConstTileVal(axis).first, tile_size);
     }
-
-    if (!cand_.SpaceVerify(axis, info->level, info->band)) continue;
-    bool mem_ok = MemoryVerify(info->level, info->band, &deviation);
-
-    if (deviation < 0) {
-      ss << "factor " << t << " exceed memory, exit";
-      analyzer_.logger_.AppendLog(DO_TILING, ss);
-      break;
-    }
-
-    if (!mem_ok) continue;
-    success = true;
-    auto tail = dst % t;
+  };
+  auto UpdateChosenValue = [this, &best_no_iso_devs, &best_devs, &best_no_iso_val, &best_val, &axis](
+                             int64_t tail, int64_t deviation, int64_t tile_size) {
+    std::stringstream ss;
     if (tail == 0) {
-      if (deviation > best_no_iso_devs) continue;
-      ss << "factor " << t << " has " << deviation << " deviation, update to no isolate factor";
-      best_no_iso_val = t;
+      if (deviation > best_no_iso_devs) return;
+      ss << "factor " << tile_size << " has " << deviation << " deviation, update to no isolate factor";
+      best_no_iso_val = tile_size;
       best_no_iso_devs = deviation;
     } else {
-      if (deviation > best_devs) continue;
+      if (deviation > best_devs) return;
       if (analyzer_.scop_info_.user_config_.GetPragmaAllowTailTiling() && tail < GetMaxAlignBytes(axis->data_size)) {
-        ss << "factor " << t << " has " << tail << " tail that may disable multicore, skip.";
-        continue;
+        ss << "factor " << tile_size << " has " << tail << " tail that may disable multicore, skip.";
+        return;
       }
-      ss << "factor " << t << " has " << deviation << " deviation, update to isolate factor";
-      best_val = t;
+      ss << "factor " << tile_size << " has " << deviation << " deviation, update to isolate factor";
+      best_val = tile_size;
       best_devs = deviation;
     }
     analyzer_.logger_.AppendLog(DO_TILING, ss);
+  };
+  if (!is_retry_ && !cons.cand_factor.empty()) {
+    for (auto cand : cons.cand_factor) {
+      int64_t t = cand.as<IntImm>()->value;
+      UpdateTile(t);
+      bool mem_ok = MemoryVerify(info->level, info->band, &deviation);
+      if (deviation < 0) {
+        ss << "factor " << t << " exceed memory, exit";
+        analyzer_.logger_.AppendLog(DO_TILING, ss);
+        break;
+      }
+
+      if (!mem_ok) continue;
+      success = true;
+      auto tail = dst % t;
+      UpdateChosenValue(tail, deviation, t);
+    }
+  } else {
+    for (int64_t t = init; t <= dst; ++t) {
+      if ((axis->forbid_iso && dst % t != 0) || (check_mod && t % mod != 0)) {
+        continue;
+      }
+      UpdateTile(t);
+
+      if (!cand_.SpaceVerify(axis, info->level, info->band)) {
+        continue;
+      }
+      bool mem_ok = MemoryVerify(info->level, info->band, &deviation);
+
+      if (deviation < 0) {
+        ss << "factor " << t << " exceed memory, exit";
+        analyzer_.logger_.AppendLog(DO_TILING, ss);
+        break;
+      }
+
+      if (!mem_ok) continue;
+      success = true;
+      auto tail = dst % t;
+      UpdateChosenValue(tail, deviation, t);
+    }
   }
 
   int64_t final_factor = (axis->forbid_iso || best_no_iso_val * balance_factor > best_val) ? best_no_iso_val : best_val;
@@ -1072,8 +1106,9 @@ int64_t TraverseSolver::PostprocessFinalFactor(int64_t final_factor, TileAxis *a
     processed = MIN_TILE;
   }
 
-  if (analyzer_.scop_info_.user_config_.GetPragmaAnalyzeMulticore() && !analyzer_.is_dynamic_ &&
-      analyzer_.op_type_ == VECTOR_OP && analyzer_.scop_info_.user_config_.GetTarget() != TARGET_CUDA) {
+  if (analyzer_.scop_info_.user_config_.GetPragmaAnalyzeMulticore() &&
+      !analyzer_.scop_info_.user_config_.GetIsDynamic() && analyzer_.op_type_ == VECTOR_OP &&
+      analyzer_.scop_info_.user_config_.GetTarget() != TARGET_CUDA) {
     MulticoreStrategy mc_strategy_ = MulticoreStrategy(cand_, analyzer_.logger_.GetDumpDir());
     processed = mc_strategy_.AdjustTilingAccordingToMulticoreConstraint(axis, processed);
   }
@@ -1133,7 +1168,7 @@ void TraverseSolver::AppendConvPragma() {
   Expr mo = CanonicalSimplify(floordiv(M, CUBE_UNIT));
   CreateSpecgemmTileAxis(mo, no, ko, false);
   this->cand_.SetBatchAxis(spec_tile_axis_);
-  if (analyzer_.is_dynamic_) {
+  if (analyzer_.scop_info_.user_config_.GetIsDynamic()) {
     cand_.InitTileAxis(LEVEL0);
   } else {
     for (TileAxis *axis : this->cand_.GetTileAxis()) {
@@ -1205,7 +1240,7 @@ void TraverseSolver::AppendConvBackpropPragma() {
 
   CreateSpecgemmTileAxis(mo, no, ko, cut_reduce);
   this->cand_.SetBatchAxis(spec_tile_axis_);
-  if (analyzer_.is_dynamic_) {
+  if (analyzer_.scop_info_.user_config_.GetIsDynamic()) {
     cand_.InitTileAxis(LEVEL0);
   } else {
     for (TileAxis *axis : this->cand_.GetTileAxis()) {

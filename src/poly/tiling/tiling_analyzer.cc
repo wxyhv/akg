@@ -1200,7 +1200,7 @@ class LinearAccessPatternBuilder : public IRVisitor {
       if (analyzer_->scop_info_.user_config_.GetTarget() == TARGET_CUDA) {
         break;
       }
-      if (!analyzer_->is_dynamic_ && reduce_src_buf_.find(name) != reduce_src_buf_.end()) {
+      if (!analyzer_->scop_info_.user_config_.GetIsDynamic() && reduce_src_buf_.find(name) != reduce_src_buf_.end()) {
         expand_size *= BISEC_REDUCE_MEM_EXPANSION;
       }
       if (expanded_buf_.find(name) != expanded_buf_.end()) {
@@ -1389,7 +1389,7 @@ void TilingAnalyzer::AddTilingConstraints() {
     strategy_manager->SetStrategies(actived_strategies);
     strategy_manager->ExecuteGpu();
     return;
-  }  // namespace poly
+  }
 
   // CCE strategies
   PassDownAttrStrategy pd_attr_strategy(this);
@@ -1400,13 +1400,12 @@ void TilingAnalyzer::AddTilingConstraints() {
   TensorOfTensorStrategy tot_strategy(this);
   actived_strategies.push_back(&cast_strategy);
   actived_strategies.push_back(&vectorized_strategy);
-  if (!is_dynamic_) {
-    ReduceStrategy reduce_strategy(this);
-    DmaAlignStrategy dma_align_stratgey(this);
-    actived_strategies.push_back(&reduce_strategy);
-    actived_strategies.push_back(&dma_align_stratgey);
-  }
   actived_strategies.push_back(&tot_strategy);
+
+  ReduceStrategy reduce_strategy(this);
+  DmaAlignStrategy dma_align_stratgey(this);
+  actived_strategies.push_back(&reduce_strategy);
+  actived_strategies.push_back(&dma_align_stratgey);
 
   ModStrategy mod_strategy(this);
   actived_strategies.push_back(&mod_strategy);
@@ -1434,8 +1433,8 @@ void TilingAnalyzer::AddTilingConstraints() {
   actived_strategies.push_back(&dyn_bound_strategy);
 
   strategy_manager->SetStrategies(actived_strategies);
-  strategy_manager->Execute();
-}  // namespace ir
+  strategy_manager->ExecuteCce();
+}
 
 bool TilingAnalyzer::Prepare() {
   // Stage 1: Analyze schedule tree.
