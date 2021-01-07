@@ -22,8 +22,10 @@ import logging
 import subprocess
 import numpy as np
 from collections import namedtuple
+from multiprocessing import Process, Manager
 from akg import composite
 from akg.utils import kernel_exec as utils
+from akg.composite.build_module import generate_trait
 from autotuning.runner import KernelRunner, error_time_list, error_time_string
 from autotuning.tuner import ModelBasedTuner, Tuner
 from autotuning.type_definitions import ConvDesc, ConvBackpropDesc, MatmulCubeDesc
@@ -38,12 +40,46 @@ logger = logging.getLogger('fuzz.tune.autotuning.job')
 json_file = './res/' + "{0}" + ".json"
 json_load = './autotuning/shapes/' + "{0}"
 
-def launch_json(debug_mode: bool = True, save_res: bool = False, json_input_dir=""):
+def get_repo(repo, keys, default=None):
+        for key in keys:
+            repo = repo.get(key)
+            if not repo:
+                return default
+        return repo
+
+def get_json_space(json_input, space_dict):
+    space_res = composite.get_tiling_space(json_input, 2)
+    space_dict['res'] = space_res
+
+def gen_bool_list(attr_list):
+    bool_list = []
+    for _ in attr_list:
+        if len(bool_list) == 0:
+            bool_list = [[True], [False]]
+        else:
+            tmp_list = []
+            for attr_option in bool_list:
+                tmp = attr_option[:]
+                tmp.append(True)
+                tmp1 = tmp[:]
+                tmp.pop()
+                tmp.append(False)
+                tmp2 = tmp[:]
+                tmp_list.append(tmp1)
+                tmp_list.append(tmp2)
+            bool_list = tmp_list
+    return bool_list
+
+def launch_json(debug_mode: bool = True, save_res: bool = False, json_dir="", repo_path="", all_space=False,
+                skip_exist=True, extra_tune=False, self_attrs=[], tuning_attrs=[]):
     """composite json tuning launch"""
+    subprocess.run("mkdir -p res/", shell=True)
     iter_times = [3, 3, 3] if debug_mode else [80, 160, 320]
-    json_dir = json_load.format(json_input_dir)
     files = os.listdir(json_dir)
+    with open(repo_path, 'r') as f:
+        repo = json.loads(f.read())
     for input_file in files:
+        print("----Start tuning for ", input_file)
         with open(json_dir + '/' + input_file, 'r') as f:
             json_input = f.read()
         json_content = json.loads(json_input)
@@ -51,20 +87,78 @@ def launch_json(debug_mode: bool = True, save_res: bool = False, json_input_dir=
             if input_desc[0]["shape"] == []:
                 input_desc[0]["shape"] = [1]
         json_input = json.dumps(json_content)
-        space_res = composite.get_tiling_space(json_input, 2)
-        index_table = space_res['index']
-        tiling_spaces = space_res['tuning_space']
-        if not tiling_spaces:
-            raise RuntimeError('empty tiling spaces')
-        dim_names = ['tiling_' + str(i) for i in range(len(tiling_spaces[0]))]
-        input_type = namedtuple("json", dim_names)
-        space = ListConfigSpace(input_type)
-        for tiling_space in tiling_spaces:
-            config = input_type(*tiling_space)
-            space.add(config)
-        key = json_content["op"]
-        input_for_mod, expect = gen_data(op_type="json", op_desc=json_input)
 
+        # skip tuning for info in repo
+        if skip_exist:
+            compute, shape, dtype = generate_trait(json_content)
+            if get_repo(repo, [compute, shape, dtype]):
+                print("Info for %s already exists" % input_file)
+                print("ops are " , str(compute))
+                print("shape is " , str(shape))
+                print("dtype is " , str(dtype))
+                with open('res/skip_file.txt', 'a') as fe:
+                    fe.write(input_file)
+                    fe.write("\n")
+                continue
+
+        # generate tuning space
+        if not extra_tune:
+            time_start_get_space = time.time()
+            with Manager() as manager:
+                space_dict = manager.dict()
+                p = Process(target=get_json_space, args=(json_input, space_dict))
+                p.start()
+                p.join(600)
+                if 'res' not in space_dict:
+                    with open('res/error_space_list.txt', 'a') as fe:
+                        fe.write(input_file)
+                        fe.write("\n")
+                    continue
+                space_res = space_dict['res']
+            time_end_get_space = time.time()
+            print("get space time: ", time_end_get_space - time_start_get_space)
+            index_table = space_res['index']
+            tiling_spaces = space_res['tuning_space']
+            if not tiling_spaces:
+                raise RuntimeError('empty tiling spaces')
+            dim_names = ['tiling_' + str(i) for i in range(len(tiling_spaces[0]))]
+            use_tuning_attrs = len(tiling_spaces) < 10 ** 5
+            if tuning_attrs and use_tuning_attrs:
+                dim_names.extend(tuning_attrs)
+            input_type = namedtuple("json", dim_names)
+            space = ListConfigSpace(input_type)
+            if tuning_attrs and use_tuning_attrs:
+                attr_options = gen_bool_list(tuning_attrs)
+                for tiling_space in tiling_spaces:
+                    for attr_option in attr_options:
+                        tmp = tiling_space[:]
+                        tmp.extend(attr_option)
+                        config = input_type(*tmp)
+                        space.add(config)
+            else:
+                for tiling_space in tiling_spaces:
+                    config = input_type(*tiling_space)
+                    space.add(config)
+        else:
+            index_table = []
+            pre_lists = gen_bool_list(self_attrs)
+            pre_input_type = namedtuple("extra_tune", self_attrs)
+            space = ListConfigSpace(pre_input_type)
+            for item in pre_lists:
+                config = pre_input_type(*item)
+                space.add(config)
+
+        key = json_content["op"]
+        try:
+            input_for_mod, expect = gen_data(op_type="json", op_desc=json_input)
+        except BaseException as e:
+            logger.debug("gen numpy data from [%s] failed: %s", input_file, str(e))
+            with open('res/error_gen_data_list.txt', 'a') as fe:
+                fe.write(input_file)
+                fe.write(": ")
+                fe.write(str(e))
+                fe.write("\n")
+            continue
         print('space size:', space.length)
         print('index table:', index_table)
 
@@ -73,8 +167,9 @@ def launch_json(debug_mode: bool = True, save_res: bool = False, json_input_dir=
             output_para = []
             for i in range(len(json_content["output_desc"])):
                 output_para.append(i - len(json_content["output_desc"]))
-        runner = KernelRunner(op_type="json", op_desc=json_input, index_table=index_table, input_data=input_for_mod,
-                            expect=expect, mod_output_param=output_para, timeout=180, repeat_times=1)
+        runner = KernelRunner(op_type="json", op_desc=json_input, index_table=index_table, self_attrs=self_attrs,
+                              input_data=input_for_mod, expect=expect, mod_output_param=output_para, timeout=180,
+                              repeat_times=1)
 
         # we can only get a valid tiling, or accurate get cycles
         is_truly_profiling = utils.get_profiling_mode() or os.environ['RUNTIME_MODE'] == "gpu"
@@ -82,16 +177,24 @@ def launch_json(debug_mode: bool = True, save_res: bool = False, json_input_dir=
         # available device numbers, normally is 8 or 1
         available_device_numbers = utils.get_available_devices_num()
 
-        tuner = ModelBasedTuner(runner, index_table, space,
-                                n_parallel=available_device_numbers if is_truly_profiling else 1,
-                                plan_size=64, pre_model=None)
-        least_try_times = iter_times[0 if space.length < 10 ** 4 else 1 if space.length < 10 ** 5 else 2]
+        if all_space:
+            tuner = Tuner(runner, index_table, space, n_parallel=available_device_numbers)
+            least_try_times = space.length
+        else:
+            tuner = ModelBasedTuner(runner, index_table, space,
+                                    n_parallel=available_device_numbers if is_truly_profiling else 1,
+                                    plan_size=64, pre_model=None)
+            least_try_times = iter_times[0 if space.length < 10 ** 4 else 1 if space.length < 10 ** 5 else 2]
         tuner.tune(least_try_times, output_file="json.log")
 
         print_tuning_result("json", space, index_table, tuner, key)
 
         if save_res:
-            save_tuning_result(key, "json", None, index_table, tuner)
+            if extra_tune:
+                save_tuning_result(key, "extra_tune", json_content, index_table, tuner, repo_path)
+            else:
+                save_tuning_result(key, "json", json_content, index_table, tuner, repo_path)
+
 
 def jobs(op_type: str = 'add', desc=None, debug_mode: bool = True, save_res: bool = False,
          all_space: bool = True, insert_key='', conf_of_set_dim=""):
@@ -99,8 +202,6 @@ def jobs(op_type: str = 'add', desc=None, debug_mode: bool = True, save_res: boo
     iter_times = [3, 3, 3] if debug_mode else [80, 160, 320]
     time_start_get_space = time.time()
     index_table, space, key, expect, input_for_mod = get_space(op_type, desc)
-    if all_space:
-        iter_times = [space.length, space.length, space.length]
     time_end_get_space = time.time()
     print("get space time: ", time_end_get_space - time_start_get_space)
     print('space size:', space.length)
@@ -130,11 +231,12 @@ def jobs(op_type: str = 'add', desc=None, debug_mode: bool = True, save_res: boo
     time_start_tuning = time.time()
     if all_space:
         tuner = Tuner(runner, index_table, space, n_parallel=available_device_numbers)
+        least_try_times = space.length
     else:
         tuner = ModelBasedTuner(runner, index_table, space,
                                 n_parallel=available_device_numbers if is_truly_profiling else 1,
                                 plan_size=64, pre_model=None)
-    least_try_times = iter_times[0 if space.length < 10 ** 4 else 1 if space.length < 10 ** 5 else 2]
+        least_try_times = iter_times[0 if space.length < 10 ** 4 else 1 if space.length < 10 ** 5 else 2]
     tuner.tune(least_try_times, output_file=op_type + ".log")
 
     time_end_tuning = time.time()
@@ -160,7 +262,7 @@ def print_tuning_result(op_type, space, index_table, tuner, key):
         print(space.get(x), y if y not in error_time_string.keys() else error_time_string[y])
 
 
-def save_tuning_result(key, op_type, desc, index_table, tuner):
+def save_tuning_result(key, op_type, desc, index_table, tuner, repo_path="", extra_tune=False):
     """save tuning result"""
     if tuner.best_config is not None and tuner.best_time not in error_time_list:
         set_dim_configs = tuner.best_config.input
@@ -210,7 +312,11 @@ def save_tuning_result(key, op_type, desc, index_table, tuner):
             tile_nn = set_dim_configs.tile_n
             param = [tile_cici, tile_khkh, tile_kwkw, tile_coco, tile_bb, tile_hh, tile_ww, tile_mm, tile_kk, tile_nn]
             tiling_param = (param)
+        elif op_type == "json":
+            from autotuning.runner import get_attr_from_config
+            tiling_param = get_attr_from_config(set_dim_configs, index_table)
         else:
+            print(set_dim_configs)
             tiling = [[getattr(set_dim_configs, name), 1]
                       for name in getattr(set_dim_configs, '_fields') if name.startswith('tiling')]
             tiling_param = []
@@ -221,13 +327,22 @@ def save_tuning_result(key, op_type, desc, index_table, tuner):
 
     # when there is a valid result, save the result
     if tuner.best_time not in error_time_list:
-        config = {'tiling': tiling_param,
+        config = {'attrs': tiling_param,
                   'best_cycles': tuner.best_time,
                   'original_cycles': tuner.original_time,
                   "date": str(datetime.datetime.now()),
+                  "tuning time": tuner.tuning_time,
                   }
+        if op_type == "json":
+            config["file_name"] = str(key)
+        compute, shape, dtype = generate_trait(desc)
         tuner.export_dim_configs(config, json_file.format(op_type), False, str(key))
-
+        save_file = "autotuning/extra_tune.json" if extra_tune else repo_path
+        with open(save_file, 'r') as f:
+            repo = json.loads(f.read())
+            if len(tiling_param) != 0 and (get_repo(repo, [compute, shape, dtype]) is None or
+                int(tuner.best_time) < int(repo[compute][shape][dtype]["metadata"]["best_cycles"])):
+                tuner.export_dim_configs_for_keys(config, save_file, False, [compute, shape, dtype, "metadata"])
 
 def load_json_configs(op_type):
     """load json configs"""

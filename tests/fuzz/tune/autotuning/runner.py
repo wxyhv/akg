@@ -48,6 +48,25 @@ precision_error_time = error_time_list[1]
 compile_fail_time = error_time_list[2]
 timeout_time = error_time_list[3]
 
+def get_attr_from_config(config, index_table):
+    tiling = []
+    attrs = {}
+    tuning_dict = config._asdict()
+    for key, value in tuning_dict.items():
+        if key.startswith('tiling'):
+            item = [value, 1]
+            tiling.append(item)
+        else:
+            attrs[key] = value
+    if len(tiling):
+        tiling_param = []
+        for i, element in enumerate(tiling):
+            tiling_param.append(index_table[i] + element)
+        dim_info = ct_util.set_dims(tuple(tiling_param))
+        attrs['dim'] = dim_info
+    else:
+        print("No tiling info. Use auto tiling.")
+    return attrs
 
 class KernelRunner:
     """kernel runner
@@ -65,12 +84,14 @@ class KernelRunner:
         Run one config repeat_times
     """
 
-    def __init__(self, op_type: str, op_desc: NamedTuple, index_table: list, timeout: int = 600,
+    def __init__(self, op_type: str, op_desc: NamedTuple, index_table: list, self_attrs: list, timeout: int = 600,
                  repeat_times: int = 2, input_data=None, expect=None, mod_output_param=None):
         self.op_type = op_type
         self.op_desc = op_desc
         self._index_table = index_table
+        self.self_attrs = self_attrs
         self.run_kernel_time = 0.0
+        self.tune_self_attrs = True
         self.timeout = timeout
         self.repeat_times = repeat_times
         self.mod_output_param = mod_output_param
@@ -89,25 +110,30 @@ class KernelRunner:
         """Compile and execute a config of the operator on device"""
         time_one_kernel_start = time.time()
         logger.debug('compile %dth kernel', idx)
+        # get available device
+        if utils.get_available_devices_num() == 1:
+            device_id = utils.get_device_id()
+        else:
+            device_id = idx + utils.get_device_id()
+        os.environ['PROFILING_DIR'] = "/var/log/npu/profiling/container/" + str(device_id)
+        os.environ['DEVICE_ID'] = str(device_id)
+        logger.debug('run %dth kernel', idx)
+        logger.debug('++++++++++++++++++++++=device_id')
+        logger.debug(device_id)
+        logger.debug('++++++++++++++++++++++=device_id')
         try:
             time_start_build = time.time()
-            if self.op_type == "json":
+            logger.debug(config)
+            if self.op_type in ["json", "extra_tune"]:
                 if is_auto:
-                    attrs = {'target': "cuda"}
                     mod = composite.build(self.op_desc)
+                    if self.op_type == "extra_tune":
+                        del os.environ['MS_GRAPH_KERNEL_TILING']
                 else:
-                    tiling = []
-                    for value in config.input._asdict().values():
-                        item = [value, 1]
-                        tiling.append(item)
-                    tiling_param = []
-                    for i, element in enumerate(tiling):
-                        tiling_param.append(self._index_table[i] + element)
-                    dim_info = ct_util.set_dims(tuple(tiling_param))
-                    attrs = {'dim': dim_info}
+                    attrs = get_attr_from_config(config.input, self._index_table)
                     if os.environ['RUNTIME_MODE'] == "gpu":
                         attrs['target'] = "cuda"
-                    mod = composite.build(self.op_desc, attrs)
+                    mod = composite.build(self.op_desc, attrs, use_repo=False)
             else:
                 mod = compile_kernel(self.op_type, self.op_desc, self.input_shape, self._index_table,
                                      None if is_auto else config.input, idx)
@@ -120,17 +146,7 @@ class KernelRunner:
             return
 
         run_times[idx] = run_failed_time
-        # get available device
-        if utils.get_available_devices_num() == 1:
-            device_id = utils.get_device_id()
-        else:
-            device_id = idx + utils.get_device_id()
-        os.environ['PROFILING_DIR'] = "/var/log/npu/profiling/container/" + str(device_id)
-        os.environ['DEVICE_ID'] = str(device_id)
-        logger.debug('run %dth kernel', idx)
-        logger.debug('++++++++++++++++++++++=device_id')
-        logger.debug(device_id)
-        logger.debug('++++++++++++++++++++++=device_id')
+
         try:
             for _ in range(self.repeat_times):
                 stat_info = {}
@@ -165,12 +181,33 @@ class KernelRunner:
             logger.debug('run one kernel time: %f', time_one_kernel_end - time_one_kernel_start)
         return
 
+    def get_json_mod_cycles(self, mod, device_id):
+        stat_info = {}
+        try:
+            if self.mod_output_param is not None:
+                output, stat_info = utils.mod_launch(mod, list(self.input), self.mod_output_param,
+                                                        tuning=True, device_id=device_id)
+                if not all(map(lambda x, y: np.allclose(x, y, rtol=5e-03, atol=5e-03, equal_nan=True),
+                                output, self.expect)):
+                    stat_info['run_time'] = precision_error_time
+                    logger.debug("Precision Error: [%s]", "origin" if config is None else str(config.input))
+            else:
+                output, stat_info = utils.mod_launch(mod, self.input, tuning=True, device_id=device_id)
+                if not np.allclose(output, self.expect, rtol=5e-03, atol=5e-03, equal_nan=True):
+                    stat_info['run_time'] = precision_error_time
+                    logger.debug("Precision Error: [%s]", "origin" if config is None else str(config.input))
+        except BaseException as e:
+            logger.debug("Compile Failed: [%s] : %s", "origin", str(e))
+            stat_info['run_time'] = compile_fail_time
+        return stat_info['run_time']
+
     def run(self, configs, best_time=np.inf, is_auto_set_dim=False, all_space=False):
         """Compile and execute a batch config of the operator on device"""
         start = time.time()
         logger.setLevel(logging.DEBUG)
         logger.debug("gen cce kernels batch: %d kernels", len(configs))
         subprocess.run("rm -rf ./jobs/JOB*", shell=True)
+
         process_jobs = []
         run_times = multiprocessing.Manager().list(np.full((len(configs),), compile_fail_time))
         for idx, config in enumerate(configs):
@@ -224,7 +261,7 @@ class KernelRunner:
                 p = exec_cmds_with_pipe(cmd_list)
                 if p[0].decode('utf8').strip() != '':
                     job_file = p[0].decode('utf8').strip().split('/')[-2]
-                    subprocess.run("rm -rf ./jobs/%s" % job_file, shell=True)
+                    subprocess.run("rm -rf /var/log/npu/profiling/%s" % job_file, shell=True)
         end = time.time()
         logger.debug("run kernels time: %f", end - start)
         self.run_kernel_time += end - start
