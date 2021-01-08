@@ -239,7 +239,7 @@ class UserConfig {
   // getter for tiling config
   MappingCfg *GetBlockConfig() { return &block_cfg_; }
   MappingCfg *GetThreadConfig();
-  std::unordered_map<std::string, MappingCfg> &GetReplaceConfig() { return replace_cfg_; }
+  std::unordered_map<std::string, MappingCfg *> GetReplaceConfig() { return replace_cfg_; }
   void SetMaxElemPerThread(int max_elem_per_thread) { max_elem_per_thread_ = max_elem_per_thread; }
   int GetMaxElemPerThread() const { return max_elem_per_thread_; }
   void SetBlockConfig(const std::string &block_cfg) {
@@ -247,17 +247,12 @@ class UserConfig {
     this->block_cfg_.BindFromStr(block_cfg);
   }
   void SetThreadConfig(const std::string &thread_cfg);
-  void RecordReplaceConfig(const std::string id, const std::string replace_cfg_str) {
-    MappingCfg replace_cfg;
-    replace_cfg.type = REPLACE_THREADS;
-    replace_cfg.BindFromStr(replace_cfg_str, id);
-    this->replace_cfg_[id] = replace_cfg;
-  }
   void RecordReplaceConfig(const std::string id, const std::string replace_cfg_str, const MappingType mapping_type) {
-    MappingCfg replace_cfg;
-    replace_cfg.type = mapping_type;
-    replace_cfg.BindFromStr(replace_cfg_str, id);
-    this->replace_cfg_[id] = replace_cfg;
+    std::unique_ptr<MappingCfg> replace_cfg(new (std::nothrow) MappingCfg());
+    CHECK(replace_cfg) << "memory alloc fail.";
+    replace_cfg->type = mapping_type;
+    replace_cfg->BindFromStr(replace_cfg_str, id);
+    this->replace_cfg_[id] = replace_cfg.get();
   }
   void SetL0BlockSize(const std::vector<int> l0_block_size) { l0_block_size_ = l0_block_size; }
   std::vector<int> GetL0BlockSize() { return l0_block_size_; }
@@ -514,7 +509,7 @@ class UserConfig {
   std::string b_dim_;
   MappingCfg block_cfg_;
   MappingCfg thread_cfg_;
-  std::unordered_map<std::string, MappingCfg> replace_cfg_;
+  std::unordered_map<std::string, MappingCfg *> replace_cfg_;
   std::vector<int> l0_block_size_;
   int max_elem_per_thread_{1024};
   std::string elem_per_thread_;

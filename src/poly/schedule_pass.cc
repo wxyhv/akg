@@ -98,7 +98,7 @@ isl::schedule_node InsertContextNode(isl::schedule_node &node, ScopInfo &scop_in
 
   auto replace_cfg_map = scop_info.user_config_.GetReplaceConfig();
   for (auto replace_cfg : replace_cfg_map) {
-    InsertMappingConfig(&replace_cfg.second);
+    InsertMappingConfig(replace_cfg.second);
   }
 
   // step2. construct context

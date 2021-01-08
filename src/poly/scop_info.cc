@@ -730,7 +730,7 @@ MappingCfg *UserConfig::GetThreadConfig() {
     }
     this->SetThreadConfig(new_cfg);
   }
-  return &this->GetReplaceConfig()[COMPUTE];
+  return this->GetReplaceConfig()[COMPUTE];
 }
 
 void UserConfig::SetThreadConfig(const std::string &thread_cfg) {
@@ -743,7 +743,7 @@ void UserConfig::SetThreadConfig(const std::string &thread_cfg) {
       size *= std::stoi(res[i]);
     }
     this->thread_cfg_.BindFromStr(std::to_string(size));
-    this->RecordReplaceConfig(COMPUTE, thread_cfg);
+    this->RecordReplaceConfig(COMPUTE, thread_cfg, MappingType::REPLACE_THREADS);
     return;
   }
   this->thread_cfg_.BindFromStr(thread_cfg);

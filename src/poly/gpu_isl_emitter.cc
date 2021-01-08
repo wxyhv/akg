@@ -1106,7 +1106,7 @@ Expr GpuIslEmitter::AdaptPolyNewVar(std::string name) {
   if (!info_.user_config_.GetReplaceConfig().count(tensor_name)) {
     return e;
   }
-  auto mapping_cfg = &(info_.user_config_.GetReplaceConfig()[tensor_name]);
+  auto mapping_cfg = (info_.user_config_.GetReplaceConfig()[tensor_name]);
   CHECK(mapping_cfg) << "mapping config is null.";
   int mx = mapping_cfg->GetX().second;
   int my = mapping_cfg->GetY().second;
