@@ -124,6 +124,21 @@ struct MappingCfg {
     y.second = 0;
     z.second = 0;
   }
+  void SwapConfig(size_t pos1, size_t pos2) {
+    auto cfg1 = GetAt(pos1);
+    auto cfg2 = GetAt(pos2);
+    auto ReplaceSize = [this](size_t pos, int new_size) {
+      if (pos == 0) {
+        x.second = new_size;
+      } else if (pos == 1) {
+        y.second = new_size;
+      } else {
+        z.second = new_size;
+      }
+    };
+    ReplaceSize(pos1, cfg2.second);
+    ReplaceSize(pos2, cfg1.second);
+  }
 };
 
 class TensorFootprintCluster;
@@ -240,6 +255,10 @@ class UserConfig {
   MappingCfg *GetBlockConfig() { return &block_cfg_; }
   MappingCfg *GetThreadConfig();
   std::unordered_map<std::string, MappingCfg *> GetReplaceConfig() { return replace_cfg_; }
+  void FreeReplaceConfig() {
+    std::unordered_map<std::string, MappingCfg *> empty_cfg;
+    std::swap(this->replace_cfg_, empty_cfg);
+  }
   void SetMaxElemPerThread(int max_elem_per_thread) { max_elem_per_thread_ = max_elem_per_thread; }
   int GetMaxElemPerThread() const { return max_elem_per_thread_; }
   void SetBlockConfig(const std::string &block_cfg) {
@@ -247,12 +266,13 @@ class UserConfig {
     this->block_cfg_.BindFromStr(block_cfg);
   }
   void SetThreadConfig(const std::string &thread_cfg);
+
   void RecordReplaceConfig(const std::string id, const std::string replace_cfg_str, const MappingType mapping_type) {
-    std::unique_ptr<MappingCfg> replace_cfg(new (std::nothrow) MappingCfg());
+    MappingCfg *replace_cfg(new (std::nothrow) MappingCfg());
     CHECK(replace_cfg) << "memory alloc fail.";
     replace_cfg->type = mapping_type;
     replace_cfg->BindFromStr(replace_cfg_str, id);
-    this->replace_cfg_[id] = replace_cfg.get();
+    this->replace_cfg_[id] = replace_cfg;
   }
   void SetL0BlockSize(const std::vector<int> l0_block_size) { l0_block_size_ = l0_block_size; }
   std::vector<int> GetL0BlockSize() { return l0_block_size_; }

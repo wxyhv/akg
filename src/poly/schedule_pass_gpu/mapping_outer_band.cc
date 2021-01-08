@@ -711,6 +711,17 @@ isl::schedule MappingOuterBand::DoBlockMapping(const isl::schedule &sch) {
   if (n_block_map < 1) {
     return sch;
   }
+  // For scalar case that do not consider coincidence (reset during restart in pass mgr), there is usually only one
+  // member in outer band and we can map the maximal block size to that member.
+  if (n_block_map == 1 && n_block_map < block_cfg->bound && !scop_info_.user_config_.GetConsiderCoincidence()) {
+    auto new_idx = 0;
+    for (size_t i = 0; i < block_cfg->bound; ++i) {
+      if (block_cfg->GetAt(i).second > block_cfg->GetAt(new_idx).second) {
+        new_idx = i;
+      }
+    }
+    block_cfg->SwapConfig(0, new_idx);
+  }
 
   if (scop_info_.user_config_.GetEnableAtomicAdd() && NeedAtomicAdd(band_node, n_block_map)) {
     MarkAtomicAddTensor(band_node);

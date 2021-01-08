@@ -531,7 +531,7 @@ void SpaceAnalyzer::IdentifyDmaUnderCondition() {
 }
 
 void SpaceAnalyzer::IdentifyAlignAxes() {
-  if (provides_ana_.empty()) {
+  if (provides_ana_.empty() || analyzer_->scop_info_.user_config_.GetTarget() != TARGET_CCE) {
     return;
   }
 
