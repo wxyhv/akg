@@ -1,5 +1,5 @@
 /**
- * Copyright 2019 Huawei Technologies Co., Ltd
+ * Copyright 2019-2021 Huawei Technologies Co., Ltd
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -718,7 +718,7 @@ void UserConfig::RegisterParam(const Expr &expr) {
 }
 
 MappingCfg *UserConfig::GetThreadConfig() {
-  bool enable_replace_cfg = (this->enable_one_dim_thread_ || this->vector_load_type_) && !this->enable_akg_reduce_lib_;
+  bool enable_replace_cfg = this->enable_one_dim_thread_ || this->vector_load_type_;
   if (!enable_replace_cfg) {
     return &thread_cfg_;
   }
@@ -735,7 +735,7 @@ MappingCfg *UserConfig::GetThreadConfig() {
 
 void UserConfig::SetThreadConfig(const std::string &thread_cfg) {
   this->thread_cfg_.type = THREADS;
-  if ((this->enable_one_dim_thread_ || this->vector_load_type_) && !this->enable_akg_reduce_lib_) {
+  if (this->enable_one_dim_thread_ || this->vector_load_type_) {
     std::vector<std::string> res = common::Split(thread_cfg, " ");
     int size = 1;
     for (size_t i = 0; i < res.size(); ++i) {

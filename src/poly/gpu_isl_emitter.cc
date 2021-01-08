@@ -529,7 +529,11 @@ std::string GpuIslEmitter::PrepareAkgReduceInfo() {
   std::string op = reduce_info_.reduce_op_;
   ret += op;
   ret += ", ";
-  ret += direction_size;
+
+  // modify for one dimension mapping
+  ret += std::to_string(tx);
+  ret += ", ";
+  ret += std::to_string(ty);
   std::string reduce_type = "";
   if (by == 1 && ty == 1) {
     reduce_type = AKG_ALL_REDUCE;

@@ -1,5 +1,5 @@
 /**
- * Copyright 2020 Huawei Technologies Co., Ltd
+ * Copyright 2020-2021 Huawei Technologies Co., Ltd
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -30,41 +30,44 @@ namespace akg_reduce {
 
  * @tparam T                  dtype: half, float, double, int, signed char, bool;
  * @tparam ReduceOp           operators for reduce: SumOp, MaxOp, MinOp, AndOp, OrOp;
- * @tparam BlockSizeReduce    the length of reduce axis
+ * @tparam BlockDimX          the real blockDim.x
+ * @tparam BlockDimY          the real blockDim.y
  * @tparam ReduceType         types of reduce: ALL_REDUCE(0), REDUCE2D_X(1), REDUCE2D_Y(2);
  */
-template <typename T, typename ReduceOp, size_t BlockSizeReduce, int ReduceType>
+template <typename T, typename ReduceOp, size_t BlockDimX, size_t BlockDimY, int ReduceType>
 __inline__ __device__ void AkgReduce(
   ReduceOp op,  // the operator
   // int reduce_direction,  // 0 for direction x; 1 for direction y
-  T *output_array,     // the addr of output in global/shared memory, single value
-  T *shared_array,     // the temp array in shared memory
-  T acc,               // aggregated value in current thread
-  int sharedmem_x = 0  // shared memory size of x axis, especially used for reduce2D along y.
+  T *output_array,           // the addr of output in global/shared memory, single value
+  T *shared_array,           // the temp array in shared memory
+  const T acc,               // aggregated value in current thread
+  const int sharedmem_x = 0  // shared memory size of x axis, especially used for reduce2D along y.
 ) {
   // all-reduce
   if (ReduceType == ALL_REDUCE) {
-    AllReduce<T, ReduceOp, BlockSizeReduce>(op, output_array, shared_array, acc);
+    AllReduce<T, ReduceOp, BlockDimX>(op, output_array, shared_array, acc);
     return;
   }
 
   // reduce data from direction x
   if (ReduceType == REDUCE2D_X) {
-    ReduceDirectionX<T, ReduceOp, BlockSizeReduce>(op, output_array, shared_array, acc);
+    ReduceDirectionX<T, ReduceOp, BlockDimX>(op, output_array, shared_array, acc);
+    return;
   }
 
   // reduce data from direction y
   if (ReduceType == REDUCE2D_Y) {
-    ReduceDirectionY<T, ReduceOp, BlockSizeReduce>(op, output_array, shared_array, acc, sharedmem_x);
+    ReduceDirectionY<T, ReduceOp, BlockDimX, BlockDimY>(op, output_array, shared_array, acc, sharedmem_x);
+    return;
   }
 }
 
 /**
  * @brief the atomic return function, from shared memory to global memory
  */
-template <typename OutputT, typename ReduceOp>
-__device__ __forceinline__ void AkgAtomicReturn(OutputT shared_result, OutputT *output, ReduceOp op) {
-  AtomicOp<OutputT, op.identifier> atomic_op;
+template <typename T, typename ReduceOp>
+__device__ __forceinline__ void AkgAtomicReturn(const T shared_result, T *output, ReduceOp op) {
+  AtomicOp<T, op.identifier> atomic_op;
   atomic_op.Compute(&output[0], shared_result);
 }
 

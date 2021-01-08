@@ -1,5 +1,5 @@
 /**
- * Copyright 2020 Huawei Technologies Co., Ltd
+ * Copyright 2020-2021 Huawei Technologies Co., Ltd
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -64,14 +64,14 @@ struct MinOp {
 
 struct AndOp {
   // "and" operator(logical), only supports dtype bool or signed char
-  template <typename T>
-  __device__ __forceinline__ T operator()(const T &a, const T &b) const {
+  template <typename T, typename Y>
+  __device__ __forceinline__ T operator()(const T &a, const Y &b) const {
     // in logical "and" operator, the dtype must be bool, please check it.
     return a && b;
   }
 
-  template <typename T>
-  __device__ __forceinline__ T operator()(const volatile T &a, const volatile T &b) const {
+  template <typename T, typename Y>
+  __device__ __forceinline__ T operator()(const volatile T &a, const volatile Y &b) const {
     return a && b;
   }
 
@@ -80,14 +80,14 @@ struct AndOp {
 
 struct OrOp {
   // "or" operator(logical), only supports dtype bool or signed char
-  template <typename T>
-  __device__ __forceinline__ T operator()(const T &a, const T &b) const {
+  template <typename T, typename Y>
+  __device__ __forceinline__ T operator()(const T &a, const Y &b) const {
     // in logical "or" operator, the dtype must be bool, please check it.
     return a || b;
   }
 
-  template <typename T>
-  __device__ __forceinline__ T operator()(const volatile T &a, const volatile T &b) const {
+  template <typename T, typename Y>
+  __device__ __forceinline__ T operator()(const volatile T &a, const volatile Y &b) const {
     return a || b;
   }
 
