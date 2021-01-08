@@ -270,9 +270,9 @@ MappingCfg *SharedMemoryManager::GetCurrentConfig(isl::schedule_node &node) {
     if (new_cfg.empty()) {
       return nullptr;
     }
-    scop_info_.user_config_.RecordReplaceConfig(id_name, new_cfg);
+    scop_info_.user_config_.RecordReplaceConfig(id_name, new_cfg, MappingType::REPLACE_THREADS);
   }
-  auto mapping_cfg = &(scop_info_.user_config_.GetReplaceConfig()[id_name]);
+  auto mapping_cfg = (scop_info_.user_config_.GetReplaceConfig()[id_name]);
 
   if (enable_vectorization) {
     isl::multi_val tile_size;
@@ -304,11 +304,12 @@ isl::schedule_node SharedMemoryManager::ManageToShareBelow(isl::schedule &root_s
   auto cfg = scop_info_.user_config_.GetBlockConfig();
   isl::union_set mapping;
   for (auto it : scop_info_.user_config_.GetReplaceConfig()) {
-    if (it.second.type == MappingType::REPLACE_BLOCKS) {
+    auto cfg = it.second;
+    if (cfg->type == MappingType::REPLACE_BLOCKS) {
       if (mapping.is_null()) {
-        mapping = GatherMappingsTo(&it.second);
+        mapping = GatherMappingsTo(cfg);
       } else {
-        mapping = mapping.intersect(GatherMappingsTo(&it.second));
+        mapping = mapping.intersect(GatherMappingsTo(cfg));
       }
     }
   }

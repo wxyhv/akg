@@ -725,8 +725,8 @@ isl::schedule MappingOuterBand::DoBlockMapping(const isl::schedule &sch) {
       scop_info_.user_config_.RecordReplaceConfig(L1, l1_l0_block_cfg.first, MappingType::REPLACE_BLOCKS);
       scop_info_.user_config_.RecordReplaceConfig(L0, l1_l0_block_cfg.second, MappingType::REPLACE_BLOCKS);
       auto rep_cfg = scop_info_.user_config_.GetReplaceConfig();
-      l1_block_cfg = &rep_cfg[L1];
-      l0_block_cfg = &rep_cfg[L0];
+      l1_block_cfg = rep_cfg[L1];
+      l0_block_cfg = rep_cfg[L0];
     }
   }
 
