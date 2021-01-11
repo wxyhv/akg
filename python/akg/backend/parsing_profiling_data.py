@@ -21,7 +21,7 @@ import struct
 import re
 from tabulate import tabulate
 
-OUTPUT_FORMAT_DATA = "./jobs/output_format_data_hwts.txt"
+OUTPUT_FORMAT_DATA = "./output_format_data_hwts.txt"
 BLOCK_LEN = 32
 max_time_consume = 9999999999
 def get_log_slice_id(file_name):
@@ -211,9 +211,9 @@ def fwrite_format(output_data_path=OUTPUT_FORMAT_DATA, data_source=None, is_star
 
 def parsing(source_path):
     """Function for parsing aicore data/tsch fw timeline data/HWTS data/last tsch training trace data."""
-    subprocess.run("cp -r %s ./jobs/" % source_path, shell=True)
+    # subprocess.run("cp -r %s ./jobs/" % source_path, shell=True)
     job_name = source_path.split('/')[-1]
-    job_path = "./jobs/" + job_name
+    job_path = "/var/log/npu/profiling/" + job_name
     fwrite_format(data_source='====================starting  parse task ==================', is_start=True)
     result = get_file_join_name(input_path=job_path, file_name='runtime.host.runtime')
     if result:

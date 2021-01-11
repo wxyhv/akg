@@ -17,12 +17,11 @@
 """build module"""
 import os
 import json
+import logging
 import akg
 from akg import tvm
 from akg.tvm import _api_internal
 from akg.topi.cuda.injective_single_kernel import schedule_injective
-from .repository import __all__ as repository
-from .repository_gpu import __all_gpu__ as repository_gpu
 import topi
 
 def generate_trait(desc):
@@ -84,7 +83,12 @@ def generate_trait(desc):
     dtype = generate_dtype_trait()
     return compute, shape, dtype
 
-def _build_to_func(desc_s, desc_d, attr=None):
+def read_repo_file(repo_file):
+    with open(repo_file, 'r') as f:
+        repo = json.loads(f.read())
+    return repo
+
+def _build_to_func(desc_s, desc_d, attr=None, use_repo=True):
     """
     build kernel with compute description in json format
     Args:
@@ -95,6 +99,10 @@ def _build_to_func(desc_s, desc_d, attr=None):
     Returns:
        Module.
     """
+    if os.getenv('MS_GRAPH_KERNEL_TILING'):
+        repository = read_repo_file(str(os.getenv('MS_GRAPH_KERNEL_TILING')))
+    else:
+        repository = read_repo_file(os.path.dirname(__file__) + "/repository.json")
     def get_repo(keys, default=None):
         repo = repository
         for key in keys:
@@ -107,17 +115,18 @@ def _build_to_func(desc_s, desc_d, attr=None):
     # turn 'enable_auto_inline' off for composite op by default.
     if 'enable_auto_inline' not in attr:
         attr['enable_auto_inline'] = False
-    compute, shape, dtype = generate_trait(desc_d)
-    repo_attr = get_repo([compute, shape, dtype, 'metadata', 'attrs'], {})
-    if not repo_attr:
-        repo_attr = get_repo([compute, 'metadata', 'attrs'], {})
-    for a in repo_attr:
-        if not attr.get(a):
-            attr[a] = repo_attr[a]
-    if attr.get('dim') in (None, ''):
-        tiling = get_repo([compute, shape, dtype, 'dim'])
-        if tiling:
-            attr['dim'] = tiling
+    if use_repo:
+        compute, shape, dtype = generate_trait(desc_d)
+        repo_attr = get_repo([compute, shape, dtype, 'metadata', 'attrs'], {})
+        if not repo_attr:
+            repo_attr = get_repo([compute, 'metadata', 'attrs'], {})
+        for a in repo_attr:
+            if not attr.get(a):
+                attr[a] = repo_attr[a]
+        if attr.get('dim') in (None, ''):
+            tiling = get_repo([compute, shape, dtype, 'dim'])
+            if tiling:
+                attr['dim'] = tiling
     func = tvm.get_global_func("composite_with_json_to_func")
     return func(desc_s, attr)
 
@@ -132,6 +141,7 @@ def _build_to_gpu_func(desc_s, desc_d, attr=None, poly=False):
     Returns:
        Module.
     """
+    repository_gpu = read_repo_file(os.path.dirname(__file__) + "/repository_gpu.json")
     def get_repo(keys, default=None):
         repo = repository_gpu
         for key in keys:
@@ -157,13 +167,13 @@ def _build_to_gpu_func(desc_s, desc_d, attr=None, poly=False):
     func = tvm.get_global_func("composite_with_json")
     return func(desc_s, attr, poly)
 
-def _build(desc_s, desc_d, attrs=None, poly=False):
+def _build(desc_s, desc_d, attrs=None, poly=False, use_repo=True):
     if desc_d['process'] == 'cuda':
         return _build_to_gpu_func(desc_s, desc_d, attrs, poly)
-    rst = _build_to_func(desc_s, desc_d, attrs)
+    rst = _build_to_func(desc_s, desc_d, attrs, use_repo)
     return _api_internal._BuildToModule(rst)
 
-def build(kernel_desc, attrs=None, poly=False):
+def build(kernel_desc, attrs=None, poly=False, use_repo=True):
     """
     build kernel with compute description in json format
     Args:
@@ -180,7 +190,7 @@ def build(kernel_desc, attrs=None, poly=False):
         assert isinstance(kernel_desc, dict)
         desc_s = json.dumps(kernel_desc)
         desc_d = kernel_desc
-    return _build(desc_s, desc_d, attrs, poly)
+    return _build(desc_s, desc_d, attrs, poly, use_repo)
 
 def get_tiling_space(kernel_desc, level=1, attr=None):
     """
@@ -197,6 +207,9 @@ def get_tiling_space(kernel_desc, level=1, attr=None):
         attr = {}
     attr['help_tiling'] = level
     attr['tuning'] = 'on'
+    if 'enable_auto_inline' not in attr:
+        attr['enable_auto_inline'] = False
+    attr['pragma_reschedule'] = 1
     func = tvm.get_global_func('composite_lower')
     ret = func(kernel_desc, attr)
     spaces = {}

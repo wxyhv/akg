@@ -1,4 +1,4 @@
-# Copyright 2020 Huawei Technologies Co., Ltd
+# Copyright 2021 Huawei Technologies Co., Ltd
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -12,7 +12,8 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""test composite json tuning"""
+"""extra tuning for composite json"""
+import os
 import sys
 import time
 import subprocess
@@ -26,19 +27,18 @@ def run_json_tuning():
     else:
         json_dir_ =  "autotuning/shapes/bn_tune"
         repo_path_ = "../../../python/akg/composite/gpt3.json"
-    debug_mode_ = True
+    os.environ['MS_GRAPH_KERNEL_TILING'] = "gpt3.json"
+    debug_mode_ = False
     save_res_ = True
     all_space_ = False
     skip_exist_ = False
-    extra_tune_ = False
-    self_attrs = None
-    tuning_attrs = ['enable_mark_multi_core',
-                    'enable_pre_poly_loop_partition',
-                    'enable_post_poly_loop_partition',
-                    'enable_rewrite_scalar_compute',
-                    'multicore_scalar_rearrange',
-                    'pragma_remove_invariant_dependence',
-                   ]
+    extra_tune_ = True
+    self_attrs = ['enable_auto_inline',
+                  'enable_cover_protect_optimize',
+                  'enable_to_three_address',
+                  'pragma_set_all_coincident',
+                 ]
+    tuning_attrs = None
     launch_json(debug_mode=debug_mode_,
                 save_res=save_res_,
                 json_dir=json_dir_,
