@@ -22,26 +22,24 @@
 
 namespace akg_reduce {
 /**
- * main functions of reduce module
+ * Main functions of reduce module
  */
 
 /**
- * @brief this function pick up the proper strategies for different kinds of cases automatically.
+ * @brief This function pick up the proper strategies for different kinds of cases automatically.
 
- * @tparam T                  dtype: half, float, double, int, signed char, bool;
- * @tparam ReduceOp           operators for reduce: SumOp, MaxOp, MinOp, AndOp, OrOp;
- * @tparam BlockDimX          the real blockDim.x
- * @tparam BlockDimY          the real blockDim.y
- * @tparam ReduceType         types of reduce: ALL_REDUCE(0), REDUCE2D_X(1), REDUCE2D_Y(2);
+ * @tparam T                  Dtype: half, float, double, int, signed char, bool
+ * @tparam ReduceOp           Operators for reduce: SumOp, MaxOp, MinOp, AndOp, OrOp
+ * @tparam BlockDimX          Real blockDim.x
+ * @tparam BlockDimY          Real blockDim.y
+ * @tparam ReduceType         Types of reduce: ALL_REDUCE(0), REDUCE2D_X(1), REDUCE2D_Y(2)
  */
 template <typename T, typename ReduceOp, size_t BlockDimX, size_t BlockDimY, int ReduceType>
-__inline__ __device__ void AkgReduce(
-  ReduceOp op,  // the operator
-  // int reduce_direction,  // 0 for direction x; 1 for direction y
-  T *output_array,           // the addr of output in global/shared memory, single value
-  T *shared_array,           // the temp array in shared memory
-  const T acc,               // aggregated value in current thread
-  const int sharedmem_x = 0  // shared memory size of x axis, especially used for reduce2D along y.
+__inline__ __device__ void AkgReduce(const ReduceOp op,         // The operator
+                                     T *output_array,           // Addr of output in global/shared memory
+                                     T *shared_array,           // Temp array in shared memory
+                                     const T acc,               // Aggregated value in current thread
+                                     const int sharedmem_x = 0  // Shared memory size of x axis, especially used for reduce2D along y.
 ) {
   // all-reduce
   if (ReduceType == ALL_REDUCE) {
@@ -63,10 +61,15 @@ __inline__ __device__ void AkgReduce(
 }
 
 /**
- * @brief the atomic return function, from shared memory to global memory
+ * @brief Atomic return function, from shared memory to global memory
+ * @tparam T                  Dtype: half, float, double, int, signed char, bool;
+ * @tparam ReduceOp           Operators for reduce: SumOp, MaxOp, MinOp, AndOp, OrOp;
  */
 template <typename T, typename ReduceOp>
-__device__ __forceinline__ void AkgAtomicReturn(const T shared_result, T *output, ReduceOp op) {
+__device__ __forceinline__ void AkgAtomicReturn(const T shared_result, // Reduction result on the shared memory
+                                                T *output,             // Global output address
+                                                const ReduceOp op      // The operator
+) {
   AtomicOp<T, op.identifier> atomic_op;
   atomic_op.Compute(&output[0], shared_result);
 }

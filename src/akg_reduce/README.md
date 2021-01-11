@@ -6,9 +6,9 @@ AKG Reduce Lib is a reduction algorithms library for NVIDIA-GPU in AKG. AKG Redu
 
 ## 2. Features
 
-- focuses on 1D and 2D reduction in fixed shared memory size. (thanks to the reduce support in previous pass, like axis fusing)
-- uses "multi-blocks + atomic return" strategies which can utilize the benefit of GPU traits.  
-- provides an unified interface for cuda-code in codegen, which can satisfy diverse scenarios.
+- Focuses on 1D and 2D reduction in fixed shared memory size. (thanks to the reduce support in previous pass, like axis fusing)
+- Uses "multi-blocks + atomic return" strategies which can utilize the benefit of GPU traits.  
+- Provides an unified interface for cuda-code in codegen, which can satisfy diverse scenarios.
 
 ## 3. Usages
 
@@ -17,8 +17,8 @@ AKG Reduce Lib is a reduction algorithms library for NVIDIA-GPU in AKG. AKG Redu
 ```Javascript
 template <typename T, typename ReduceOp>
 __global__ void Reduce1DMultiBlock(int x_len, T *arr, T *output, int item_per_thread, ReduceOp op) {
-  T acc = 0.0;
-  __shared__ T red_buf[32];
+  T acc = 0.0;                  // aggregated value in current thread
+  __shared__ T red_buf[32];     // buffer on shared memory for reduction computation 
   __shared__ T temp_output[1];  // temp storage for output
   temp_output[0] = (T)0.0;
   for (int k = 0; k < item_per_thread; ++k) {
@@ -37,11 +37,14 @@ __global__ void Reduce1DMultiBlock(int x_len, T *arr, T *output, int item_per_th
 
 ## 4. Updates
 
+### 2021.1.12
+- Update the algorithms when those reduce-length are irregular (not the pow of 2). The new irregular reduction implementations have a better performance.
+
 
 ### 2021.1.8 
 
-- support one-dim-mapping feature. now you can use one-dim kernel to describe reduce-2D cases by setting the real BlockDimX, BlockDimY on the AkgReduce interface.
+- Support one-dim-mapping feature. Now you can use one-dim kernel to describe reduce-2D cases by setting the real BlockDimX, BlockDimY on the AkgReduce interface.
 
 
 ### 2020.12.31 
-- use "shfl.down" function for warp-level reduce. (since "shfl" functions still don't support 1-btype dtype yet, we keep using "volatile shared" in bool or signed char cases).
+- Use "shfl.down" function for warp-level reduce. (since "shfl" functions still don't support 1-btype dtype yet, we keep using "volatile shared" in bool or signed char cases).
