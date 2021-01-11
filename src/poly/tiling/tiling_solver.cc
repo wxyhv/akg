@@ -935,6 +935,10 @@ bool TraverseSolver::IsTilable(TileInfo *info) {
   ss << "Begin ::: mem ok = " << mem_ok << " dev " << deviation;
   analyzer_.logger_.AppendLog(DO_TILING, ss);
   info->deviation = deviation;
+  if (!mem_ok && !cons.cand_factor.empty() && !is_retry_) {
+    // Force to start tiling when candiadates are not selected for the first time of compilation
+    mem_ok = true;
+  }
   return mem_ok;
 }
 
@@ -1065,6 +1069,10 @@ bool TraverseSolver::DoTiling(const TileInfo *info) {
       auto tail = dst % t;
       UpdateChosenValue(tail, deviation, t);
     }
+    if (best_val == -1 && best_no_iso_val == -1) {
+      best_val = cons.cand_factor.back().as<IntImm>()->value;
+      best_no_iso_val = cons.cand_factor.back().as<IntImm>()->value;
+    }
   } else {
     for (int64_t t = init; t <= dst; ++t) {
       if ((axis->forbid_iso && dst % t != 0) || (check_mod && t % mod != 0)) {
@@ -1089,7 +1097,6 @@ bool TraverseSolver::DoTiling(const TileInfo *info) {
       UpdateChosenValue(tail, deviation, t);
     }
   }
-
   int64_t final_factor = (axis->forbid_iso || best_no_iso_val * balance_factor > best_val) ? best_no_iso_val : best_val;
   final_factor = PostprocessFinalFactor(final_factor, axis);
   if (info->level == LEVEL1) {
