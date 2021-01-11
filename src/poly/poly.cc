@@ -25,6 +25,7 @@ class Poly {
   Poly() : isl_ctx_(isl::ctx(isl_ctx_alloc())) {}
 
   ~Poly() noexcept {
+    scop_->info_.user_config_.FreeReplaceConfig();
     scop_.reset();
     // scop must be deconstructed before isl_ctx is deconstructed
     isl_ctx_free(isl_ctx_.get());

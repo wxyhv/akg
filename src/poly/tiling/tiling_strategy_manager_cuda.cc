@@ -814,6 +814,10 @@ void GpuStrategy::AdjustThreadMappingLimit() {
 }
 
 void GpuStrategy::InjectiveSpeedup() {
+  // not need speedup if thread_cfg_ or block_cfg_ is empty
+  if (thread_cfg_.size() == 0 || block_cfg_.size() == 0) {
+    return;
+  }
   analyzer_->logger_.AppendLine(GPU_MAPPING, "InjectiveSpeedup");
   std::stringstream ss;
   std::vector<TileAxis *> injective_axes;
