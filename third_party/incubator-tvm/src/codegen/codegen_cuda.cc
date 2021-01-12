@@ -23,11 +23,16 @@
 
 /*
  * 2020.10.26
- *   Add function PrintReduce definition.
  *   Modify the functions:
  *     Finish()
- *     Init(bool output_ssa)
  *     Delete the offset checkout of VisitStmt_(const ir::For* op)
+ */
+
+/*
+ * 2021.01.12
+ *   Modify the functions:
+ *     VisitExpr_(const Call *op, std::ostream& os)
+ * 
  */
 
 /*
@@ -80,9 +85,9 @@ void CodeGenCUDA::AddFunction(LoweredFunc f) {
 
 std::string CodeGenCUDA::Finish() {
   if (need_reduce_lib_) {
-    if (reduce_lib_type_ == "origin") {
+    if (reduce_lib_type_ == ORIGIN_REDUCE_LIB) {
       decl_stream << "#include \"akg_reduce/reduce.cuh\"\n";
-    } else if (reduce_lib_type_ == "paris") {
+    } else if (reduce_lib_type_ == PARIS_REDUCE_LIB) {
       decl_stream << "#include \"paris_reduce/paris_reduce.cuh\"\n";
     }
   }
@@ -333,44 +338,6 @@ void CodeGenCUDA::PrintStorageSync(const Call* op) {
   }
 }
 
-void CodeGenCUDA::PrintReduce(const Call* op) {
-  if (op->args.size() == 0) return;
-  const std::string& sync = op->args[0].as<StringImm>()->value;
-  if (sync.find("red_init") != std::string::npos) {
-    int len = op->args.size();
-    if (len == 3) {
-      this->PrintIndent();
-      this->stream << op->args[1].as<StringImm>()->value << "\n";
-      this->PrintIndent();
-      this->stream << op->args[2].as<StringImm>()->value << "\n";
-    }
-    in_reduce_area_ = true;
-    return;
-  } else if (sync.find("red_update") != std::string::npos) {
-    int len = op->args.size();
-    if (len == 2) {
-      this->PrintIndent();
-      auto str = op->args[1].as<StringImm>()->value;
-      for (auto &a : var_idmap_) {
-        auto s = a.first->name_hint;
-        auto pos = str.find(s);
-        if (pos != std::string::npos && !std::isdigit(str[pos + s.size()])) {
-          str.replace(pos, s.size(), a.second);
-        }
-      }
-      this->stream << str << "\n";
-    }
-    in_reduce_area_ = false;
-    return;
-  } else if (sync == "atomic") {
-    int len = op->args.size();
-    if (len == 2) {
-      this->PrintIndent();
-      this->stream << op->args[1].as<StringImm>()->value << "\n";
-    }
-  }
-}
-
 void CodeGenCUDA::PrintStorageScope(
     const std::string& scope, std::ostream& os) { // NOLINT(*)
   CHECK_NE(scope, "global");
@@ -496,6 +463,52 @@ void CodeGenCUDA::VisitExpr_(const Call *op, std::ostream& os) {
       }
       os << "]" << ((i < 3) ? ", ": ")");
     }
+  } else if ((op->call_type == Call::Extern) || (op->call_type == Call::PureExtern)) {
+    if (op->name == "&") {
+      CHECK_EQ(op->args.size(), 1);
+      auto arg0 = op->args[0];
+      auto CheckCast = [] (const Expr &input) -> bool {
+        auto cast = input.as<Cast>();
+        if (cast == nullptr) {
+          return false;
+        }
+        return true;
+      };
+
+      while (CheckCast(arg0)) {
+        Type t = arg0.as<Cast>()->type;
+        os << "(";
+        PrintType(t, os);
+        os << "*)";
+        arg0 = arg0.as<Cast>()->value;
+      }
+      os << op->name << "(";
+      this->PrintExpr(arg0, os);
+      os << ")";
+      return;
+    }
+
+    if ((op->name == AKG_REDUCE) || (op->name == AKG_ATOMIC_RETURN) ||
+        (op->name == PARIS_REDUCE) || (op->name == PARIS_ATOMIC_RETURN)) {
+      CHECK_GE(op->args.size(), 2);
+      os << op->name << "<";
+      Expr template_arg0 = op->args[0];
+      Expr template_arg1 = op->args[1];
+      this->PrintType(template_arg0.type(), os);
+      os << ",";
+      CHECK(template_arg1.as<StringImm>());
+      os << template_arg1.as<StringImm>()->value;
+      os << ">(";
+      for (size_t i = 2; i < op->args.size(); i++) {
+        this->PrintExpr(op->args[i], os);
+        if (i < op->args.size() - 1) {
+          os << ", ";
+        }
+      }
+      os << ")";
+      return;
+    }
+    CodeGenC::VisitExpr_(op, os);
   } else {
     CodeGenC::VisitExpr_(op, os);
   }
@@ -513,18 +526,9 @@ void CodeGenCUDA::VisitStmt_(const AttrStmt* op) {
     const Variable* buffer = op->node.as<Variable>();
     const StringImm* layout_str = op->value.as<StringImm>();
     fragment_layouts[buffer] = layout_str->value;
-  } else if (op->attr_key == "GMWriteFlag") {
-    is_GMWrite_ = true;
-  } else if (op->attr_key == "reduceLibType") {
+  } else if (op->attr_key == REDUCE_LIB_TYPE) {
     reduce_lib_type_ = op->value.as<StringImm>()->value;
-  } else if (op->attr_key == "tensorMapInfo") {
-    std::string name = op->value.as<StringImm>()->value;
-    std::string::size_type n = name.find("|");
-    if (n != std::string::npos) {
-      std::string origin_tensor = name.substr(0, n);
-      std::string change_tensor = name.substr(n+1);
-      tensor_name_mod_[origin_tensor] = change_tensor;
-    }
+    need_reduce_lib_ = true;
   } else if (op->attr_key == "pragma_tensor_core") {
     CHECK(op->value.as<StringImm>());
     if (op->value.as<StringImm>()->value == "2") {

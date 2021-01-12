@@ -22,8 +22,8 @@
 namespace akg {
 namespace ir {
 namespace poly {
-Stmt EmitForTensorCore(Stmt stmt, struct TensorCoreInfo &info);
-Stmt EmitForTensorCoreDesignOne(Stmt stmt, struct TensorCoreInfo &info);
+Stmt EmitForTensorCore(Stmt stmt, TensorCoreInfo &info);
+Stmt EmitForTensorCoreDesignOne(Stmt stmt, TensorCoreInfo &info);
 }  // namespace poly
 }  // namespace ir
 }  // namespace akg

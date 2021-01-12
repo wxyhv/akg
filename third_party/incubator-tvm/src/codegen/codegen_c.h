@@ -27,11 +27,8 @@
  */
 
 /*
- * 2020.10.26 - Add function PrintReduce.
- * Add variables for reduce:
- *   in_reduce_area_
- *   is_GMWrite_
- *   tensor_name_mod_
+ * 2021.01.12
+ * Add need_reduce_lib_ and reduce_lib_type_
  */
 
 /*
@@ -177,7 +174,6 @@ class CodeGenC :
   virtual void BindThreadIndex(const IterVar& iv); // NOLINT(*)
   virtual void PrintStorageScope(const std::string& scope, std::ostream& os); // NOLINT(*)
   virtual void PrintStorageSync(const Call* op);  // NOLINT(*)
-  virtual void PrintReduce(const Call* op);  // NOLINT(*)
   // Binary vector op.
   virtual void PrintVecBinaryOp(
       const std::string&op, Type op_type,
@@ -198,9 +194,6 @@ class CodeGenC :
   virtual std::string CastFromTo(std::string value, Type from, Type target);
 
   // add for reduce
-  bool in_reduce_area_{false};
-  bool is_GMWrite_{false};
-  std::map<std::string, std::string> tensor_name_mod_;
   bool need_reduce_lib_{false};
   std::string reduce_lib_type_{"origin"};
 
