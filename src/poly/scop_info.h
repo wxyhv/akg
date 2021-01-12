@@ -205,7 +205,6 @@ class UserConfig {
     ParseBoolAttr(attrs, "pragma_opt_for_davinci", &optimize_for_davinci_);
     ParseBoolAttr(attrs, "enable_feature_library", &enable_feature_library_);
     ParseBoolAttr(attrs, "enable_hoist_cond_write", &enable_hoist_cond_write_);
-    ParseBoolAttr(attrs, "enable_mark_multi_core", &enable_mark_multi_core_);
 
     ParseIntAttr(attrs, "kernel_h", &matB_dim_h_);
     ParseIntAttr(attrs, "kernel_w", &matB_dim_w_);
@@ -319,7 +318,6 @@ class UserConfig {
   bool GetOptimizeForDavinci() const { return optimize_for_davinci_; }
   bool GetEnableFeatureLib() const { return enable_feature_library_; }
   bool GetEnableHoistCondWrite() const { return enable_hoist_cond_write_; }
-  bool GetEnableMarkMultiCore() const { return enable_mark_multi_core_; }
 
   // getter for conv config
   int GetMatBDimH() const { return matB_dim_h_; }
@@ -547,7 +545,7 @@ class UserConfig {
   // schedule tree transform config
   bool remove_self_dependence_{true};
   bool force_remove_self_dependence_{false};
-  bool remove_invariant_dependence_{false};
+  bool remove_invariant_dependence_{true};
   bool compute_reschedule_{false};
   bool disable_schedule_shift_{false};
   bool enable_schedule_max_constant_{false};
@@ -567,7 +565,6 @@ class UserConfig {
   bool optimize_for_davinci_{false};
   bool enable_feature_library_{false};
   bool enable_hoist_cond_write_{true};
-  bool enable_mark_multi_core_{false};
 
   // conv config
   int matB_dim_h_{-1};

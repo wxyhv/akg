@@ -100,7 +100,7 @@ void DavinciMgrStrategy::RegisterPasses() {
   RegisterPass(std::make_shared<MarkFuseOp>());
   // if coincidence constraints are disabled (due to reschedule), we cannot determine multicore axis reliably
   bool can_use_multiCore = !scop_info_.cube_info_.IsSpecGemm() && scop_info_.user_config_.GetConsiderCoincidence();
-  if (can_use_multiCore || scop_info_.user_config_.GetEnableMarkMultiCore()) {
+  if (can_use_multiCore) {
     RegisterPass(std::make_shared<MarkOuterMost>(scop_info_));
   }
 }
