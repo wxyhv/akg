@@ -406,6 +406,39 @@ def _reducemax_pattern(kernel_info):
             return (True, reduce_size)
     return (False, 0)
 
+def _is_batchmatmul(kernel_info):
+    for op in kernel_info['op_desc']:
+        if op['name'] == 'BatchMatMul':
+            return True
+    return False
+
+def _set_tiling_attrs(out_shape, attrs):
+    axis_len = len(out_shape)
+    if axis_len < 3:
+        return attrs
+    if all(map(lambda x:x == 1, [out_shape[x] for x in range(axis_len - 2)])):
+        return attrs
+    if attrs.get('bind_block') in (None, ''):
+        i = 0
+        while out_shape[i] == 1:
+            i += 1
+        block_y = out_shape[i] 
+        block_x = out_shape[i + 1] if i < axis_len - 3 else 1
+        attrs['bind_block'] = str(block_x) + ' ' + str(block_y)
+    if attrs.get('dim') in (None, ''):
+        batch_axis = 0
+        for i in range(axis_len - 2):
+            if out_shape[i] != 1:
+                batch_axis += 1
+        dim_list = [0, 0, 64, 64, 0, 0, 64, 64, 0, 0, 64, 4]
+        dim_list = [0, 0, 1, 1] * batch_axis + dim_list
+        i = 0
+        while i < (len(dim_list) // 4):
+            dim_list[i * 4 + 1] = i
+            i += 1
+        attrs['dim'] = ' '.join(str(x) for x in dim_list)
+    return attrs
+
 def _build_to_gpu_func(desc_s, desc_d, attrs=None, poly=False):
     """
     build kernel with compute description in json format
@@ -432,7 +465,12 @@ def _build_to_gpu_func(desc_s, desc_d, attrs=None, poly=False):
     if attrs is None:
         attrs = {'dim': ''}
     compute, shape, dtype = generate_trait(desc_d)
+    batchmatmul = _is_batchmatmul(desc_d)
+    if batchmatmul:
+        shape = "any_shape"
     repo_attr = get_repo([compute, shape, dtype, 'metadata', 'attrs'], {})
+    if repo_attr and batchmatmul:
+        repo_attr = _set_tiling_attrs(desc_d['output_desc'][0]['shape'], repo_attr)
     if not repo_attr:
         repo_attr = get_repo([compute, 'metadata', 'attrs'], {})
     for a in repo_attr:

@@ -1,5 +1,5 @@
 /**
- * Copyright 2020 Huawei Technologies Co., Ltd
+ * Copyright 2020-2021 Huawei Technologies Co., Ltd
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -19,6 +19,7 @@
 #include "poly/scop.h"
 #include "poly/schedule_pass/transfer_stmt.h"
 #include "poly/schedule_pass/try_mark_scalar_stmt.h"
+#include "poly/reduce_manager.h"
 
 #include <cmath>
 
@@ -203,7 +204,7 @@ isl::schedule TileOuterBand::RunCuda(isl::schedule sch) {
     pass_info_.tile_check_coincident_ = scop_info_.user_config_.GetTileCheckCoincident();
   }
   pass_info_.tile_sizes_ = tile_sizes_;
-  
+
   return final_schedule;
 }
 
@@ -907,24 +908,103 @@ isl::schedule_node TileOuterBand::MarkOuterPermutableCuda(isl::schedule_node nod
 #endif
 
   // get tile size
-  node = SetTileSizeAndTile(node, L1, 0);
+  node = SetTileSizeAndTile(node, L1);
 
   if (scop_info_.user_config_.GetEnableTileL0()) {
-    node = SetTileSizeAndTile(node.child(0), L0, 0);
+    node = SetTileSizeAndTile(node.child(0), L0);
     node = node.parent();
   }
+
+  // tile matmul operator
+  if (!scop_info_.user_config_.GetEnableMatmul()) {
+    return node;
+  }
+  size_t start_depth = node.get_tree_depth();
+
+  isl::schedule_node_band band_node = node.as<isl::schedule_node_band>();
+  size_t count_coincident = 0;
+  for (size_t i = 0; i < band_node.n_member(); ++i) {
+    if (!band_node.member_get_coincident(i)) {
+      break;
+    }
+    ++count_coincident;
+  }
+
+  // split the k axis
+  node = band_node.split(count_coincident);
+  std::string shared_tensors = scop_info_.user_config_.GetSharedTensors();
+  auto insert_marker = PROMOTE_GLOBAL_TO_REGISTER_C;
+  if (shared_tensors.find(COMPUTE) != std::string::npos) {
+    insert_marker = PROMOTE_GLOBAL_TO_SHARED_C;
+  }
+  node = node.child(0).insert_mark(isl::id(node.ctx(), insert_marker));
+  auto sqlit_node = SplitBmmStatement(node.child(0));
+  node = sqlit_node.is_equal(node.child(0)) ? sqlit_node : sqlit_node.child(0);
+  node = node.child(0).insert_mark(isl::id(node.ctx(), PROMOTE_GLOBAL_TO_SHARED_AB));
+
+  if (scop_info_.user_config_.GetEnableTensorCoreUsePoly()) {
+    // The second tile of tensor_core for mapping to warp.
+    auto replace_cfg_map = scop_info_.user_config_.GetReplaceConfig();
+    if (replace_cfg_map.count(WARP_COMPUTE) == 0) {
+      auto thread_cfg = scop_info_.user_config_.GetThreadConfig();
+      CHECK(thread_cfg != nullptr) << "thread config is null";
+
+      int total_warp = 1;
+      for (size_t j = 0; j < thread_cfg->bound; ++j) {
+        total_warp *= thread_cfg->GetAt(j).second;
+      }
+      total_warp = std::ceil(total_warp / WARP_SIZE);
+      size_t warp_dim_x = std::sqrt(total_warp);
+      size_t warp_dim_y = total_warp / warp_dim_x;
+      std::string new_warp_cfg = std::to_string(warp_dim_x) + " " + std::to_string(warp_dim_y);
+      scop_info_.user_config_.RecordReplaceConfig(WARP_COMPUTE, new_warp_cfg, MappingType::REPLACE_THREADS);
+    }
+
+    node = SetTileSizeAndTile(node.child(0), L0_L1, count_coincident);
+  }
+
+  // the last tile of tensor_core
+  node = SetTileSizeAndTile(node.child(0), L0);
+  if (!scop_info_.user_config_.GetEnableTensorCoreUsePoly()) {
+    node = node.child(0);
+  }
+  node = node.insert_mark(isl::id(node.ctx(), PROMOTE_SHARED_TO_REGISTER));
+  node = node.ancestor(node.get_tree_depth() - start_depth);
 
   return node;
 }
 
+isl::schedule_node TileOuterBand::SplitBmmStatement(const isl::schedule_node &node) {
+  isl::schedule_node tile_node = node;
+  auto all_reduce_map = scop_info_.analysis_result_.GetReductionsMap();
+  ReduceManager reduce_manager;
 
+  auto band_node = tile_node.as<isl::schedule_node_band>();
+  auto band_node_domain = band_node.get_partial_schedule().domain();
+  StatementMap all_statements = scop_info_.analysis_result_.GetStatementMap();
+  isl::union_map reduce_statement_map = isl::union_map::empty(node.ctx());
+  isl::union_set reduce_statements = isl::union_set::empty(node.ctx());
+
+  for (auto it = all_reduce_map.begin(); it != all_reduce_map.end(); ++it) {
+    reduce_statement_map = reduce_statement_map.unite(it->second);
+    auto this_reduce = reduce_manager.GetReduceStatements(band_node_domain, reduce_statement_map, all_statements);
+    if (!this_reduce.is_empty()) {
+      reduce_statements = reduce_statements.unite(this_reduce);
+    }
+  }
+
+  if (!reduce_manager.SplitReduceStatements(tile_node, reduce_statements, pass_info_.dependences_, false)) {
+    return node;
+  }
+  return tile_node;
+}
 
 isl::schedule_node TileOuterBand::SetTileSizeAndTile(const isl::schedule_node &node, const std::string &select_l0_l1,
-                                                     size_t num) {
+                                                     const int count_coincident) {
   const unsigned int n_member = node.as<isl::schedule_node_band>().n_member();
   auto title_size = static_cast<unsigned int>(tile_sizes_.size());
   unsigned int dim_num = (n_member <= title_size) ? n_member : title_size;
-  std::vector<int> tile_size = GetTileSizeOfLevel(n_member, dim_num, select_l0_l1, tile_sizes_);
+  std::vector<int> tile_size = GetTileSizeOfLevel(n_member, dim_num, select_l0_l1, tile_sizes_, count_coincident);
   isl::multi_val sizes = ComputeBandTilesSizes(node, &tile_size[0]);
   return TileBand(node, sizes);
 }

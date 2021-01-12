@@ -34,6 +34,15 @@
  *   tensor_name_mod_
  */
 
+/*
+ * 2021.01.13
+ * Add variables for TensorCore:
+ *   is_scheme_two_
+ *   enable_vectorize_
+ *   vectorize_var_
+ *   vectorize_scale_
+ */
+
 #ifndef TVM_CODEGEN_CODEGEN_C_H_
 #define TVM_CODEGEN_CODEGEN_C_H_
 
@@ -194,6 +203,14 @@ class CodeGenC :
   std::map<std::string, std::string> tensor_name_mod_;
   bool need_reduce_lib_{false};
   std::string reduce_lib_type_{"origin"};
+
+  // add for tensor core
+  bool is_scheme_two_{false};
+
+  // add for data access vectorization
+  bool enable_vectorize_ = false;
+  std::string vectorize_var_;
+  Expr vectorize_scale_ = IntImm::make(Int(32), 1);
 
  protected:
   // Print reference to struct location

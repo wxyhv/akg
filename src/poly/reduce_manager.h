@@ -1,5 +1,5 @@
 /**
- * Copyright 2020 Huawei Technologies Co., Ltd
+ * Copyright 2020-2021 Huawei Technologies Co., Ltd
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -34,12 +34,14 @@ class ReduceManager {
   ReduceManager() {}
   ~ReduceManager() {}
 
-  bool SplitReduceStatements(isl::schedule_node &node, isl::union_set reduce_statements, isl::union_map dependences);
+  bool SplitReduceStatements(isl::schedule_node &node, isl::union_set reduce_statements, isl::union_map dependences,
+                             const bool split_reduce_dependent);
   isl::union_set GetReduceStatements(isl::union_set domain, isl::union_map reduce_statement_map,
                                      StatementMap all_statements);
 
  private:
-  isl::schedule_node ReorderStatements(const isl::schedule_node &node, isl::union_set before, isl::union_set after);
+  isl::schedule_node ReorderStatements(const isl::schedule_node &node, isl::union_set before, isl::union_set after,
+                                       const bool split_reduce_dependent);
   bool AreSequentialStatements(isl::union_set first_statements, isl::union_set second_statements,
                                isl::union_map dependences);
 };

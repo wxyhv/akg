@@ -1,5 +1,5 @@
 /**
- * Copyright 2019 Huawei Technologies Co., Ltd
+ * Copyright 2019-2021 Huawei Technologies Co., Ltd
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -28,7 +28,8 @@ class Scop {
   ~Scop() = default;
 
   void ParseUserConfig(std::string target, const Map<std::string, NodeRef> &attrs,
-                       const Map<Tensor, Buffer> &extern_buffer, bool is_spec_gemm, bool is_tuning, bool is_dynamic);
+                       const Map<Tensor, Buffer> &extern_buffer, bool is_spec_gemm, bool is_tuning, bool is_dynamic,
+                       const Schedule &sch);
   isl::schedule GenIsl();
   isl::schedule Transform(const isl::schedule &input_schedule);
   Stmt GenHalide(const isl::schedule &sch);

@@ -26,6 +26,10 @@
  * 2019.12.30 - Add new implements for host device splitter.
  */
 
+/*
+ * 2021.01.13 - Modify new implements for host device splitter.
+ */
+
 #include <stdlib.h>
 
 #include <tvm/ir.h>
@@ -178,7 +182,8 @@ class HostDeviceSplitter : public IRMutator {
   }
 
   Stmt Mutate_(const AttrStmt *op, const Stmt& s) final {
-    if (op->attr_key == attr::thread_extent ||
+    if (op->attr_key == attr::wmma_scope ||
+        op->attr_key == attr::thread_extent ||
         op->attr_key == attr::pipeline_exec_scope ||
         op->attr_key == attr::device_scope) {
       return SplitDeviceFunc(s);

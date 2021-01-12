@@ -1,5 +1,5 @@
 /**
- * Copyright 2019 Huawei Technologies Co., Ltd
+ * Copyright 2019-2021 Huawei Technologies Co., Ltd
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -199,7 +199,8 @@ Stmt MathIntrinRewrite(Stmt stmt);
 Stmt SinkIfStmt(const Stmt &stmt);
 
 Array<NodeRef> AutoPoly(const Stmt &body, const Map<Tensor, Buffer> &extern_buffer, std::string target,
-                        const Map<std::string, NodeRef> &attrs, const bool is_specgemm, const bool is_dynamic);
+                        const Map<std::string, NodeRef> &attrs, const bool is_specgemm, const bool is_dynamic,
+                        Schedule sch = Schedule());
 
 /*!
  * \brief Promote IF stmt as possible.
@@ -211,7 +212,7 @@ Stmt PromoteIfStmt(Stmt stmt, bool is_dynamic = false);
 Stmt PromoteLetStmt(const Stmt &stmt, const Array<NodeRef> &arg_list);
 
 NodeRef GenTuningSpace(const Stmt &body, std::string target, const Map<Tensor, Buffer> &extern_buffer,
-                       const Map<std::string, NodeRef> &attrs, const bool is_specgemm);
+                       const Map<std::string, NodeRef> &attrs, const bool is_specgemm, Schedule sch = Schedule());
 
 Stmt Load3dTrans(Stmt stmt, bool is_dynamic);
 
@@ -358,7 +359,15 @@ Expr CastNormalize(const Expr &expr, const air::DataType cast_type);
 std::string DumpC(const Stmt &stmt, const Array<Buffer> &extern_buffer);
 // GPU PASS
 Stmt InjectDoubleBufferScopeOnGpu(Stmt stmt);
-
+/*!
+ * \brief  Define the scope of data prefetch using transfer buffer and the scope of using thread group, then insert
+ * corresponding attributes. Detect if there exists data promotion to shared memory and calculate local memory resource
+ * and thread resource to decide if enable data prefetch and thread group.
+ *
+ * \param expr The statement to be transformed.
+ * \return The statement after transformed.
+ */
+Stmt InjectTransferBufferScope(Stmt stmt);
 /*!
  * \brief Simplify expr using custom cce simplifiers.
  *
@@ -367,7 +376,6 @@ Stmt InjectDoubleBufferScopeOnGpu(Stmt stmt);
  *
  * \note Analyzer will call into sub-analyzers to get the result.
  */
-
 Expr Simplify_cce(Expr expr, const Map<Var, Range> &vrange = Map<Var, Range>());
 /*!
  * \brief Simplify stmt using custom cce simplifiers.

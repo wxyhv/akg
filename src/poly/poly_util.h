@@ -1,5 +1,5 @@
 /**
- * Copyright 2019 Huawei Technologies Co., Ltd
+ * Copyright 2019-2021 Huawei Technologies Co., Ltd
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -15,6 +15,7 @@
  */
 #ifndef POLY_UTIL_H_
 #define POLY_UTIL_H_
+#include <limits.h>
 #include <tvm/ir.h>
 #include <ir_pass.h>
 #include <chrono>
@@ -328,9 +329,11 @@ constexpr auto T1 = "t1";
 constexpr auto T2 = "t2";
 constexpr auto L1 = "l1";
 constexpr auto L0 = "l0";
+constexpr auto L0_L1 = "l0_l1";
 constexpr auto REPLACE = "replace_";
 constexpr auto COMPUTE = "compute";
 constexpr auto PROMOTE = "promote_";
+constexpr auto WARP_COMPUTE = "warp_compute";
 constexpr auto BLOCK_IDX_X = "blockIdx.x";
 constexpr auto BLOCK_IDX_Y = "blockIdx.y";
 constexpr auto BLOCK_IDX_Z = "blockIdx.z";
@@ -344,6 +347,9 @@ constexpr auto REDUCE = "reduce";
 constexpr auto SYNC_SCOP_WARP = "warp";
 constexpr auto SYNC_SCOP_SHARED = "shared";
 constexpr auto SYNC_SCOP_GLOBAL = "global";
+
+constexpr auto ROW_MAJOR = "row_major";
+constexpr auto COL_MAJOR = "col_major";
 
 /******************************************************
  * Following const is the mark tags for schedule tree
@@ -365,9 +371,17 @@ constexpr auto ALLOC_REALIZE_OUT = "alloc_out";
 constexpr auto CALL_IM2COL_UB = "cce_img2col_ub";
 constexpr auto ATTR_IM2COL_KEY = "im2colKey";
 
+constexpr auto MAPPING_INVALID_WARP = INT_MAX;
+constexpr auto PROMOTE_GLOBAL_TO_SHARED_AB = "promote_global_to_shared_ab";
+constexpr auto PROMOTE_GLOBAL_TO_SHARED_C = "promote_global_to_shared_c";
+constexpr auto PROMOTE_SHARED_TO_REGISTER = "promote_shared_to_register";
+constexpr auto PROMOTE_GLOBAL_TO_REGISTER_C = "promote_global_to_register_c";
+constexpr auto PROMOTE_LOCAL_TO_GLOBAL = "promote_local_to_global";
 constexpr auto PROMOTE_VECTORIZATION = "promote_vectorization";
 constexpr auto THREAD_MARKER = "thread_marker";
 constexpr auto BLOCK_MARKER = "block_marker";
+constexpr auto WARP_MARKER = "warp_marker";
+constexpr auto VECTORIZATION_MARKER = "vectorization_marker";
 constexpr auto REDUCE_MARKER = "reduce_marker_";
 constexpr auto ATOMIC_MARKER = "atomic";
 constexpr auto X_DIRECTION = "X_DIRECTION";
@@ -378,6 +392,8 @@ constexpr auto INSERT_SYNC = "insert_sync";
 
 constexpr auto READ_ID_NAME = "GMread";
 constexpr auto WRITE_ID_NAME = "GMwrite";
+constexpr auto SHARED_READ_ID_NAME = "SHAREDread";
+constexpr auto SHARED_WRITE_ID_NAME = "SHAREDwrite";
 
 constexpr auto AKG_REDUCE_SUM = "SumOp";
 constexpr auto AKG_REDUCE_MIN = "MinOp";
@@ -385,6 +401,13 @@ constexpr auto AKG_REDUCE_MAX = "MaxOp";
 constexpr auto AKG_REDUCE_AND = "AndOp";
 constexpr auto AKG_REDUCE_OR = "OrOp";
 constexpr auto AKG_REDUCE_UNSUPPORTED = "X";
+
+constexpr auto MATRIX_A = "matrix_a";
+constexpr auto MATRIX_B = "matrix_b";
+constexpr auto MATRIX_C = "matrix_c";
+constexpr auto FRAGMENT = "fragment_";
+constexpr auto LOCAL_SUFFIX = "_local";
+constexpr auto SHARE_SUFFIX = "_shared";
 
 const std::unordered_set<std::string> AkgSupportedReduceOp = {AKG_REDUCE_SUM, AKG_REDUCE_MIN, AKG_REDUCE_MAX,
                                                               AKG_REDUCE_AND, AKG_REDUCE_OR};

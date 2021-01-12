@@ -1,5 +1,5 @@
 /**
- * Copyright 2020 Huawei Technologies Co., Ltd
+ * Copyright 2020-2021 Huawei Technologies Co., Ltd
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -28,6 +28,17 @@ class DoubleBufferScopeInjector : public IRMutator {
     if (op->attr_key == air::ir::attr::storage_scope && op->value.as<StringImm>()->value == "shared") {
       touched_.insert(op->node.as<Variable>());
     }
+    if (op->attr_key == "promote_vectorization" && op->value.as<StringImm>()->value == "promote_vectorization") {
+      is_vectorize_ = true;
+      auto res = Mutate(op->body);
+      if (need_db_) {
+        res = AttrStmt::make(op->node, op->attr_key, op->value, res);
+        res = AttrStmt::make(db_var_, air::ir::attr::double_buffer_scope, 1, res);
+        need_db_ = false;
+      }
+      is_vectorize_ = false;
+      return res;
+    }
     return IRMutator::Mutate_(op, s);
   }
 
@@ -42,12 +53,20 @@ class DoubleBufferScopeInjector : public IRMutator {
       if (IsDbFetchBlock(loop->body)) {
         return true;
       }
+    } else if (auto attr = s.as<AttrStmt>()) {
+      if (IsDbFetchBlock(attr->body)) {
+        return true;
+      }
     }
     return false;
   }
   bool HasOuterLoop() { return !loop_nest_.empty(); }
   Stmt Mutate_(const For *op, const Stmt &s) final {
     if (IsDbFetchBlock(s) && HasOuterLoop()) {
+      if (is_vectorize_) {
+        need_db_ = true;
+        return s;
+      }
       return AttrStmt::make(db_var_, air::ir::attr::double_buffer_scope, 1, s);
     } else {
       loop_nest_.push_back(op);
@@ -69,7 +88,10 @@ class DoubleBufferScopeInjector : public IRMutator {
   std::unordered_set<const Variable *> touched_;
   VarExpr db_var_;
   std::vector<const For *> loop_nest_;
+  bool need_db_{false};
+  bool is_vectorize_{false};
 };
+
 Stmt InjectDoubleBufferScopeOnGpu(Stmt stmt) {
   stmt = DoubleBufferScopeInjector().Mutate(stmt);
   return stmt;

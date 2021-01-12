@@ -21,6 +21,7 @@
 namespace akg {
 namespace ir {
 namespace poly {
+#define TENSOR_CORE_DEV true
 /*!
  * IslEmitter for GPU
  */
@@ -87,7 +88,32 @@ const std::map<std::string, std::string> unique_data_type_adapter{{"bool", "sign
 // add for one dimension mapping
 constexpr auto ORIGIN_THREAD_DIM_X = "bind_thread_x";
 
-struct ReduceEmitInfo {
+// add for tensor core
+constexpr auto MMA_A = "matrix_a";
+constexpr auto MMA_B = "matrix_b";
+constexpr auto MMA_C = "accumulator";
+constexpr auto MMA_SYNC = "matrix_sync";
+constexpr auto MMA_PREFIX = "matrix_";
+constexpr auto MMA_FILL_STMT_SERIAL = 2;
+constexpr auto MMA_SYNC_STMT_SERIAL = 1;
+constexpr auto ENABLE_SCHEME_TWO = "EnableSchemeTwo";
+constexpr auto CAST_FLAG = "CAST";
+constexpr auto CAST_MODE_1 = "mode1";
+constexpr auto GMREAD_FLAG = "GMRead";
+constexpr auto SHARED_MEM_PROMOTED_COMPLETE = "shared_mem_promoted_complete";
+constexpr auto FRAGMENT_A = "fragment_a";
+constexpr auto FRAGMENT_B = "fragment_b";
+constexpr auto FRAGMENT_C = "fragment_c";
+
+std::string SimplifyName(std::string input);
+constexpr auto FOR_INFO_COLLECT_DEPTH = 3;
+constexpr auto LOCAL_INDEX_POS = 4;
+constexpr auto TENSOR_CORE_MODE_ONE = "1";
+constexpr auto TENSOR_CORE_MODE_TWO = "2";
+constexpr auto WARP_MARKER = "warp_marker";
+
+class ReduceEmitInfo {
+ public:
   // output tensor info
   std::string output_tensor_name_;
   std::vector<std::string> output_tensor_indexs_;
@@ -124,6 +150,46 @@ struct ReduceEmitInfo {
   bool init_stmt_emit_{false};
 };
 
+struct Tile {
+  int m{-1};
+  int n{-1};
+  int k{-1};
+};
+
+class TensorCoreInfo {
+ public:
+  bool in_matrix_a_{false};
+  bool in_matrix_b_{false};
+  bool in_matrix_c_{false};
+  bool in_matrix_sync_{false};
+
+  std::map<std::string, bool> matrix_info_{{MMA_A, false}, {MMA_B, false}, {MMA_C, false}, {MMA_SYNC, false}};
+  bool core_area_{false};
+  bool fragment_axis_begin_{false};
+  bool is_fragment_m_{false};
+  bool is_fragment_n_{false};
+  Expr fragment_m_;
+  Expr fragment_n_;
+  int warp_threads_y_{-1};
+  int warp_threads_x_{-1};
+  Tile warp_tile_;
+  Tile thread_tile_;
+
+  std::unordered_map<std::string, std::string> matrix_major_;
+  std::unordered_map<std::string, std::string> matrix_abc_;
+  std::unordered_map<air::ir::TensorKey, Region> bounds_;
+  std::unordered_map<std::string, Array<Expr>> strides_;
+  bool data_is_set_{false};
+  std::set<std::string> frag_reg_;
+  bool is_tensor_core_{false};
+  bool for_mod_pos_found_{false};
+  std::unordered_set<std::string> cast_tensors_;
+  std::unordered_map<Var, Expr, ExprHash, ExprEqual> core_area_for_extent_;
+  std::unordered_map<std::string, Array<Expr>> min_bounds_;
+
+  std::string wmma_scope_;
+};
+
 class GpuIslEmitter : public IslEmitter {
  public:
   GpuIslEmitter(ScopInfo &info, const NodeInfoRepo &n, const isl::id_list &i) : IslEmitter(info, n, i) {}
@@ -150,12 +216,24 @@ class GpuIslEmitter : public IslEmitter {
 
   Stmt EmitAccessNodeFromPromoteAcsCall(isl::id var, const Node *node, Array<Expr> &args);
   Stmt EmitAccessNodeFromPromoteAcsProvide(isl::id var, const Node *node, Array<Expr> &args);
+  isl::multi_aff TensorAccessMultAff(isl::id &tensor_id, const Array<Expr> &subscripts, const isl::id &stmt_id);
 
   Stmt EmitSync();
   Stmt EmitReduceInit(const isl::ast_node_user &node);
   Stmt EmitReduceUpdate(const isl::ast_node_user &node);
   Stmt EmitReduceArea(const isl::ast_node_user &node);
   Stmt EmitAttr();  // thread_extent, virtual_thread
+
+  // add for tensor core
+  Stmt EmitUserStmtCore(const isl::ast_node_user &node);
+  Stmt EmitUserStmtCoreSync(const isl::ast_node_user &node);
+  Stmt EmitReadCore(const isl::ast_node_user &node);
+  Stmt EmitWriteCore(const isl::ast_node_user &node);
+
+  Type GetTypeOfTensor(std::string name);
+  Expr MakeLeftCallFromProvide(const Provide *op);
+  void PrepareDataForTensorCore();
+  bool CheckTileValid(Tile tile);
 
   Expr FindRealizeScope(const isl::id &var);
   std::string FindRealizeScopeToString(const isl::id &var);
@@ -184,6 +262,7 @@ class GpuIslEmitter : public IslEmitter {
   void MakeOutputTensorInfo();
   void MakeOutputPromotedTensorInfoForAtomic();
   void MakePromotedTensorInfoForReduce();
+  std::string MakePromotedTensorInitStmt(std::string init_value);
   Stmt EmitAkgAtomicReturnInfo(Stmt s, std::string info);
   std::string GetTheIndexOfPromotedTensor(std::string s);
 
@@ -199,12 +278,94 @@ class GpuIslEmitter : public IslEmitter {
 
   // used for reduce emit
   bool in_reduce_area_{false};
-  struct ReduceEmitInfo reduce_info_;
+  ReduceEmitInfo reduce_info_;
+  TensorCoreInfo tensor_core_info_;
   bool is_sync_before_{false};
 
   // add for "for iter" unique name
   std::unordered_map<std::string, int> for_iter_name_map_;
   std::unordered_map<const Variable *, const Variable *> iter_map_ssa_;
+};
+
+struct DataForLoad {
+  Expr src;
+  Expr stride;
+  Expr major;
+  const Call *call;
+  const Provide *op;
+  NodePtr<BufferNode> node;
+};
+
+struct DataForStore {
+  Expr dst;
+  Expr stride;
+  const Call *call;
+  NodePtr<BufferNode> node;
+};
+
+struct DataForFill {
+  const Call *call;
+  const Provide *op;
+  NodePtr<BufferNode> node;
+};
+
+struct DataForSync {
+  Expr a;
+  Expr b;
+  Expr c;
+  NodePtr<BufferNode> node_a;
+  NodePtr<BufferNode> node_b;
+  NodePtr<BufferNode> node_c;
+};
+
+class DeleteThreadIdx : public air::ir::IRMutator {
+ public:
+  explicit DeleteThreadIdx() {}
+  ~DeleteThreadIdx() override = default;
+  Expr Mutate_(const Variable *op, const Expr &e) {
+    if (op->name_hint == THREAD_IDX_X) {
+      return make_const(Int(32), 0);
+    }
+
+    return e;
+  }
+};
+
+class EmitTensorCoreHelper {
+ public:
+  EmitTensorCoreHelper(TensorCoreInfo &info) : tensor_core_info_(info) {}
+  ~EmitTensorCoreHelper(){};
+
+  void SetDataForLoad(Expr src, Expr stride, Expr major, const Call *call, const Provide *op,
+                      NodePtr<BufferNode> &node);
+  void SetDataForStore(Expr dst, Expr stride, const Call *call, NodePtr<BufferNode> &node);
+  void SetDataForFill(const Provide *op, const Call *call, NodePtr<BufferNode> &node);
+  void SetDataForSync(Expr a, Expr b, Expr c, NodePtr<BufferNode> &node_a, NodePtr<BufferNode> &node_b,
+                      NodePtr<BufferNode> &node_c);
+
+  void PrepareDataCore();
+
+  Stmt MakeLoadTransform();
+  Stmt MakeStoreTransform();
+  Stmt MakeFillTransform();
+  Stmt MakeSyncTransform();
+
+  Array<Expr> GetTileSize(const std::string &name);
+
+ private:
+  Array<NodeRef> node_;
+  Expr tuple_;
+  TensorCoreInfo &tensor_core_info_;
+
+  DataForLoad data_for_load_;
+  DataForStore data_for_store_;
+  DataForFill data_for_fill_;
+  DataForSync data_for_sync_;
+
+  air::ir::TensorKey key_;
+  const Call *call_;
+  NodePtr<BufferNode> buffer_node_;
+  Type data_type_;
 };
 
 class AddAttrCheck : public air::ir::IRVisitor {
@@ -230,6 +391,160 @@ class AddAttrCheck : public air::ir::IRVisitor {
 
  private:
   bool need_add_{true};
+};
+
+class AddMmaAttrFlag : public air::ir::IRMutator {
+ public:
+  explicit AddMmaAttrFlag(TensorCoreInfo t) : tt(t) {}
+  ~AddMmaAttrFlag() override = default;
+
+  Stmt Mutate_(const AttrStmt *op, const Stmt &s) override {
+    Stmt stmt = IRMutator::Mutate_(op, s);
+    if (op->attr_key == air::ir::attr::realize_scope) {
+      auto node = op->node.as<OperationNode>();
+      if (node != nullptr) {
+        if (!tt.frag_reg_.count(node->name)) {
+          return stmt;
+        }
+
+        auto it = tt.matrix_abc_.find(SimplifyName(node->name));
+        CHECK(it != tt.matrix_abc_.end()) << "Cannot find matrix info for " << node->name;
+        std::string name = it->second;
+        if (name == MATRIX_C) {
+          name = MMA_C;
+        }
+
+        auto matrix_abc = "wmma." + name;
+        Stmt body = Mutate(op->body);
+        return AttrStmt::make(op->node, op->attr_key, matrix_abc, body);
+      }
+    }
+    return stmt;
+  }
+
+ private:
+  TensorCoreInfo tt;
+};
+
+class TensorSubstituteTensorCore : public air::ir::IRMutator {
+ public:
+  explicit TensorSubstituteTensorCore(const FunctionRef &a, const FunctionRef &b, int b_value_index)
+      : a_(a), b_(b), b_value_index_(b_value_index) {}
+  ~TensorSubstituteTensorCore() override = default;
+
+  Stmt Mutate_(const AttrStmt *op, const Stmt &s) override {
+    if (op->attr_key == air::ir::attr::buffer_bind_scope) {
+      Array<NodeRef> arr = Downcast<Array<NodeRef>>(op->node);
+      CHECK_EQ(arr.size(), 2U);
+      const BufferNode *buffer = arr[0].as<BufferNode>();
+      const TensorNode *tensor = arr[1].as<TensorNode>();
+      CHECK(buffer && tensor);
+      if (tensor->op == a_) {
+        Tensor new_tensor = TensorNode::make(tensor->shape, tensor->dtype, Downcast<Operation>(b_), b_value_index_);
+        Array<NodeRef> node = {arr[0], new_tensor};
+        return AttrStmt::make(node, op->attr_key, op->value, op->body);
+      }
+    }
+    return IRMutator::Mutate_(op, s);
+  }
+
+ private:
+  FunctionRef a_, b_;
+  int b_value_index_{0};
+};
+
+class DeleteUselessFor : public air::ir::IRMutator {
+ public:
+  explicit DeleteUselessFor() {}
+  ~DeleteUselessFor() override = default;
+
+  Stmt Mutate_(const For *op, const Stmt &s) {
+    for_iters_.push_back(op->loop_var.get());
+    Stmt stmt = IRMutator::Mutate_(op, s);
+    for_iters_.pop_back();
+    return stmt.as<For>()->body;
+  }
+
+  Stmt Mutate_(const AttrStmt *op, const Stmt &s) override {
+    if (op->attr_key == air::ir::attr::buffer_bind_scope) {
+      Array<NodeRef> arr = Downcast<Array<NodeRef>>(op->node);
+      CHECK_EQ(arr.size(), 2U);
+      const BufferNode *buffer = arr[0].as<BufferNode>();
+      const TensorNode *tensor = arr[1].as<TensorNode>();
+      CHECK(buffer && tensor);
+      auto e = buffer->elem_offset;
+      Expr ret = this->Mutate(e);
+      NodePtr<BufferNode> buffer_node = make_node<BufferNode>();
+      buffer_node->data = buffer->data;
+      buffer_node->name = buffer->name;
+      buffer_node->scope = buffer->scope;
+      buffer_node->dtype = buffer->dtype;
+      buffer_node->strides = buffer->strides;
+      buffer_node->shape = buffer->shape;
+      buffer_node->data_alignment = buffer->data_alignment;
+      buffer_node->elem_offset = ret;
+      buffer_node->offset_factor = buffer->offset_factor;
+
+      Buffer buffer_new(buffer_node);
+      Array<NodeRef> node = {buffer_new, arr[1]};
+
+      auto value = this->Mutate(op->value);
+      auto body = this->Mutate(op->body);
+
+      return AttrStmt::make(node, op->attr_key, value, body);
+    }
+    return IRMutator::Mutate_(op, s);
+  }
+
+  Expr Mutate_(const Variable *op, const Expr &e) {
+    bool be_zero = false;
+    for (auto &i : for_iters_) {
+      if (i == op) {
+        be_zero = true;
+        break;
+      }
+    }
+
+    if (be_zero) {
+      return make_const(Int(32), 0);
+    }
+
+    return e;
+  }
+
+  Expr Mutate_(const Call *op, const Expr &e) final {
+    if (op->is_intrinsic(air::ir::intrinsic::tvm_fill_fragment)) {
+      CHECK_EQ(op->args.size(), 6U);
+      return DeleteUselessForIndex(op, e);
+    } else if (op->is_intrinsic(air::ir::intrinsic::tvm_load_matrix_sync)) {
+      CHECK_EQ(op->args.size(), 8U);
+      return DeleteUselessForIndex(op, e);
+
+    } else if (op->is_intrinsic(air::ir::intrinsic::tvm_store_matrix_sync)) {
+      CHECK_EQ(op->args.size(), 8U);
+      return DeleteUselessForIndex(op, e);
+
+    } else if (op->is_intrinsic(air::ir::intrinsic::tvm_mma_sync)) {
+      CHECK_EQ(op->args.size(), 8U);
+      return DeleteUselessForIndex(op, e);
+    } else {
+      return IRMutator::Mutate_(op, e);
+    }
+  }
+
+  Expr DeleteUselessForIndex(const Call *op, const Expr &e) {
+    Array<Expr> args = op->args;
+    for (unsigned int i = 0; i < args.size(); ++i) {
+      args.Set(i, Simplify(this->Mutate(args[i])));
+    }
+    if (args.same_as(op->args)) {
+      return e;
+    }
+    return Call::make(op->type, op->name, args, op->call_type, op->func, op->value_index);
+  }
+
+ private:
+  std::vector<const Variable *> for_iters_;
 };
 
 class AkgReduceAddTensorIndex : public air::ir::IRMutator {

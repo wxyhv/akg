@@ -1,5 +1,5 @@
 /**
- * Copyright 2019 Huawei Technologies Co., Ltd
+ * Copyright 2019-2021 Huawei Technologies Co., Ltd
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -493,6 +493,7 @@ NodeRef LowerStmt(Schedule sch, const Array<NodeRef> &in_args, const Array<NodeR
   if (target_platform->device_type == kDLGPU && polyhedral && global_attrs.GetBoolAttr(kEnableAutoFuse, true)) {
     akg::schedule::AutoFuse(sch);
   }
+
   auto new_sch = sch.normalize();
   auto bounds = air::schedule::InferBound(new_sch);
   Stmt stmt = make_pass("schedule.ScheduleOps", new_sch, bounds, false);
@@ -504,7 +505,7 @@ NodeRef LowerStmt(Schedule sch, const Array<NodeRef> &in_args, const Array<NodeR
       Map<Tensor, Tensor> replace;
       RenameBinds(*binds_0, config, *args, *arg_list_0, replace);
       stmt = NEXT_PASS(RenameRealize, stmt, *binds_0, replace);
-      
+
       Array<NodeRef> arg_list_1;
       Map<Tensor, Buffer> binds_1;
       GetFlattenedBinds(*args, *binds_0, config, arg_list_1, binds_1, false);
@@ -534,7 +535,7 @@ NodeRef LowerStmt(Schedule sch, const Array<NodeRef> &in_args, const Array<NodeR
         return tuning_spaces;
       }
 
-      Array<NodeRef> poly_res = NEXT_PASS(AutoPoly, stmt, *binds_0, target, global_attrs, false, false);
+      Array<NodeRef> poly_res = NEXT_PASS(AutoPoly, stmt, *binds_0, target, global_attrs, false, false, new_sch);
       CHECK_EQ(poly_res.size(), 2);
       stmt = air::Downcast<Stmt>(poly_res[0]);
       global_attrs.Set(kEnablePolySch, air::make_const(Int(32), true));
@@ -560,7 +561,11 @@ NodeRef LowerStmt(Schedule sch, const Array<NodeRef> &in_args, const Array<NodeR
     if (polyhedral && global_attrs.GetBoolAttr(kEnableDoubleBuffer, false)) {
       stmt = NEXT_PASS(InjectDoubleBufferScopeOnGpu, stmt);
     }
-    stmt = NEXT_PASS(InjectDoubleBuffer, stmt, config->double_buffer_split_loop);
+    if (polyhedral && global_attrs.GetBoolAttr(kEnableTransferBuffer, false)) {
+      stmt = NEXT_PASS(InjectTransferBufferScope, stmt);
+    }
+    stmt = NEXT_PASS(InjectDoubleBuffer, stmt, config->double_buffer_split_loop,
+                     global_attrs.GetBoolAttr(kEnableTransferBuffer, false));
     stmt = NEXT_PASS(StorageRewrite, stmt);
     stmt = NEXT_PASS(UnrollLoop, stmt, config->auto_unroll_max_step, config->auto_unroll_max_depth,
                      config->auto_unroll_max_extent, config->unroll_explicit);
@@ -735,7 +740,7 @@ NodeRef Lower(Schedule sch, const Array<NodeRef> &in_args, const Array<NodeRef> 
   Stmt stmt_before_poly = stmt;
   while (enter_count < max_enter_poly_times) {
     if (target != "aicpu" && polyhedral) {
-      Array<NodeRef> poly_res = NEXT_PASS(AutoPoly, stmt_before_poly, binds_0, target, global_attrs, false, is_dynamic);
+      Array<NodeRef> poly_res = NEXT_PASS(AutoPoly, stmt_before_poly, binds_0, target, global_attrs, false, is_dynamic, Schedule());
       enter_count++;
       CHECK_EQ(poly_res.size(), 2);
       stmt = air::Downcast<Stmt>(poly_res[0]);

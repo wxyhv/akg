@@ -1,5 +1,5 @@
 /**
- * Copyright 2020 Huawei Technologies Co., Ltd
+ * Copyright 2020-2021 Huawei Technologies Co., Ltd
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -66,6 +66,9 @@ isl::map SyncManager::GetExtensionSpace(const isl::schedule_node &node, SyncLeve
 }
 
 isl::schedule_node SyncManager::InsertPromotionSync(const isl::schedule_node &tree) {
+  if (!tree.has_parent() || !tree.parent().has_parent()) {
+    return tree;
+  }
   auto seq_node = tree.parent().parent();
   if (!seq_node.isa<isl::schedule_node_sequence>()) {
     LOG(INFO) << "Unexpected tree structure: need sequence";
