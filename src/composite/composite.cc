@@ -1,5 +1,5 @@
 /**
- * Copyright 2020 Huawei Technologies Co., Ltd
+ * Copyright 2020-2021 Huawei Technologies Co., Ltd
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -14,10 +14,10 @@
  * limitations under the License.
  */
 #include "dmlc/common.h"
-#include "picojson.h"
 #include "build_module.h"
 #include "composite/util.h"
 #include "composite/optimize/optimize.h"
+#include "composite/stitch_fusion.h"
 
 namespace akg {
 std::tuple<std::string, std::string, picojson::array, picojson::array, picojson::array> ParseInputJson(
@@ -52,14 +52,6 @@ std::tuple<std::string, std::string, picojson::array, picojson::array, picojson:
   return std::make_tuple(kernel_name, target, input_desc, output_desc, op_desc);
 }
 
-struct OpDesc {
-  std::string op_name;
-  std::string fusion_op_name;
-  Map<std::string, NodeRef> attrs;
-  Array<NodeRef> input_descs;
-  Array<NodeRef> output_descs;
-};
-
 class OpDescsParser {
  public:
   OpDescsParser(picojson::array op_descs_json, const std::vector<std::string> &input_tensors,
@@ -89,6 +81,16 @@ class OpDescsParser {
       for (const auto &output : item.output_descs) {
         LOG(INFO) << "output: " << output;
       }
+      for (const auto &input_info : item.input_tensor_info) {
+        LOG(INFO) << "input_info: ";
+        LOG(INFO) << input_info.name_;
+        LOG(INFO) << input_info.shape_;
+      }
+      for (const auto &output_info : item.output_tensor_info) {
+        LOG(INFO) << "output_info: ";
+        LOG(INFO) << output_info.name_;
+        LOG(INFO) << output_info.shape_;
+      }
     }
   }
 
@@ -104,15 +106,6 @@ class OpDescsParser {
   std::unordered_map<std::string, Tensor> tensor_map_;
 
  private:
-  struct TensorInfo {
-    std::string name_;
-    std::string format_;
-    Array<Expr> shape_;
-    Type dtype_;
-    bool has_value_{false};
-    picojson::value value_;
-  };
-
   static void ParseTensorValue(const picojson::value &tensor_value, const std::string &tensor_name,
                                const Array<Expr> &shape, const Type &type, Array<NodeRef> &input_output) {
     CHECK_EQ(shape.size(), 1) << "We should not make a expr for a not const tensor.";
@@ -180,8 +173,8 @@ class OpDescsParser {
     tensor_info.emplace_back(info);
   }
 
-  void ParseInputTensors(const picojson::array &tensor_descs, Array<NodeRef> &tensors,
-                         Map<std::string, NodeRef> &attrs) {
+  void ParseInputTensors(const picojson::array &tensor_descs, OpDesc &op_desc_info) {
+    Map<std::string, NodeRef> &attrs = op_desc_info.attrs;
     std::vector<TensorInfo> tensor_info;
     for (const auto &tensor_desc_l0 : tensor_descs) {
       CHECK(tensor_desc_l0.is<picojson::array>());
@@ -204,19 +197,19 @@ class OpDescsParser {
         attrs.Set(key, format);
       }
     }
-
-    MakeTensors(tensor_info, tensors);
+    op_desc_info.input_tensor_info = tensor_info;
+    MakeTensors(tensor_info, op_desc_info.input_descs);
   }
 
-  void ParseOutputTensors(const picojson::array &tensor_descs, Array<NodeRef> &tensors) {
+  void ParseOutputTensors(const picojson::array &tensor_descs, OpDesc &op_desc_info) {
     std::vector<TensorInfo> tensor_info;
     for (const auto &tensor_desc : tensor_descs) {
       CHECK(tensor_desc.is<picojson::object>());
       const picojson::object &tensor_desc_info = tensor_desc.get<picojson::object>();
       ParseTensorInfo(tensor_desc_info, tensor_info);
     }
-
-    MakeTensors(tensor_info, tensors);
+    op_desc_info.output_tensor_info = tensor_info;
+    MakeTensors(tensor_info, op_desc_info.output_descs);
   }
 
   void ParseOpDesc(const picojson::object &op_desc) {
@@ -237,12 +230,12 @@ class OpDescsParser {
     it = op_desc.find("input_desc");
     if (it != op_desc.end() && it->second.is<picojson::array>()) {
       const picojson::array &input_descs = it->second.get<picojson::array>();
-      ParseInputTensors(input_descs, op_desc_info.input_descs, op_desc_info.attrs);
+      ParseInputTensors(input_descs, op_desc_info);
     }
     it = op_desc.find("output_desc");
     if (it != op_desc.end() && it->second.is<picojson::array>()) {
       const picojson::array &output_descs = it->second.get<picojson::array>();
-      ParseOutputTensors(output_descs, op_desc_info.output_descs);
+      ParseOutputTensors(output_descs, op_desc_info);
     }
     op_descs_.emplace_back(op_desc_info);
   }
@@ -428,7 +421,7 @@ class BroadcastInserter : public IRMutator {
  public:
   Stmt Mutate_(const AttrStmt *op, const Stmt &s) override {
     if (op->attr_key == "attrs" && op->body.as<Provide>()) {
-      const Provide* provide = op->body.as<Provide>();
+      const Provide *provide = op->body.as<Provide>();
       CHECK(provide);
       auto call = provide->value.as<Call>();
       CHECK(call);
@@ -443,15 +436,15 @@ class BroadcastInserter : public IRMutator {
             Stmt first, second;
             std::string name = "broadcast_" + std::to_string(name_idx_++);
             Tensor t = placeholder(provide->args, call->type, name);
-            first = Provide::make(t->op, 0,
-                  Call::make(Int(32), "BroadcastTo", {e}, Call::CallType::PureIntrinsic), t->shape);
+            first =
+              Provide::make(t->op, 0, Call::make(Int(32), "BroadcastTo", {e}, Call::CallType::PureIntrinsic), t->shape);
             Map<std::string, NodeRef> attrs = Downcast<Map<std::string, NodeRef>>(op->node);
             attrs.Set("shape", t->shape);
             first = AttrStmt::make(attrs, "attrs", Expr(1), first);
             auto args = call->args;
             args.Set(i, Call::make(t->dtype, t->op->name, t->shape, Call::CallType::Halide, t->op));
             second = Provide::make(provide->func, provide->value_index,
-                  Call::make(call->type, call->name, args, call->call_type), provide->args);
+                                   Call::make(call->type, call->name, args, call->call_type), provide->args);
             second = AttrStmt::make(op->node, op->attr_key, op->value, second);
             return Block::make(first, second);
           }
@@ -470,7 +463,7 @@ class TypeCastInserter : public IRMutator {
  public:
   Stmt Mutate_(const AttrStmt *op, const Stmt &s) override {
     if (op->attr_key == "attrs" && op->body.as<Provide>()) {
-      const Provide* provide = op->body.as<Provide>();
+      const Provide *provide = op->body.as<Provide>();
       CHECK(provide);
       auto call = provide->value.as<Call>();
       CHECK(call);
@@ -511,13 +504,16 @@ class TypeCastInserter : public IRMutator {
   }
 
  private:
-  std::unordered_map<std::string, unsigned> typecast_ops_ = {{"Equal", -1},};
+  std::unordered_map<std::string, unsigned> typecast_ops_ = {
+    {"Equal", -1},
+  };
 };
 
-Stmt Optimize(Stmt &s, BuildInfoOpt &opt, const FuncRefSet &input_funcs, const FuncRefSet &output_funcs, const std::string &target) {
+Stmt Optimize(Stmt &s, BuildInfoOpt &opt, const FuncRefSet &input_funcs, const FuncRefSet &output_funcs,
+              const std::string &target) {
   // reshape optimize
   s = ReshapeTensor(s);
-    // fusion
+  // fusion
   s = FusionMutator().Mutate(s);
   // elemwise opt
   s = ElimTransformOp(s, input_funcs, output_funcs, opt);
@@ -571,25 +567,26 @@ class Emitter : public IRVisitor {
       EmitAssign(t, inputs[0]);
     }
 
-    LOG(INFO) << op->func->func_name() << " = " << op_name << "(" << inputs << ")"
-              << "\n>>>>>>>\n"
-              << t->op->func_name() << " = " << op_name << "(" << real_input << ")";
     tensor_map_[op->func] = t;
   }
 
   void EmitAssign(Tensor &t, const Expr &input) {
     // copy out to bind_input, bind_input is used to bind input[0]
     // d = Assign(a, b), bind_input = d, input0 = bind_input
-    auto bind_input = compute(t->shape, [&](const Array<Var> &indices) { return t(indices); });
+    auto bind_input = compute(
+      t->shape, [&](const Array<Var> &indices) { return t(indices); },
+      "assign_tensor_" + std::to_string(assign_count_));
     tensor_map_[bind_input->op] = bind_input;
     opt_.sch_only.emplace_back(bind_input);
     opt_.inplaces[bind_input->op] = input;
+    assign_count_++;
   }
 
  private:
   FuncTensorMap &tensor_map_;
   BuildInfoOpt &opt_;
   Map<std::string, NodeRef> op_attrs_;
+  int assign_count_{0};
 };
 
 void ParseInputTensors(const picojson::array &input_descs, std::vector<std::string> &input_tensors) {
@@ -624,7 +621,7 @@ void CollectBinds(FuncTensorMap &tensor_map, BuildInfoOpt &opt, BuildInfo &info)
   for (const auto &kv : opt.inplaces) {
     auto first = tensor_map[kv.first];
     auto second = tensor_map[kv.second.as<Call>()->func];
-    auto buf = decl_buffer(first->shape, first->dtype, first->op->name);
+    auto buf = decl_buffer(second->shape, second->dtype, second->op->name);
     info.in_binds.Set(first, buf);
     info.in_binds.Set(second, buf);
   }
@@ -659,6 +656,7 @@ void CollectInputs(const std::vector<std::string> &input_tensors, FuncTensorMap 
 
 void CollectOutputsAndComputes(const std::vector<std::string> &output_tensors, FuncTensorMap &tensor_map,
                                BuildInfoOpt &opt, BuildInfo &info) {
+  int count = 0;
   for (const auto &output : output_tensors) {
     auto iter = std::find_if(
       tensor_map.begin(), tensor_map.end(),
@@ -668,13 +666,20 @@ void CollectOutputsAndComputes(const std::vector<std::string> &output_tensors, F
     info.tensors.push_back(iter->second);
     if (!opt.fakeout.count(iter->first)) {
       info.args.push_back(iter->second);
+    } else {
+      auto name = "fake_" + std::to_string(count);
+      count++;
+      Tensor t = placeholder(iter->second->shape, iter->second->dtype, name);
+      info.args.push_back(t);
     }
   }
   for (const auto &inplace_itr : opt.inplaces) {
-    auto iter = std::find_if(tensor_map.begin(), tensor_map.end(), [&inplace_itr](std::pair<const FunctionRef, Tensor> &kv) {
-      return kv.first->func_name() == inplace_itr.first->func_name(); });
-    if (std::find_if(info.tensors.begin(), info.tensors.end(), [&iter](const Tensor& t) {
-        return t == iter->second; }) == info.tensors.end()) {
+    auto iter =
+      std::find_if(tensor_map.begin(), tensor_map.end(), [&inplace_itr](std::pair<const FunctionRef, Tensor> &kv) {
+        return kv.first->func_name() == inplace_itr.first->func_name();
+      });
+    if (std::find_if(info.tensors.begin(), info.tensors.end(),
+                     [&iter](const Tensor &t) { return t == iter->second; }) == info.tensors.end()) {
       info.tensors.push_back(iter->second);
     }
   }
@@ -706,7 +711,8 @@ void EmitIsolatedInplaceTensor(BuildInfoOpt &opt, FuncTensorMap &tensor_map) {
   }
 }
 
-void ExtractBuildInfo(const picojson::value &input_json, BuildInfo &info) {
+void ExtractBuildInfo(const picojson::value &input_json, BuildInfo &info, std::vector<std::string> &input_tensors,
+                      std::vector<std::string> &output_tensors) {
   CHECK(input_json.is<picojson::object>());
   picojson::array input_desc;
   picojson::array output_desc;
@@ -716,9 +722,7 @@ void ExtractBuildInfo(const picojson::value &input_json, BuildInfo &info) {
   // 1. parse input json
   std::tie(kernelname, target, input_desc, output_desc, op_descs) = ParseInputJson(input_json);
   info.kernel_name = kernelname;
-  std::vector<std::string> input_tensors;
   ParseInputTensors(input_desc, input_tensors);
-  std::vector<std::string> output_tensors;
   ParseOutputTensors(output_desc, output_tensors);
   // 2. parse op descs
   auto parser = OpDescsParser(op_descs, input_tensors, output_tensors);
@@ -738,6 +742,11 @@ void ExtractBuildInfo(const picojson::value &input_json, BuildInfo &info) {
   CollectBuildInfo(input_tensors, output_tensors, tensor_map, opt, info);
 }
 
+void ExtractBuildInfo(const picojson::value &input_json, BuildInfo &info) {
+  std::vector<std::string> input_tensors;
+  std::vector<std::string> output_tensors;
+  ExtractBuildInfo(input_json, info, input_tensors, output_tensors);
+}
 int ExtractKernelNum(const picojson::value &v) {
   int kernel_num = 0;
   CHECK(kernel_num) << "input kernel_num is invalid.";
@@ -753,13 +762,67 @@ int ExtractKernelNum(const picojson::value &v) {
   return kernel_num;
 }
 
-NodeRef CompositeWithJsonToFunc(const std::string &json_str, Map<std::string, NodeRef> attrs) {
-  picojson::value v;
-  std::string err = picojson::parse(v, json_str);
-  if (!err.empty()) {
-    LOG(ERROR) << "json parse error, error message: " << err;
+Stmt String2LowerStmtSimple(const StringImm *json_str, const Map<std::string, NodeRef> &attrs, bool poly) {
+  CHECK(json_str);
+  picojson::value v = String2Json(json_str->value);
+  BuildInfo info;
+  std::vector<std::string> input_tensors;
+  std::vector<std::string> output_tensors;
+  ExtractBuildInfo(v, info, input_tensors, output_tensors);
+  std::string sch_name = GetSchedule(info.tensors);
+  const auto *sch_create = air::runtime::Registry::Get("select_cuda_scheduler");
+  CHECK(sch_create != nullptr);
+  Schedule sch = (*sch_create)(info.tensors, sch_name, poly);
+  akg::BuildConfig config = akg::BuildConfig::Current();
+  CHECK(config.defined());
+  Array<NodeRef> args, shape_vars, arg_list_0;
+  Map<Tensor, Buffer> binds, binds_0;
+  auto stmt = LowerStmt(sch, info.args, shape_vars, info.kernel_name, info.in_binds, attrs, false, poly, false, "cuda",
+                        config, &args, &arg_list_0, &binds, &binds_0, true);
+  return Downcast<Stmt>(stmt);
+}
+
+Stmt String2LowerStmt(const StringImm *json_str, const Map<std::string, NodeRef> &attrs, bool poly,
+                      Array<NodeRef> &all_args, std::unordered_map<std::string, NodeRef> &outputs2args,
+                      std::string &merge_name, size_t &idx, int grid_dims, int block_dims, bool buffer_stitch = false) {
+  CHECK(json_str);
+  picojson::value v = String2Json(json_str->value);
+  BuildInfo info;
+  std::vector<std::string> input_tensors;
+  std::vector<std::string> output_tensors;
+  ExtractBuildInfo(v, info, input_tensors, output_tensors);
+  // ensure merge_name is the same as original json name
+  if (merge_name.empty()) merge_name = info.kernel_name;
+  std::string sch_name = GetSchedule(info.tensors);
+  const auto *sch_create = air::runtime::Registry::Get("select_cuda_scheduler");
+  CHECK(sch_create != nullptr);
+  Schedule sch = (*sch_create)(info.tensors, sch_name, poly, grid_dims, block_dims, buffer_stitch);
+  akg::BuildConfig config = akg::BuildConfig::Current();
+  CHECK(config.defined());
+  config->dump_pass_ir = getenv("MS_AKG_DUMP_IR") != nullptr;
+  // use idx to distinct different subgraph
+  std::string distinct_name = info.kernel_name + "_" + std::to_string(idx);
+  Array<NodeRef> args, shape_vars, arg_list_0;
+  Map<Tensor, Buffer> binds, binds_0;
+  auto stmt = LowerStmt(sch, info.args, shape_vars, distinct_name, info.in_binds, attrs, false, poly, false, "cuda",
+                        config, &args, &arg_list_0, &binds, &binds_0, true);
+  size_t count = 0;
+  for (const auto &x : arg_list_0) {
+    auto buffer = x.as<BufferNode>();
+    CHECK(buffer) << "arg must be a BufferNode";
+    if (std::find(input_tensors.begin(), input_tensors.end(), buffer->name) == std::end(input_tensors)) {
+      CHECK(count < output_tensors.size());
+      outputs2args[output_tensors[count]] = x;
+      count++;
+    }
+    all_args.push_back(x);
   }
+  return Downcast<Stmt>(stmt);
+}
+
+NodeRef CompositeWithJsonToFunc(const std::string &json_str, Map<std::string, NodeRef> attrs) {
   const char *akg_dump_pass_ir = getenv("MS_AKG_DUMP_IR");
+  picojson::value v = String2Json(json_str);
   BuildInfo info;
   ExtractBuildInfo(v, info);
   Array<Operation> ops;
@@ -776,29 +839,8 @@ NodeRef CompositeWithJsonToFunc(const std::string &json_str, Map<std::string, No
   return std::move(build_rst);
 }
 
-std::string GetProcess(const std::string &json_str) {
-  size_t pos = json_str.find("\"process\"");
-  if (pos != std::string::npos && json_str.find("cuda", pos) != std::string::npos) {
-    return "cuda";
-  }
-  return "aicore";
-}
-
-std::string GetSchedule(Array<Tensor> &outputs) {
-  for (const Tensor &t : outputs) {
-    if (t->op->tag == "comm_reduce" || t->op->tag == "comm_reduce_idx") {
-      return "reduce";
-    }
-  }
-  return "injective";
-}
-
 Module CompositeWithJsonGpu(const std::string &json_str, const Map<std::string, NodeRef> &attrs, bool poly) {
-  picojson::value v;
-  std::string err = picojson::parse(v, json_str);
-  if (!err.empty()) {
-    LOG(ERROR) << "json parse error, error message: " << err;
-  }
+  picojson::value v = String2Json(json_str);
   BuildInfo info;
   ExtractBuildInfo(v, info);
   const auto *build_func = air::runtime::Registry::Get("akg_build_gpu_module");
@@ -816,11 +858,7 @@ Module CompositeWithJson(const std::string &json_str, const Map<std::string, Nod
 }
 
 NodeRef CompositeLower(const std::string &json_str, const Map<std::string, NodeRef> &attrs) {
-  picojson::value v;
-  std::string err = picojson::parse(v, json_str);
-  if (!err.empty()) {
-    LOG(ERROR) << "json parse error, error message: " << err;
-  }
+  picojson::value v = String2Json(json_str);
   BuildInfo info;
   ExtractBuildInfo(v, info);
   Array<Operation> ops;
@@ -837,89 +875,199 @@ NodeRef CompositeLower(const std::string &json_str, const Map<std::string, NodeR
   return akg::Lower(sch, info.args, shape_vars, info.kernel_name, info.in_binds, attrs, false, true, tuning, target,
                     config);
 }
-
-Module CompositeWithJsonListGpu(const Array<NodeRef> &json_str_node, const Array<NodeRef> &args_list_node,
-                                const Map<std::string, NodeRef> &attrs, bool poly) {
-  std::vector<Stmt> all_irs;
-  Array<NodeRef> all_args, ordered_args, input_args, output_args;
-  std::vector<std::string> args_list_name;
-  std::string merge_name;
-  size_t idx = 0;
-  const char *akg_dump_pass_ir = getenv("MS_AKG_DUMP_IR");
-
-  // get origin json all input name
-  for (auto arg : args_list_node) {
+std::vector<std::string> GetNames(const Array<NodeRef> &io) {
+  std::vector<std::string> names;
+  for (const auto &arg : io) {
+    CHECK(arg.as<StringImm>());
     auto arg_name = arg.as<StringImm>()->value;
-    args_list_name.emplace_back(arg_name);
+    names.emplace_back(arg_name);
   }
-
-  // traversal json_str_node and parse every subgraph json
-  for (auto k : json_str_node) {
-    ++idx;
-    auto json_str = k.as<StringImm>()->value;
-    picojson::value v;
-    std::string err = picojson::parse(v, json_str);
-    CHECK(err.empty()) << "json parse error, error message: " << err;
-    Array<NodeRef> args, arg_list_0, shape_vars;
-    Map<Tensor, Buffer> binds, binds_0;
-    BuildInfo info;
-    ExtractBuildInfo(v, info);
-
-    // ensure merge_name is the same as original json name
-    if (merge_name.empty()) {
-      merge_name = info.kernel_name;
-    }
-
-    // use idx to distinct different subgraph
-    std::string distinct_name = info.kernel_name + "_" + std::to_string(idx);
-    std::string sch_name = GetSchedule(info.tensors);
-    const auto *sch_create = air::runtime::Registry::Get("select_cuda_scheduler");
-    CHECK(sch_create != nullptr);
-    Schedule sch = (*sch_create)(info.tensors, sch_name, poly);
-
-    akg::BuildConfig config = akg::BuildConfig::Current();
-    CHECK(config.defined());
-    config->dump_pass_ir = akg_dump_pass_ir != nullptr;
-    Stmt s_ir = Downcast<Stmt>(LowerStmt(sch, info.args, shape_vars, distinct_name, info.in_binds, attrs, false, poly, false, "cuda",
-                          config, &args, &arg_list_0, &binds, &binds_0, true));
-    for (const auto &x : arg_list_0) {
-      all_args.push_back(x);
-    }
-    all_irs.emplace_back(s_ir);
-  }
+  return names;
+}
+Array<NodeRef> ReorderArgs(const Array<NodeRef> &inputs, const Array<NodeRef> &outputs, const Array<NodeRef> &all_args,
+                           std::unordered_map<std::string, NodeRef> &outputs2args) {
   // reorder args_list, now args_list satisfies: op1_input op2_input ... op1_output op2_output ...
   // suppose all args info from original json satisfies this order
+  Array<NodeRef> input_args, ordered_args;
+  std::map<std::string, std::vector<NodeRef>> vmap;
+  std::vector<std::string> inputs_name = GetNames(inputs);
+  std::vector<std::string> outputs_name = GetNames(outputs);
   for (auto arg : all_args) {
-    bool find = false;
-    for (const auto &name : args_list_name) {
-      auto buffer = arg.as<BufferNode>();
-      CHECK(buffer) << "arg must be a BufferNode";
-      if (buffer->name == name) {
-        find = true;
+    auto buffer = arg.as<BufferNode>();
+    CHECK(buffer) << "arg must be a BufferNode";
+    if (std::find(inputs_name.begin(), inputs_name.end(), buffer->name) != std::end(inputs_name)) {
+      if (vmap.find(buffer->name) == vmap.end()) {
         input_args.push_back(arg);
+        vmap[buffer->name] = {};
+      }
+      vmap[buffer->name].push_back(arg);
+    }
+  }
+  // input_args is not ordered as args list, should make it first.
+  CHECK(inputs_name.size() == input_args.size());
+  for (const auto &input : inputs_name) {
+    for (const auto &arg : input_args) {
+      if (arg.as<BufferNode>()->name == input) {
+        ordered_args.push_back(arg);
         break;
       }
     }
-    if (!find) {
-      output_args.push_back(arg);
+  }
+  // output args keep order as origin output
+  for (const auto &output : outputs_name) {
+    if (outputs2args.find(output) != outputs2args.end()) {
+      ordered_args.push_back(outputs2args[output]);
     }
   }
-  for (auto input : input_args) {
-    ordered_args.push_back(input);
-  }
-  for (auto output : output_args) {
-    ordered_args.push_back(output);
+  return ordered_args;
+}
+Stmt BlockFusion(const std::vector<Stmt> &block_irs) { return Block::make(block_irs); }
+
+class ElimDuplicateInputs : public IRMutator {
+ public:
+  explicit ElimDuplicateInputs(const Array<NodeRef> &inputs) { names_ = GetNames(inputs); }
+  Stmt Run(Stmt &stmt) {
+    is_mutate_ = false;
+    static_cast<void>(Mutate(stmt));
+    is_mutate_ = true;
+    return Mutate(stmt);
   }
 
+ private:
+  Expr Mutate_(const Load *op, const Expr &e) final {
+    Var var = op->buffer_var;
+    auto name = var->name_hint;
+    if (std::find(names_.begin(), names_.end(), name) != names_.end()) {
+      auto it = vars_.find(name);
+      if (it != vars_.end()) {
+        if (is_mutate_) return Load::make(op->type, it->second, op->index, op->predicate);
+      } else {
+        vars_[name] = var;
+      }
+    }
+    return IRMutator::Mutate_(op, e);
+  }
+
+ private:
+  bool is_mutate_{false};
+  std::unordered_map<std::string, Var> vars_;
+  std::vector<std::string> names_;
+};
+
+std::vector<OpDesc> ParseOpDesc(const std::string &json_str) {
+  picojson::value v = String2Json(json_str);
+  picojson::array op_desc;
+  const picojson::value::object &input_obj = v.get<picojson::object>();
+  for (const auto &item : input_obj) {
+    if (item.first == "op_desc") {
+      CHECK(item.second.is<picojson::array>());
+      op_desc = item.second.get<picojson::array>();
+    }
+  }
+  std::vector<std::string> input_tensors;
+  std::vector<std::string> output_tensors;
+  auto parser = OpDescsParser(op_desc, input_tensors, output_tensors);
+  parser.Parse();
+  return parser.op_descs_;
+}
+
+Map<std::string, NodeRef> BindBlockAndThread(GridBlockDims &dims, bool poly, const Map<std::string, NodeRef> &attrs) {
+  Map<std::string, NodeRef> new_attrs;
+  if (attrs.defined()) new_attrs = attrs;
+  if (poly) {
+    std::stringstream ss;
+    ss << dims.griddim_x << " " << dims.griddim_y << " " << dims.griddim_z;
+    new_attrs.Set("bind_block", Expr(ss.str()));
+    ss.str("");
+    ss << dims.blockdim_x << " " << dims.blockdim_y << " " << dims.blockdim_z;
+    new_attrs.Set("bind_thread", Expr(ss.str()));
+    LOG(INFO) << new_attrs;
+    return new_attrs;
+  }
+  return attrs;
+}
+
+Stmt InsertSync(Stmt &s) {
+  return Block::make(
+    s, Evaluate::make(Call::make(Int(32), "tvm_storage_sync", {StringImm::make("shared")}, Call::Intrinsic)));
+}
+
+std::vector<Stmt> LowerStitchIRs(const NodeRef &block_json, StitchAttrInfo &stitch_attr,
+                                 const Map<std::string, NodeRef> &attrs, bool poly, Array<NodeRef> &all_args,
+                                 std::unordered_map<std::string, NodeRef> &outputs2args, std::string &merge_name,
+                                 size_t &idx) {
+  std::vector<Stmt> stitch_irs;
+  std::vector<Expr> loop_extent_array;
+  std::vector<GridBlockDims> dim_array;
+  std::vector<StitchOpType> ir_type_array;
+  for (auto &stitch_json : Downcast<Array<Expr>>(block_json)) {
+    ++idx;
+    std::vector<OpDesc> op_v = ParseOpDesc(stitch_json.as<StringImm>()->value);
+    using std::placeholders::_1;
+    using std::placeholders::_2;
+    using std::placeholders::_3;
+    const std::function<Stmt(const StringImm *, const Map<std::string, NodeRef> &, bool)> f =
+      std::bind(&String2LowerStmtSimple, _1, _2, _3);
+    BufferStitchAttr stitch_attr_info(f);
+    stitch_attr_info.GetBufferStitchAttr(stitch_json, op_v, attrs, poly);
+    auto dims = stitch_attr_info.dims;
+    auto stitch_type = stitch_attr_info.stitch_type_;
+    if (idx == 1) loop_extent_array = stitch_attr_info.loop_extent;
+    stitch_attr_info.loop_extent = loop_extent_array;  // only care about loop from first ir.
+    dim_array.push_back(dims);                         // save current dims into array.
+    IrAttrInfo ir_attr_info = GetIRAttr(stitch_type, stitch_attr_info, ir_type_array, dim_array, attrs);
+    ir_type_array.push_back(stitch_type);  // Note this should be done AFTER GetIrAttr.
+    stitch_attr.broadcast_size = ir_attr_info.broadcast_size;
+    stitch_attr.switch_y_2_x = ir_attr_info.switch_y_2_x;
+    auto new_attrs = BindBlockAndThread(ir_attr_info.dims, poly, ir_attr_info.attrs);
+    auto single_ir = String2LowerStmt(stitch_json.as<StringImm>(), new_attrs, poly, all_args, outputs2args, merge_name,
+                                      idx, ir_attr_info.grid_dims, ir_attr_info.block_dims, true);
+    stitch_irs.emplace_back(InsertSync(single_ir));
+  }
+  stitch_attr.type_array = ir_type_array;
+  return stitch_irs;
+}
+
+Module CompositeWithJsonListGpu(const Array<NodeRef> &json_str_node, const Array<NodeRef> &inputs,
+                                const Array<NodeRef> &outputs, const Map<std::string, Array<NodeRef>> &alloc_map,
+                                const Map<std::string, Array<NodeRef>> &reuse_map,
+                                const Map<std::string, Array<NodeRef>> &clean_op_map,
+                                const Map<std::string, NodeRef> &attrs, bool poly) {
+  CHECK(!json_str_node.empty());
+  std::vector<Stmt> block_irs;
+  Array<NodeRef> all_args;
+  std::unordered_map<std::string, NodeRef> outputs2args;
+  std::string merge_name;
+  size_t idx = 0;
+  for (auto &block_json : json_str_node) {
+    if (block_json.as<StringImm>()) {
+      ++idx;
+      auto single_ir =
+        String2LowerStmt(block_json.as<StringImm>(), attrs, poly, all_args, outputs2args, merge_name, idx, 0, 0);
+      block_irs.emplace_back(single_ir);
+    } else {
+      StitchAttrInfo stitch_attr;
+      std::vector<Stmt> stitch_irs =
+        LowerStitchIRs(block_json, stitch_attr, attrs, poly, all_args, outputs2args, merge_name, idx);
+      StitchBufAlloc buf_manager;
+      buf_manager.BufferAllocReuse(stitch_irs, alloc_map, reuse_map, clean_op_map, outputs2args);
+      auto stitched_ir = StitchFusion(stitch_irs, stitch_attr, buf_manager.stitch_buffer_map,
+                                      buf_manager.buf_within_op_map, buf_manager.allocate_revoke);
+      stitched_ir = ElimDuplicateInputs(inputs).Run(stitched_ir);
+      block_irs.emplace_back(stitched_ir);
+    }
+  }
+  Array<NodeRef> ordered_args = ReorderArgs(inputs, outputs, all_args, outputs2args);
+  auto merged_ir = block_irs.size() == 1 ? block_irs[0] : BlockFusion(block_irs);
+  merged_ir = ElimDuplicateInputs(inputs).Run(merged_ir);
   akg::BuildConfig final_config = akg::BuildConfig::Current();
   CHECK(final_config.defined());
-  final_config->dump_pass_ir = akg_dump_pass_ir != nullptr;
-
-  // use ordered_args to second stage build
-  auto rst = LowerFunc(all_irs[0], merge_name, final_config, ordered_args);
+  final_config->dump_pass_ir = getenv("MS_AKG_DUMP_IR") != nullptr;
+  auto rst = LowerFunc(merged_ir, merge_name, final_config, ordered_args);
   auto build_rst = BuildRstNode::make(rst, merge_name);
   return BuildToModule(build_rst, "cuda");
 }
+
 TVM_REGISTER_GLOBAL("composite_with_json_to_func").set_body_typed(CompositeWithJsonToFunc);
 TVM_REGISTER_GLOBAL("composite_with_json").set_body_typed(CompositeWithJson);
 TVM_REGISTER_GLOBAL("composite_with_json_list_gpu").set_body_typed(CompositeWithJsonListGpu);

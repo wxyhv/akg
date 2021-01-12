@@ -289,6 +289,28 @@ class StorageFlattener : public IRMutator {
   Expr Mutate_(const Call* op, const Expr& olde) final {
     Expr expr = IRMutator::Mutate_(op, olde);
     op = expr.as<Call>();
+    if (op != nullptr && op->name == "reduce") {
+      CHECK(op->args.size() > 1 && op->args[1].as<StringImm>());
+      auto str = op->args[1].as<StringImm>()->value;
+      for (auto &a : buf_map_ ) {
+        auto s = a.first.GetName() + "[";
+        if (str.find(s) != std::string::npos) {
+          str.replace(str.find(s), s.size() - 1, a.second.buffer->name);
+        }
+      }
+      Array<Expr> args;
+      size_t i = 0;
+      for (auto &arg : op->args) {
+        if (i == 1) {
+          args.push_back(StringImm::make(str));
+
+        } else {
+          args.push_back(arg);
+        }
+        ++i;
+      }
+      return Call::make(op->type, op->name, args, op->call_type, op->func);
+    }
     if (op != nullptr && op->call_type == Call::Halide) {
       TensorKey key{op->func, op->value_index};
       auto it = buf_map_.find(key);
