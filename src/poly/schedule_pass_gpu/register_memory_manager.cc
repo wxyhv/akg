@@ -18,6 +18,7 @@
 #include "poly/scop.h"
 #include "poly/dma_inject.h"
 #include "poly/schedule_tree_util.h"
+#include "poly/poly_util.h"
 
 namespace akg {
 namespace ir {
@@ -150,21 +151,27 @@ bool RegisterMemoryManager::UnrolledLoop(const TensorFootprintCluster &fp_cluste
   return false;
 }
 
+/*Check if the given "group" can be promoted to registers for the given
+ * mapping to thread identifiers and within the given outer schedule */
 bool RegisterMemoryManager::IsPromote(const TensorFootprintCluster &fp_cluster,
                                       const isl::multi_union_pw_aff &partial_sched_mupa,
                                       const isl::multi_union_pw_aff &thread_schedule) {
-  auto original_access = fp_cluster.OrigianlAccessRelations();
-  auto map = isl::union_map::from(partial_sched_mupa);
-  map = map.range_product(original_access);
-  map = map.apply_domain(isl::union_map::from(thread_schedule));
-  return map.is_injective();
+  /* compute the mapping relation between single thread and outer schedule space and tensor elements pair */
+  isl::union_map state_schedule_mapping =
+    ScheduleTensorMapping(partial_sched_mupa, fp_cluster.OrigianlAccessRelations());
+  isl::union_map thread_schedule_mapping = state_schedule_mapping.apply_domain(isl::union_map::from(thread_schedule));
+  /* check that whether the mapping relation between single thread
+   * and outer schedule points and group elements pair is injective. */
+  return thread_schedule_mapping.is_injective();
 }
 
+/* Check that whether the mapping relation between instance statement
+ * and outer schedule points and tensor elements pair is reusable. */
 bool RegisterMemoryManager::ReuseTensorCluster(const TensorFootprintCluster &cluster,
                                                const isl::multi_union_pw_aff &outer_pw_aff) {
-  isl::union_map out_schedule = isl::union_map::from(outer_pw_aff);
-  out_schedule = out_schedule.range_product(cluster.OrigianlAccessRelations());
-  return !out_schedule.is_injective();
+  /* compute the mapping relation between statement instance and outer schedule space and tensor elements pair */
+  isl::union_map state_schedule_mapping = ScheduleTensorMapping(outer_pw_aff, cluster.OrigianlAccessRelations());
+  return !state_schedule_mapping.is_injective();
 }
 
 void RegisterMemoryManager::CreateTensorCluster(const isl::schedule_node &node, const isl::union_map &outer_sch) {

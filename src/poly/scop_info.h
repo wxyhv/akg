@@ -607,6 +607,14 @@ struct AtomicInfo {
   std::string tensor_type;
 };
 
+struct StatementUnionMappingInfo {
+  std::vector<isl::id> stmt_vec;
+  bool inject_mapping;
+  bool biject_mapping;
+};
+
+using TensorScheduleRepo = std::unordered_map<std::string, StatementUnionMappingInfo>;
+
 class AnalysisResult {
  public:
   AnalysisResult() = default;
@@ -755,6 +763,9 @@ class AnalysisResult {
   bool GetEnabledAutoTiling() const { return enabled_auto_tiling_; }
   void SetEnableAutoTiling(bool enabled_auto_tiling) { enabled_auto_tiling_ = enabled_auto_tiling; }
 
+  TensorScheduleRepo GetTensorScheduleRepo() const { return tensor_schedule_repo_; }
+  void SetTensorScheduleRepo(const TensorScheduleRepo &repo) { tensor_schedule_repo_ = std::move(repo); }
+
  public:
   std::vector<std::pair<std::string, STMT_OP_TYPE>> stmt_type_;
   std::vector<std::pair<isl::union_set, BufferedFootPrintInfo>> active_buffer_footprints_;
@@ -803,6 +814,7 @@ class AnalysisResult {
   std::unordered_set<std::string> reduce_out_tensors_;
   bool enabled_auto_tiling_{false};
   std::unordered_map<std::string, int> shared_tensor_bits_map_;
+  TensorScheduleRepo tensor_schedule_repo_;
 };
 
 class CubeInfo {
