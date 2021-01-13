@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # coding: utf-8
-# Copyright 2020 Huawei Technologies Co., Ltd
+# Copyright 2020-2021 Huawei Technologies Co., Ltd
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -88,6 +88,15 @@ def read_repo_file(repo_file):
         repo = json.loads(f.read())
     return repo
 
+def _get_repository_file_path(file):
+    pwd = os.path.dirname(os.path.abspath(__file__))
+    path = pwd + "/" + file
+    if not os.path.exists(path):
+        path = pwd + "/../config/" + file
+        if not os.path.exists(path):
+            raise FileNotFoundError("Can not find {} in directory {} and {}".format(file, pwd, pwd + "/../config"))
+    return path
+
 def _build_to_func(desc_s, desc_d, attr=None, use_repo=True):
     """
     build kernel with compute description in json format
@@ -102,7 +111,8 @@ def _build_to_func(desc_s, desc_d, attr=None, use_repo=True):
     if os.getenv('MS_GRAPH_KERNEL_TILING'):
         repository = read_repo_file(str(os.getenv('MS_GRAPH_KERNEL_TILING')))
     else:
-        repository = read_repo_file(os.path.dirname(__file__) + "/repository.json")
+        file_path = _get_repository_file_path("repository.json")
+        repository = read_repo_file(file_path)
     def get_repo(keys, default=None):
         repo = repository
         for key in keys:
@@ -141,7 +151,11 @@ def _build_to_gpu_func(desc_s, desc_d, attr=None, poly=False):
     Returns:
        Module.
     """
-    repository_gpu = read_repo_file(os.path.dirname(__file__) + "/repository_gpu.json")
+    if os.getenv('MS_GRAPH_KERNEL_TILING'):
+        repository_gpu = read_repo_file(str(os.getenv('MS_GRAPH_KERNEL_TILING')))
+    else:
+        file_path = _get_repository_file_path("repository_gpu.json")
+        repository_gpu = read_repo_file(file_path)
     def get_repo(keys, default=None):
         repo = repository_gpu
         for key in keys:

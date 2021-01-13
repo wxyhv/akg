@@ -1,4 +1,4 @@
-# Copyright 2020 Huawei Technologies Co., Ltd
+# Copyright 2020-2021 Huawei Technologies Co., Ltd
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -259,9 +259,13 @@ if(ENABLE_AKG)
 	       ${TVM_DIR}/topi/python/topi
 	  DESTINATION ${CMAKE_CURRENT_BINARY_DIR}/akg)
   install(
-    DIRECTORY
+      DIRECTORY
 	       ${AKG_SOURCE_DIR}/src/akg_reduce
 	       ${AKG_SOURCE_DIR}/src/paris_reduce
-	  DESTINATION ${CMAKE_CURRENT_BINARY_DIR}/akg/include)
+      DESTINATION ${CMAKE_CURRENT_BINARY_DIR}/akg/include)
+  file(GLOB REPOSITORY_FILE_LIST ${AKG_SOURCE_DIR}/python/akg/composite/*.json)
+  install(
+      FILES ${REPOSITORY_FILE_LIST}
+      DESTINATION ${CMAKE_CURRENT_BINARY_DIR}/akg/config)
 endif()
 
