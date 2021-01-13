@@ -26,7 +26,7 @@ from tvm import autotvm
 from .. import generic, util
 
 @generic.schedule_injective_from_existing.register(["cuda", "gpu"])
-def schedule_injective_from_existing(sch, out, tmp_out, fork_node, fake_out, autotune=False):
+def schedule_injective_from_existing(sch, out, tmp_out, fork_node, fake_out, grid_dims = 0, block_dims = 0, autotune=False, buffer_stitch=False):
     """Schedule for injective op from existing schedule.
 
     Parameters
@@ -40,7 +40,7 @@ def schedule_injective_from_existing(sch, out, tmp_out, fork_node, fake_out, aut
 
     fork_node: List of Tensor
          The tensors which are fork nodes in computation.
-    
+
     fake_out: bool.
          Indicate whether the out tensor is fake or not.
 
@@ -57,26 +57,30 @@ def schedule_injective_from_existing(sch, out, tmp_out, fork_node, fake_out, aut
         num_thread = cfg['tile_x'].val
         max_block = int(256 * 1024 / num_thread)
     else:
-        num_thread = tvm.target.current_target(allow_none=False).max_num_threads
-        max_block = 256
+        num_thread = block_dims if block_dims else tvm.target.current_target(allow_none=False).max_num_threads
+        max_block = grid_dims if grid_dims else 256
 
     try:
         const_size = util.get_const_int(util.prod(out.shape))
-        if const_size > num_thread:
-            need_block_split = const_size > max_block * num_thread
-        else:
-            need_block_split = False
-            num_thread = const_size
+        need_block_split = const_size > max_block * num_thread
+        num_per_thread = (const_size - 1) // (max_block * num_thread) + 1
     except ValueError:
         need_block_split = False
 
     if need_block_split:
-        xo, xi = sch[out].split(fused, factor=num_thread * max_block)
-        bx, tx = sch[out].split(xi, factor=num_thread)
-        sch[out].reorder(bx, tx, xo)
-        inner_most = xo
+        if not buffer_stitch:
+            xo, xi = sch[out].split(fused, factor=num_thread * max_block)
+            bx, tx = sch[out].split(xi, factor=num_thread)
+            sch[out].reorder(bx, tx, xo)
+            inner_most = xo
+
+        else:
+            bx, tx = sch[out].split(fused, nparts=max_block)
+            xo, tx = sch[out].split(tx, nparts=num_per_thread)
+            inner_most = xo
         sch[out].bind(bx, tvm.thread_axis("blockIdx.x"))
         sch[out].bind(tx, tvm.thread_axis("threadIdx.x"))
+
     else:
         bx, tx = sch[out].split(fused, factor=num_thread)
         inner_most = tx
@@ -84,12 +88,12 @@ def schedule_injective_from_existing(sch, out, tmp_out, fork_node, fake_out, aut
         sch[out].bind(bx, tvm.thread_axis("blockIdx.x"))
     if fake_out:
         sch[out].pragma(kernel_scope, "fake_node", out.name)
-    
+
     if fork_node:
         for op in fork_node:
             loc_op = sch.cache_write(op, "local")
             sch[loc_op].compute_at(sch[out], inner_most)
-    
+
     if tmp_out:
         for op in tmp_out:
             sch[op].compute_at(sch[out], inner_most)
@@ -113,7 +117,7 @@ def create_compute_graph(roots):
     for op in roots:
         stack.append(op)
         visited.append(op)
-    
+
     while (stack):
         cur_op = stack.pop()
         deps = cur_op.op.input_tensors
@@ -143,7 +147,7 @@ def check_multi_out(outs):
     leaf_list = []
     for item in res_list:
         res.extend(item)
-    
+
     res_count = Counter(res)
     res_key = list(res_count.keys())
     fork_node = []
@@ -183,7 +187,7 @@ def pick_single_out(outs):
 
 
 @generic.schedule_injective.register(["cuda", "gpu"])
-def schedule_injective(outs):
+def schedule_injective(outs, grid_dims=0, block_dims=0, buffer_stitch=False):
     """Schedule for injective op.
 
     Parameters
@@ -199,9 +203,9 @@ def schedule_injective(outs):
     """
     outs, tmp_out, fake_out, fork_node = pick_single_out(outs)
     s = tvm.create_schedule(outs[0].op)
-    
+
     tvm.schedule.AutoInlineInjective(s)
-    schedule_injective_from_existing(s, outs[0], tmp_out, fork_node, fake_out)
+    schedule_injective_from_existing(s, outs[0], tmp_out, fork_node, fake_out, grid_dims, block_dims, buffer_stitch=buffer_stitch)
     return s
 
 @generic.schedule_injective.register(["cuda", "gpu"])
@@ -221,7 +225,7 @@ def schedule_injective_autotune(outs):
     """
     outs, tmp_out, fake_out, fork_node = pick_single_out(outs)
     s = tvm.create_schedule(outs[0].op)
-    
+
     tvm.schedule.AutoInlineInjective(s)
     schedule_injective_from_existing(s, outs[0], tmp_out, fork_node, fake_out, autotune=True)
     return s

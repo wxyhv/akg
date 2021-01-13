@@ -26,7 +26,7 @@ from .. import tag
 from .. import generic
 from .injective import schedule_injective_from_existing
 
-def _schedule_reduce(op, sch, is_idx_reduce=False, blocksize=[32, 32], autotune=False):
+def _schedule_reduce(op, sch, grid_dims=0, block_dims=0, is_idx_reduce=False, blocksize=[32, 32], autotune=False):
     if autotune:
         cfg = autotvm.get_config()
         cfg.define_knob("tile_x", [1, 2, 4, 8, 16, 32, 64, 128, 256, 512, 1024])
@@ -60,7 +60,7 @@ def _schedule_reduce(op, sch, is_idx_reduce=False, blocksize=[32, 32], autotune=
         thread_x = tvm.thread_axis((0, num_thread_x), "threadIdx.x")
         thread_y = tvm.thread_axis((0, num_thread_y), "threadIdx.y")
     else:
-        num_thread_x = tvm.target.current_target(allow_none=False).max_num_threads
+        num_thread_x = block_dims if block_dims else tvm.target.current_target(allow_none=False).max_num_threads
         thread_x = tvm.thread_axis((0, num_thread_x), "threadIdx.x")
 
     # Fuse and refactor the reduce axis
@@ -138,7 +138,7 @@ def traverse_before_reduce(operator, sch, scheduled_ops=None):
     scheduled_ops.append(operator)
     return scheduled_ops
 
-def traverse_after_reduce(operator, sch, scheduled_ops=None, autotune=False):
+def traverse_after_reduce(operator, sch, grid_dims = 0, block_dims = 0, scheduled_ops=None, autotune=False):
     """travserse function"""
     if scheduled_ops == None:
         scheduled_ops = []
@@ -148,12 +148,12 @@ def traverse_after_reduce(operator, sch, scheduled_ops=None, autotune=False):
         for tensor in operator.input_tensors:
             scheduled_ops = traverse_after_reduce(tensor.op, sch, scheduled_ops, autotune)
     elif operator.tag == 'comm_reduce':
-        _schedule_reduce(operator, sch, is_idx_reduce=False, autotune=autotune)
+        _schedule_reduce(operator, sch, grid_dims, block_dims, is_idx_reduce=False, autotune=autotune)
         for tensor in operator.input_tensors:
             if tensor.op not in scheduled_ops:
                 scheduled_ops = traverse_before_reduce(tensor.op, sch, scheduled_ops)
     elif operator.tag == 'comm_reduce_idx':
-        _schedule_reduce(operator, sch, is_idx_reduce=True, autotune=autotune)
+        _schedule_reduce(operator, sch, grid_dims, block_dims, is_idx_reduce=True, autotune=autotune)
         input_tensors = operator.input_tensors[0].op.input_tensors
         for tensor in input_tensors:
             if tensor.op not in scheduled_ops:
@@ -166,7 +166,7 @@ def traverse_after_reduce(operator, sch, scheduled_ops=None, autotune=False):
 
 
 @generic.schedule_reduce.register(["cuda", "gpu"])
-def schedule_reduce(outs):
+def schedule_reduce(outs, grid_dims = 0, block_dims = 0):
     """Schedule for inject->reduce->bcast ops.
 
     Parameters
@@ -185,7 +185,7 @@ def schedule_reduce(outs):
     scheduled_ops = []
 
     for out in outs:
-        scheduled_ops = traverse_after_reduce(out.op, sch, scheduled_ops)
+        scheduled_ops = traverse_after_reduce(out.op, sch, grid_dims, block_dims, scheduled_ops)
     return sch
 
 @generic.schedule_reduce.register(["cuda", "gpu"])

@@ -326,7 +326,15 @@ void CodeGenCUDA::PrintReduce(const Call* op) {
     int len = op->args.size();
     if (len == 2) {
       this->PrintIndent();
-      this->stream << op->args[1].as<StringImm>()->value << "\n";
+      auto str = op->args[1].as<StringImm>()->value;
+      for (auto &a : var_idmap_) {
+        auto s = a.first->name_hint;
+        auto pos = str.find(s);
+        if (pos != std::string::npos && !std::isdigit(str[pos + s.size()])) {
+          str.replace(pos, s.size(), a.second);
+        }
+      }
+      this->stream << str << "\n";
     }
     in_reduce_area_ = false;
     return;

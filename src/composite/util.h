@@ -1,5 +1,5 @@
 /**
- * Copyright 2020 Huawei Technologies Co., Ltd
+ * Copyright 2020-2021 Huawei Technologies Co., Ltd
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -16,13 +16,35 @@
 #ifndef COMPOSITE_UTIL_H_
 #define COMPOSITE_UTIL_H_
 #include "tvm.h"
+#include "picojson.h"
 
 namespace akg {
 constexpr auto kMsDavinciKernelPath = "./kernel_meta/";
 constexpr auto kMsGpuKernelPath = "./cuda_meta";
+constexpr auto BLOCK_IDX_X = "blockIdx.x";
+constexpr auto BLOCK_IDX_Y = "blockIdx.y";
+constexpr auto BLOCK_IDX_Z = "blockIdx.z";
+constexpr auto THREAD_IDX_X = "threadIdx.x";
+constexpr auto THREAD_IDX_Y = "threadIdx.y";
+constexpr auto THREAD_IDX_Z = "threadIdx.z";
+constexpr auto BLOCKIDX = "blockIdx.";
+constexpr auto BLOCKIDX_LEN = 9;
+constexpr auto SHARED = "shared";
+constexpr auto ALLOC = "ALLOC";
+constexpr auto MEM_LIMIT = 49152;
 static std::unordered_map<std::string, air::Type> type_mapping = {
   {"float32", air::Float(32)}, {"float16", air::Float(16)}, {"int32", air::Int(32)}, {"bool", air::Bool()}};
 
+std::string GetProcess(const std::string &json_str);
+std::string GetSchedule(Array<Tensor> &outputs);
+bool IsBlockIdx(const std::string &name);
+bool IsBlockIdxX(const std::string &name);
+bool IsBlockIdxY(const std::string &name);
+bool IsBlockIdxZ(const std::string &name);
+bool IsThreadIdxX(const std::string &name);
+bool IsThreadIdxY(const std::string &name);
+bool IsThreadIdxZ(const std::string &name);
+picojson::value String2Json(const std::string &json_str);
 bool IsReduce(const std::string &op_name);
 bool IsTransform(const std::string &op_name);
 bool IsOtherOp(const std::string &op_name);
@@ -52,6 +74,25 @@ struct BuildInfoOpt {
   FuncRefMap sames;              // the tensors which are same
   FuncRefSet fakeout;            // the tensors which are not output
   std::vector<Tensor> sch_only;  // the tensors which should only used in sch, not output
+};
+
+struct TensorInfo {
+  std::string name_;
+  std::string format_;
+  Array<Expr> shape_;
+  Type dtype_;
+  bool has_value_{false};
+  picojson::value value_;
+};
+
+struct OpDesc {
+  std::string op_name;
+  std::string fusion_op_name;
+  Map<std::string, NodeRef> attrs;
+  Array<NodeRef> input_descs;
+  Array<NodeRef> output_descs;
+  std::vector<TensorInfo> input_tensor_info;
+  std::vector<TensorInfo> output_tensor_info;
 };
 
 struct Graph {
@@ -282,6 +323,61 @@ class DoAnalysis : public IRMutator {
   Map<std::string, NodeRef> op_attrs_;
 };
 
+struct GridBlockDims {
+  int blockdim_x{1};
+  int blockdim_y{1};
+  int blockdim_z{1};
+  int griddim_x{1};
+  int griddim_y{1};
+  int griddim_z{1};
+
+  GridBlockDims &operator=(const GridBlockDims &s) {
+    blockdim_x = s.blockdim_x;
+    blockdim_y = s.blockdim_y;
+    blockdim_z = s.blockdim_z;
+    griddim_x = s.griddim_x;
+    griddim_y = s.griddim_y;
+    griddim_z = s.griddim_z;
+    return *this;
+  }
+};
+inline std::ostream &operator<<(std::ostream &os, const GridBlockDims &x) {
+  os << "GridBlockDims: " << x.griddim_x << " " << x.griddim_y << " " << x.griddim_z << " " << x.blockdim_x << " "
+     << x.blockdim_y << " " << x.blockdim_z << "\n";
+  return os;
+}
+
+class GridBlockDimsAttr : public IRVisitor {
+ public:
+  GridBlockDimsAttr() = default;
+  void Visit_(const AttrStmt *op) {
+    if (op->attr_key == air::ir::attr::thread_extent) {
+      const IterVarNode *iv = op->node.as<IterVarNode>();
+      CHECK(iv);
+      std::string name = iv->thread_tag;
+      if (IsThreadIdxX(name)) {
+        dims.blockdim_x = op->value.as<IntImm>()->value;
+      } else if (IsThreadIdxY(name)) {
+        dims.blockdim_y = op->value.as<IntImm>()->value;
+      } else if (IsThreadIdxZ(name)) {
+        dims.blockdim_z = op->value.as<IntImm>()->value;
+      } else if (IsBlockIdxX(name)) {
+        dims.griddim_x = op->value.as<IntImm>()->value;
+      } else if (IsBlockIdxY(name)) {
+        dims.griddim_y = op->value.as<IntImm>()->value;
+      } else if (IsBlockIdxZ(name)) {
+        dims.griddim_z = op->value.as<IntImm>()->value;
+      }
+    }
+    IRVisitor::Visit(op->body);
+  }
+  void Visit_(const For *op) {
+    Visit(op->body);
+  }
+
+ public:
+  GridBlockDims dims;
+};
 }  // namespace akg
 
 #endif  // COMPOSITE_UTIL_H_
