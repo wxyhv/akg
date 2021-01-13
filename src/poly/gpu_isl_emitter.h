@@ -1,5 +1,5 @@
 /**
- * Copyright 2020 Huawei Technologies Co., Ltd
+ * Copyright 2020-2021 Huawei Technologies Co., Ltd
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -193,7 +193,6 @@ class GpuIslEmitter : public IslEmitter {
   std::set<Tensor> realized_;
 
   std::unordered_map<const Variable *, Expr> stride_modify_iter_map_;
-  std::map<std::string, VarExpr> gpuiter_;
   std::map<std::string, VarExpr> iter_name_map_{{B0, VarExpr(BLOCK_IDX_X)},  {B1, VarExpr(BLOCK_IDX_Y)},
                                                 {B2, VarExpr(BLOCK_IDX_Z)},  {T0, VarExpr(THREAD_IDX_X)},
                                                 {T1, VarExpr(THREAD_IDX_Y)}, {T2, VarExpr(THREAD_IDX_Z)}};

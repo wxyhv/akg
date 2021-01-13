@@ -1,5 +1,5 @@
 /**
- * Copyright 2020 Huawei Technologies Co., Ltd
+ * Copyright 2020-2021 Huawei Technologies Co., Ltd
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -148,9 +148,6 @@ isl::schedule_node SharedMemoryManager::MapCopiesToThreads(isl::schedule_node &r
         auto mapping_cfg = thread_cfg;
         if (scop_info_.user_config_.GetVectorLoadType()) {
           scop_info_.user_config_.SetEnableOneDimThread(true);
-        }
-        if (scop_info_.user_config_.GetEnableAkgReduceLib()) {
-          scop_info_.user_config_.SetEnableOneDimThread(false);
         }
         if (scop_info_.user_config_.GetEnableOneDimThread()) {
           mapping_cfg = GetCurrentConfig(band_node);
