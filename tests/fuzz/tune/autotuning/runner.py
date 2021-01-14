@@ -181,26 +181,6 @@ class KernelRunner:
             logger.debug('run one kernel time: %f', time_one_kernel_end - time_one_kernel_start)
         return
 
-    def get_json_mod_cycles(self, mod, device_id):
-        stat_info = {}
-        try:
-            if self.mod_output_param is not None:
-                output, stat_info = utils.mod_launch(mod, list(self.input), self.mod_output_param,
-                                                        tuning=True, device_id=device_id)
-                if not all(map(lambda x, y: np.allclose(x, y, rtol=5e-03, atol=5e-03, equal_nan=True),
-                                output, self.expect)):
-                    stat_info['run_time'] = precision_error_time
-                    logger.debug("Precision Error: [%s]", "origin" if config is None else str(config.input))
-            else:
-                output, stat_info = utils.mod_launch(mod, self.input, tuning=True, device_id=device_id)
-                if not np.allclose(output, self.expect, rtol=5e-03, atol=5e-03, equal_nan=True):
-                    stat_info['run_time'] = precision_error_time
-                    logger.debug("Precision Error: [%s]", "origin" if config is None else str(config.input))
-        except BaseException as e:
-            logger.debug("Compile Failed: [%s] : %s", "origin", str(e))
-            stat_info['run_time'] = compile_fail_time
-        return stat_info['run_time']
-
     def run(self, configs, best_time=np.inf, is_auto_set_dim=False, all_space=False):
         """Compile and execute a batch config of the operator on device"""
         start = time.time()
