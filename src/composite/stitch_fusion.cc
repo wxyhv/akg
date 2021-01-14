@@ -74,12 +74,11 @@ class Reduce2Index : public IRVisitor {
         for (auto &kv2 : store_with_loopvar_) {
           if (Equal(kv2.first, replace)) {
             auto old_loopvars = kv2.second.loopvars;
-            std::reverse(old_loopvars.begin(), old_loopvars.end());
             std::unordered_map<const Variable *, Expr> varmap;
             size_t i = 0;
             for (auto &old_loopvar : old_loopvars) {
               CHECK(loops_.size() > i);
-              varmap[old_loopvar.get()] = (*(loops_.end() - i - 1))->loop_var;
+              varmap[old_loopvar.get()] = loops_[i]->loop_var;
               i++;
             }
             substitute_[op->index] = Substitute(kv2.second.old_index, varmap);
