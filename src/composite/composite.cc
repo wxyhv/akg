@@ -15,6 +15,7 @@
  */
 #include "dmlc/common.h"
 #include "build_module.h"
+#include "composite/block_fusion.h"
 #include "composite/util.h"
 #include "composite/optimize/optimize.h"
 #include "composite/stitch_fusion.h"
@@ -921,7 +922,6 @@ Array<NodeRef> ReorderArgs(const Array<NodeRef> &inputs, const Array<NodeRef> &o
   }
   return ordered_args;
 }
-Stmt BlockFusion(const std::vector<Stmt> &block_irs) { return Block::make(block_irs); }
 
 class ElimDuplicateInputs : public IRMutator {
  public:
@@ -1058,7 +1058,7 @@ Module CompositeWithJsonListGpu(const Array<NodeRef> &json_str_node, const Array
     }
   }
   Array<NodeRef> ordered_args = ReorderArgs(inputs, outputs, all_args, outputs2args);
-  auto merged_ir = block_irs.size() == 1 ? block_irs[0] : BlockFusion(block_irs);
+  auto merged_ir = block_irs.size() == 1 ? block_irs[0] : ir::BlockFusion(block_irs);
   merged_ir = ElimDuplicateInputs(inputs).Run(merged_ir);
   akg::BuildConfig final_config = akg::BuildConfig::Current();
   CHECK(final_config.defined());
