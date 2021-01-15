@@ -172,6 +172,7 @@ file(
   ${AKG_SOURCE_DIR}/src/poly/schedule_pass/*.cc
   ${AKG_SOURCE_DIR}/src/poly/schedule_pass_gpu/*.cc
   ${AKG_SOURCE_DIR}/src/poly/tiling/*.cc
+  ${AKG_SOURCE_DIR}/src/poly/gpu_emit/*.cc
   ${AKG_SOURCE_DIR}/src/api/*.cc
   ${AKG_SOURCE_DIR}/src/pass/*.cc
   ${AKG_SOURCE_DIR}/src/rpc/*.cc
@@ -262,6 +263,7 @@ if(ENABLE_AKG)
       DIRECTORY
 	       ${AKG_SOURCE_DIR}/src/akg_reduce
 	       ${AKG_SOURCE_DIR}/src/paris_reduce
+	       ${AKG_SOURCE_DIR}/src/akg_mma_lib
       DESTINATION ${CMAKE_CURRENT_BINARY_DIR}/akg/include)
   file(GLOB REPOSITORY_FILE_LIST ${AKG_SOURCE_DIR}/python/akg/composite/*.json)
   install(

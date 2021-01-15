@@ -1,5 +1,5 @@
 /**
- * Copyright 2020 Huawei Technologies Co., Ltd
+ * Copyright 2020-2021 Huawei Technologies Co., Ltd
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -86,7 +86,16 @@ isl::schedule_node InsertContextNode(isl::schedule_node &node, ScopInfo &scop_in
 isl::schedule_node TileBand(isl::schedule_node node, const isl::multi_val &sizes);
 
 std::vector<int> GetTileSizeOfLevel(const int member_size, const int dim_size, const std::string &tile_level,
-                                    TileSizes tile_sizes);
+                                    TileSizes tile_sizes, const int count_coincident = -1);
+
+/*
+ * Obtain the information needed during the data promotion phase.
+ */
+std::string GetPromotionTensorName(const isl::schedule_node &node, const std::vector<BufferDefInfo> &buffer_def_infos);
+
+bool IsReadOrWriteTensor(const isl::schedule_node &node, const std::string read_name, const std::string write_name);
+
+isl::schedule_node GetCanMappingNode(const isl::schedule_node &node);
 
 }  // namespace poly
 }  // namespace ir

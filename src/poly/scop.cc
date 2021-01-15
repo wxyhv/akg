@@ -1,5 +1,5 @@
 /**
- * Copyright 2019 Huawei Technologies Co., Ltd
+ * Copyright 2019-2021 Huawei Technologies Co., Ltd
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -29,14 +29,15 @@ namespace akg {
 namespace ir {
 namespace poly {
 void Scop::ParseUserConfig(std::string target, const Map<std::string, NodeRef> &attrs,
-                           const Map<Tensor, Buffer> &extern_buffer, bool is_spec_gemm, bool is_tuning,
-                           bool is_dynamic) {
+                           const Map<Tensor, Buffer> &extern_buffer, bool is_spec_gemm, bool is_tuning, bool is_dynamic,
+                           const Schedule &sch) {
   info_.user_config_.SetTarget(target);
   info_.user_config_.SetAttrs(attrs);
   info_.user_config_.SetBind(extern_buffer);
   info_.user_config_.SetOriginBind(extern_buffer);
   info_.user_config_.SetIsTuning(is_tuning);
   info_.user_config_.SetDynamic(is_dynamic);
+  info_.user_config_.SetScheduleInfo(sch);
 
   info_.cube_info_.SetAttrs(attrs);
   info_.cube_info_.SetSpecGemm(is_spec_gemm);
@@ -137,7 +138,7 @@ isl::schedule Scop::Transform(const isl::schedule &input_schedule) {
   }
   if (info_.user_config_.GetTarget() == TARGET_CUDA) {
     auto reduce_st_map = info_.analysis_result_.GetReduceStatementMap();
-    info_.user_config_.SetEnableAkgReduceLib(!reduce_st_map.empty());
+    info_.user_config_.SetEnableAkgReduceLib((!reduce_st_map.empty()) && (!info_.user_config_.GetEnableMatmul()));
     if (info_.user_config_.GetEnableAkgReduceLib()) {
       bool has_supported_op = false;
       LOG(INFO) << "====== Reduce op type ========";

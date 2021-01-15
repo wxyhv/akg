@@ -1,5 +1,5 @@
 /**
- * Copyright 2020 Huawei Technologies Co., Ltd
+ * Copyright 2020-2021 Huawei Technologies Co., Ltd
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -29,6 +29,27 @@ void GpuDmaAnalysisStrategy::AddGpuConstraint() {
 }
 
 void CastStrategy::AddGpuConstraint() { MarkDataSize(); }
+
+void GemmStrategy::AddGpuConstraint() {
+  if (!analyzer_->scop_info_.user_config_.GetEnableTensorCore()) {
+    return;
+  }
+  auto interested_info = GetInterestedInfo(interested_attr_key);
+  for (auto it : interested_info) {
+    TileAxis *axis = it.first;
+    axis->TileRestrainToSingleValue(CastIntToExpr(64), TileLevel::LEVEL1);
+    axis->TileRestrainToSingleValue(CastIntToExpr(16), TileLevel::LEVEL0);
+    for (const auto &attr : it.second) {
+      if (attr.attr_value == "mi") {
+        axis->thread_constraints.map_min_ = warp_sizes_;
+        axis->thread_constraints.map_extent_ = warp_sizes_;
+      } else if (attr.attr_value == "ni") {
+        axis->thread_constraints.map_min_ = 4;
+        axis->thread_constraints.map_extent_ = 4;
+      }
+    }
+  }
+}
 
 void ReduceStrategy::AddGpuConstraint() {
   // TODO: compare XLA's reduction tiling/mapping strategy with current strategy
@@ -1114,8 +1135,6 @@ void ShiftAxisStrategy::AddGpuConstraint() {}
 void ModShiftAxisStrategy::AddGpuConstraint() {}
 
 void ConvStrategy::AddGpuConstraint() {}
-
-void GemmStrategy::AddGpuConstraint() {}
 
 // end of null constraint
 

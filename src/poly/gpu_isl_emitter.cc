@@ -1,5 +1,5 @@
 /**
- * Copyright 2020 Huawei Technologies Co., Ltd
+ * Copyright 2020-2021 Huawei Technologies Co., Ltd
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -16,6 +16,7 @@
 
 #include "poly/gpu_isl_emitter.h"
 #include "pass/utils.h"
+#include "gpu_emit/emit_pass.h"
 #include <sstream>
 #include <algorithm>
 
@@ -125,6 +126,108 @@ Stmt GpuIslEmitter::EmitRead(const isl::ast_node_user &node) {
   return Stmt();
 }
 
+std::string SimplifyName(std::string input) {
+  auto pos_local = input.find(LOCAL_SUFFIX);
+  auto pos_shared = input.find(SHARE_SUFFIX);
+  std::string res = input;
+  if (pos_local != std::string::npos) {
+    res = input.substr(0, pos_local);
+  }
+  if (pos_shared != std::string::npos) {
+    res = res.substr(0, pos_shared);
+  }
+  return res;
+}
+
+Stmt GpuIslEmitter::EmitReadCore(const isl::ast_node_user &node) {
+  isl::id node_id = node.get_annotation();
+  isl::pw_multi_aff iterator_map = node_info_map_.at(node_id).iterator_map;
+  isl::pw_multi_aff hoisted = iterator_map.range_factor_range();
+  isl::pw_multi_aff original = iterator_map.range_factor_domain().range_factor_range();
+
+  isl::id original_tensor = original.get_tuple_id(isl_dim_out);
+
+  auto build = node_info_map_.at(node_id).build;
+  auto lhs = build.access_from(isl::multi_pw_aff(hoisted));
+  auto rhs = build.access_from(isl::multi_pw_aff(original));
+
+  Type type = info_.GetDtypeOf(rhs);
+  if (auto op = lhs.as<isl::ast_expr_op>()) {
+    if (auto access = op.as<isl::ast_expr_op_access>()) {
+      Expr value = EmitLoad(rhs, type);
+      auto var = op.get_arg(0).as<isl::ast_expr_id>().get_id();
+
+      Array<Expr> local_args;
+      for (unsigned int i = 1; i < op.get_n_arg(); ++i) {
+        local_args.push_back(Interpret(op.get_arg(i)));
+      }
+
+      Tensor t = info_.FindTensor(var);
+      CHECK(t.defined());
+      Stmt s = Provide::make(t->op, 0, value, local_args);
+
+      auto op_new = s.as<Provide>();
+      CHECK(op_new);
+      const Call *call_value = op_new->value.as<Call>();
+      CHECK(call_value != nullptr) << "Can only load fragment from a buffer";
+
+      auto left_expr = MakeLeftCallFromProvide(op_new);
+      auto left_call = left_expr.as<Call>();
+      CHECK(left_call != nullptr) << "make right part call failed!";
+
+      auto it = tensor_core_info_.strides_.find(call_value->name);
+      CHECK(it != tensor_core_info_.strides_.end()) << "Cannot find stride for " << call_value->name;
+      auto strides = it->second;
+      CHECK_GE(strides.size(), 2);
+      Expr stride = strides[strides.size() - 2];
+
+      std::string call_name = op_new->func->func_name();
+      Expr src = Call::make(call_value->type, "&", {op_new->value}, Call::Extern);
+
+      Expr matrix_major;
+      auto iter2 = tensor_core_info_.matrix_major_.find(SimplifyName(call_name));
+      CHECK(iter2 != tensor_core_info_.matrix_major_.end()) << "Can not determine matrix major for " << call_name;
+      if (iter2->second == COL_MAJOR) {
+        matrix_major = StringImm::make(COL_MAJOR);
+      } else if (iter2->second == ROW_MAJOR) {
+        matrix_major = StringImm::make(ROW_MAJOR);
+      } else {
+        LOG(FATAL) << "invalid matrix major for " << call_name;
+      }
+
+      NodePtr<BufferNode> buffer_node = make_node<BufferNode>();
+      EmitTensorCoreHelper helper(tensor_core_info_);
+      helper.SetDataForLoad(src, stride, matrix_major, left_call, op_new, buffer_node);
+      return helper.MakeLoadTransform();
+    }
+  }
+  return Stmt();
+}
+
+Expr GpuIslEmitter::MakeLeftCallFromProvide(const Provide *op) {
+  std::string name = op->func->func_name();
+  Type type = GetTypeOfTensor(name);
+  Expr dst = Call::make(type, name, op->args, Call::Halide, op->func, 0);
+  return dst;
+}
+
+Type GpuIslEmitter::GetTypeOfTensor(std::string name) {
+  auto binds = info_.user_config_.GetBind();
+
+  for (auto &i : binds) {
+    if (!i.first.defined()) continue;
+    if (!i.second.defined()) continue;
+
+    if (name == i.first->op->name) {
+      auto b = i.second;
+      return b->dtype;
+    }
+  }
+
+  CHECK(false) << "Can not find type of tensor " << name;
+  return Type();
+}
+
 Stmt GpuIslEmitter::EmitWrite(const isl::ast_node_user &node) {
   auto node_id = node.get_annotation();
   CHECK_GT(node_info_map_.count(node_id), 0);
@@ -151,6 +254,59 @@ Stmt GpuIslEmitter::EmitWrite(const isl::ast_node_user &node) {
       CHECK(t.defined());
 
       return Provide::make(t->op, 0, value, local_args);
+    }
+  }
+  return Stmt();
+}
+
+Stmt GpuIslEmitter::EmitWriteCore(const isl::ast_node_user &node) {
+  auto node_id = node.get_annotation();
+  CHECK_GT(node_info_map_.count(node_id), 0);
+  auto iterator_map = node_info_map_.at(node_id).iterator_map;
+  auto hoisted = iterator_map.range_factor_range();
+  auto original = iterator_map.range_factor_domain().range_factor_range();
+
+  auto build = node_info_map_.at(node_id).build;
+  auto rhs = build.access_from(isl::multi_pw_aff(hoisted));
+  auto lhs = build.access_from(isl::multi_pw_aff(original));
+  Type type = info_.GetDtypeOf(lhs);
+
+  if (auto op = lhs.as<isl::ast_expr_op>()) {
+    if (auto access = op.as<isl::ast_expr_op_access>()) {
+      Expr value = EmitLoad(rhs, type);
+      auto var = op.get_arg(0).as<isl::ast_expr_id>().get_id();
+
+      Array<Expr> local_args;
+      for (unsigned int i = 1; i < op.get_n_arg(); ++i) {
+        local_args.push_back(Interpret(op.get_arg(static_cast<int>(i))));
+      }
+
+      Tensor t = info_.FindTensor(var);
+      CHECK(t.defined());
+
+      Stmt s = Provide::make(t->op, 0, value, local_args);
+
+      auto op = s.as<Provide>();
+      CHECK(op);
+
+      auto lh_expr = MakeLeftCallFromProvide(op);
+      auto lh_call = lh_expr.as<Call>();
+      CHECK(lh_call != nullptr) << "make right part call failed!";
+
+      auto it = tensor_core_info_.strides_.find(lh_call->name);
+      CHECK(it != tensor_core_info_.strides_.end()) << "Cannot find stride for " << lh_call->name;
+      auto strides = it->second;
+      CHECK_GE(strides.size(), 2);
+      Expr stride = strides[strides.size() - 2];
+
+      Expr dst = lh_expr;
+      dst = Call::make(Handle(), "&", {dst}, Call::Extern);
+
+      auto call = op->value.as<Call>();
+      NodePtr<BufferNode> buffer_node = make_node<BufferNode>();
+      EmitTensorCoreHelper helper(tensor_core_info_);
+      helper.SetDataForStore(dst, stride, call, buffer_node);
+      return helper.MakeStoreTransform();
     }
   }
   return Stmt();
@@ -422,6 +578,90 @@ Stmt GpuIslEmitter::EmitReduceArea(const isl::ast_node_user &node) {
   return stmt;
 }
 
+Stmt GpuIslEmitter::EmitUserStmtCore(const isl::ast_node_user &node) {
+  if (tensor_core_info_.matrix_info_[MMA_SYNC]) {
+    return EmitUserStmtCoreSync(node);
+  }
+  return Stmt();
+}
+
+Stmt GpuIslEmitter::EmitUserStmtCoreSync(const isl::ast_node_user &node) {
+  static int serial_number = MMA_SYNC_STMT_SERIAL;
+  CHECK(node.get_expr().isa<isl::ast_expr_op>());
+  isl::ast_expr_op usr_expr = node.get_expr().as<isl::ast_expr_op>();
+  stmt_id_ = usr_expr.get_arg(0).as<isl::ast_expr_id>().get_id();
+  node_id_ = node.get_annotation();
+  const Node *stmt_node = info_.analysis_result_.GetStatementMap().at(stmt_id_);
+  CHECK(stmt_node);
+  // compute VarMap to replace old iterators
+  auto build = node_info_map_.at(node_id_).build;
+  auto tuple = info_.analysis_result_.GetOperatorDomainMap().at(stmt_id_).tuple;
+  auto iterator_map = node_info_map_.at(node_id_).iterator_map;
+
+  var_map_.clear();
+  for (unsigned int i = 0; i < tuple.size(); ++i) {
+    isl::id isl_old_iter = tuple.get_id(i);
+    auto isl_expr = build.expr_from(iterator_map.get_pw_aff(i));
+    Expr halide_new_iter = Interpret(isl_expr);
+    var_map_.emplace(isl_old_iter, halide_new_iter);
+  }
+
+  Stmt s = EmitUserStmtContent(stmt_node);
+
+  auto SplitCast = [](const Type &tensor_type, const Expr &tensor) -> Expr {
+    if (tensor.as<Cast>() == nullptr) {
+      return tensor;
+    } else if (tensor.as<Cast>()->type == tensor_type) {
+      return tensor.as<Cast>()->value;
+    } else {
+      return Expr();
+    }
+  };
+
+  if (serial_number == MMA_SYNC_STMT_SERIAL) {
+    serial_number = MMA_FILL_STMT_SERIAL;
+    auto op = s.as<Provide>();
+    auto left_expr = MakeLeftCallFromProvide(op);
+    Type type = GetTypeOfTensor(op->func->func_name());
+    auto *add = op->value.as<Add>();
+    CHECK(add) << "format error of bmm";
+    auto mul = SplitCast(type, add->b).as<Mul>();
+    CHECK(mul) << "format error of bmm";
+
+    auto load_a_expr = SplitCast(type, mul->a);
+    auto load_b_expr = SplitCast(type, mul->b);
+
+    Expr a = load_a_expr;
+    Expr b = load_b_expr;
+    Expr c = left_expr;
+
+    NodePtr<BufferNode> buffer_node_a = make_node<BufferNode>();
+    NodePtr<BufferNode> buffer_node_b = make_node<BufferNode>();
+    NodePtr<BufferNode> buffer_node_c = make_node<BufferNode>();
+
+    EmitTensorCoreHelper helper(tensor_core_info_);
+    helper.SetDataForSync(a, b, c, buffer_node_a, buffer_node_b, buffer_node_c);
+    return helper.MakeSyncTransform();
+  } else if (serial_number == MMA_FILL_STMT_SERIAL) {
+    serial_number = MMA_SYNC_STMT_SERIAL;
+    auto op = s.as<Provide>();
+    auto left_expr = MakeLeftCallFromProvide(op);
+    auto left_call = left_expr.as<Call>();
+    CHECK(left_call != nullptr) << "make right part call failed";
+
+    if (op->value.as<FloatImm>() != nullptr || op->value.as<IntImm>() != nullptr) {
+      NodePtr<BufferNode> buffer_node = make_node<BufferNode>();
+      EmitTensorCoreHelper helper(tensor_core_info_);
+      helper.SetDataForFill(op, left_call, buffer_node);
+      return helper.MakeFillTransform();
+    } else {
+      CHECK(false) << "mma init stmt format error";
+    }
+  }
+
+  return Stmt();
+}
+
 Stmt GpuIslEmitter::EmitStmt(const isl::ast_node_user &node) {
   CHECK(node.get_expr().isa<isl::ast_expr_op>());
   isl::ast_expr_op usr_expr = node.get_expr().as<isl::ast_expr_op>();
@@ -430,8 +670,14 @@ Stmt GpuIslEmitter::EmitStmt(const isl::ast_node_user &node) {
   auto node_id = node.get_annotation();
 
   if (info_.IsRead(stmt_id)) {
+    Stmt s;
     is_sync_before_ = false;
-    auto s = EmitRead(node);
+    if (tensor_core_info_.core_area_) {
+      s = EmitReadCore(node);
+    } else {
+      s = EmitRead(node);
+      s = AttrStmt::make(Expr(""), GMREAD_FLAG, StringImm::make(GMREAD_FLAG), s);
+    }
     if (PRINT_EMITTER) {
       LOG(INFO) << ">>>>>>>>>>>>INPUT AST_NODE[READ]<<<<<<<<<<<<<<\n" << node;
       LOG(INFO) << ">>>>>>>>>>>>OUTPUT STMT<<<<<<<<<<<<\n" << s;
@@ -440,6 +686,11 @@ Stmt GpuIslEmitter::EmitStmt(const isl::ast_node_user &node) {
   } else if (info_.IsWrite(stmt_id)) {
     auto s = Stmt();
     if (info_.IsGMWrite(stmt_id)) {
+      if (tensor_core_info_.core_area_) {
+        is_sync_before_ = false;
+        s = EmitWriteCore(node);
+        return s;
+      }
       auto iterator_map = node_info_map_.at(node_id).iterator_map;
       auto original = iterator_map.range_factor_domain().range_factor_range();
       auto srcid = original.get_tuple_id(isl_dim_out);
@@ -460,7 +711,11 @@ Stmt GpuIslEmitter::EmitStmt(const isl::ast_node_user &node) {
       }
     } else {
       is_sync_before_ = false;
-      s = EmitWrite(node);
+      if (tensor_core_info_.core_area_) {
+        s = EmitWriteCore(node);
+      } else {
+        s = EmitWrite(node);
+      }
     }
     if (PRINT_EMITTER) {
       LOG(INFO) << ">>>>>>>>>>>>INPUT AST_NODE[WRITE]<<<<<<<<<<<<<<\n" << node;
@@ -487,7 +742,14 @@ Stmt GpuIslEmitter::EmitStmt(const isl::ast_node_user &node) {
     return EmitReduceUpdate(node);
   } else {
     is_sync_before_ = false;
-    return EmitUserStmt(node);
+    Stmt s;
+    if (tensor_core_info_.core_area_) {
+      s = EmitUserStmtCore(node);
+    } else {
+      s = EmitUserStmt(node);
+    }
+
+    return s;
   }
 }
 
@@ -808,11 +1070,29 @@ Stmt GpuIslEmitter::EmitFor(const isl::ast_node_for &node) {
   }
 
   cond_expr = Simplify(cond_expr - init_expr);
+
+  // add for tensor core
+
+  if (tensor_core_info_.core_area_) {
+    tensor_core_info_.core_area_for_extent_[iter_expr_new] = cond_expr;
+  }
+
+  if (tensor_core_info_.fragment_axis_begin_) {
+    if (tensor_core_info_.is_fragment_m_) {
+      tensor_core_info_.fragment_m_ = cond_expr;
+    } else if (tensor_core_info_.is_fragment_n_) {
+      tensor_core_info_.fragment_n_ = cond_expr;
+    }
+  }
+
   Stmt body_stmt = EmitAst(node.get_body());
 
   if (!body_stmt.defined()) {
     PopIter(iter_expr.get());
     iter_map_ssa_.erase(iter_expr.get());
+    if (tensor_core_info_.core_area_) {
+      tensor_core_info_.core_area_for_extent_.erase(iter_expr_new);
+    }
     return Stmt();
   }
 
@@ -821,6 +1101,9 @@ Stmt GpuIslEmitter::EmitFor(const isl::ast_node_for &node) {
   }
   PopIter(iter_expr.get());
   iter_map_ssa_.erase(iter_expr.get());
+  if (tensor_core_info_.core_area_) {
+    tensor_core_info_.core_area_for_extent_.erase(iter_expr_new);
+  }
   return For::make(iter_expr_new, init_expr, cond_expr, ForType::Serial, DeviceAPI::None, body_stmt);
 }
 
@@ -910,6 +1193,96 @@ int GpuIslEmitter::GetThreadExtent(const std::string &name) {
   return 1;
 }
 
+void GpuIslEmitter::PrepareDataForTensorCore() {
+  auto binds = info_.user_config_.GetBind();
+
+  auto thread_cfg = info_.user_config_.GetThreadConfig();
+  CHECK(thread_cfg) << "thread config is null";
+  int tx = thread_cfg->GetX().second;
+  int ty = thread_cfg->GetY().second;
+  int tz = thread_cfg->GetZ().second;
+
+  if (info_.user_config_.GetEnableOneDimThread()) {
+    tx = tx * ty * tz;
+    ty = 1;
+    tz = 1;
+  }
+
+  for (auto i : binds) {
+    if (!i.first.defined()) continue;
+    if (!i.second.defined()) continue;
+    auto t = i.first;
+    auto b = i.second;
+
+    std::string name = t->op->name;
+
+    air::ir::TensorKey key{t->op, t->value_index};
+    Region bounds;
+    if (bounds.empty()) {
+      for (auto j : t->shape) {
+        bounds.push_back(Range::make_by_min_extent(Expr(0), j));
+      }
+    }
+
+    tensor_core_info_.bounds_[key] = bounds;
+
+    Array<Expr> strides;
+    for (size_t i = 1; i < b->shape.size(); ++i) {
+      Expr stride = IntImm::make(Int(32), 1);
+      for (size_t j = b->shape.size() - 1; j >= i; --j) {
+        stride = Mul::make(stride, b->shape[j]);
+      }
+      strides.push_back(stride);
+    }
+    strides.push_back(make_const(Int(32), 1));
+    tensor_core_info_.strides_[name] = strides;
+  }
+
+  auto tile_size = info_.analysis_result_.GetTileSizes();
+  CHECK_GE(tile_size.size(), 3) << "tile size should be greater to 3";
+  int len = tile_size.size();
+  tensor_core_info_.warp_tile_.m = tile_size[len - 3].l0_tiling_size;
+  tensor_core_info_.warp_tile_.n = tile_size[len - 2].l0_tiling_size;
+  tensor_core_info_.warp_tile_.k = tile_size[len - 1].l0_tiling_size;
+
+  bool result = CheckTileValid(tensor_core_info_.warp_tile_);
+  CHECK(result) << "tile set is not valid!";
+
+  tensor_core_info_.thread_tile_.m = tensor_core_info_.warp_tile_.m / tx;
+  tensor_core_info_.thread_tile_.n = tx / 2;
+  tensor_core_info_.thread_tile_.k = tile_size[2].l0_tiling_size / tz;
+
+  tensor_core_info_.matrix_abc_ = info_.analysis_result_.GetMatrixMatmulMap();
+  tensor_core_info_.matrix_major_ = info_.analysis_result_.GetMatrixMatmulMajor();
+
+  for (auto &i : tensor_core_info_.matrix_abc_) {
+    tensor_core_info_.frag_reg_.insert(i.first + LOCAL_SUFFIX);
+  }
+
+  tensor_core_info_.warp_threads_y_ = 32 / tx;
+  tensor_core_info_.warp_threads_x_ = tx;
+}
+
+bool GpuIslEmitter::CheckTileValid(Tile tile) {
+  if (tile.m == 16 && tile.n == 16 && tile.k == 4) {
+    tensor_core_info_.wmma_scope_ = "akg";
+    return true;
+  }
+  if (tile.m == 16 && tile.n == 16 && tile.k == 16) {
+    tensor_core_info_.wmma_scope_ = "nvcuda";
+    return true;
+  }
+  if (tile.m == 8 && tile.n == 32 && tile.k == 16) {
+    tensor_core_info_.wmma_scope_ = "nvcuda";
+    return true;
+  }
+  if (tile.m == 32 && tile.n == 8 && tile.k == 16) {
+    tensor_core_info_.wmma_scope_ = "nvcuda";
+    return true;
+  }
+  return false;
+}
+
 Stmt GpuIslEmitter::Emit(const isl::ast_node &node) {
   Stmt stmt = EmitAst(node);
 
@@ -919,16 +1292,24 @@ Stmt GpuIslEmitter::Emit(const isl::ast_node &node) {
   // iter var node attr emit
   std::map<std::string, VarExpr>::iterator it;
   for (it = iter_name_map_.begin(); it != iter_name_map_.end(); it++) {
-    if (GetThreadExtent(it->second->name_hint) != 1) {
-      IterVar axis = IterVarNode::make(Range(), it->second, air::kThreadIndex, it->second->name_hint);
-      stmt = AttrStmt::make(axis, "thread_extent", Expr(GetThreadExtent(it->second->name_hint)), stmt);
-    }
+    IterVar axis = IterVarNode::make(Range(), it->second, air::kThreadIndex, it->second->name_hint);
+    stmt = AttrStmt::make(axis, "thread_extent", Expr(GetThreadExtent(it->second->name_hint)), stmt);
   }
 
   // attr for one dimension mapping
   if (info_.user_config_.GetEnableOneDimThread()) {
     stmt =
       AttrStmt::make(Expr(""), ORIGIN_THREAD_DIM_X, Expr(info_.user_config_.GetThreadConfig()->GetX().second), stmt);
+  }
+
+  // add tensor core plan two attr
+  if (info_.user_config_.GetEnableTensorCore()) {
+    if (info_.user_config_.GetEnableTensorCoreUsePoly()) {
+      stmt = AttrStmt::make(Expr(""), "pragma_tensor_core", StringImm::make(TENSOR_CORE_MODE_TWO), stmt);
+      stmt = AttrStmt::make(Expr("INFO"), "wmma_scope", StringImm::make(tensor_core_info_.wmma_scope_), stmt);
+    } else {
+      stmt = AttrStmt::make(Expr(""), "pragma_tensor_core", StringImm::make(TENSOR_CORE_MODE_ONE), stmt);
+    }
   }
 
   bool emit_attr = AddAttrCheck().Run(stmt);
@@ -941,6 +1322,14 @@ Stmt GpuIslEmitter::Emit(const isl::ast_node &node) {
   Stmt s = AkgReduceAddTensorIndex(reduce_info_.promoted_tensor_indexs_for_reduce_,
                                    reduce_info_.promoted_tensor_shape_for_reduce_)
              .Mutate(stmt);
+
+  if (tensor_core_info_.is_tensor_core_ && info_.user_config_.GetEnableTensorCoreUsePoly()) {
+    s = AddMmaAttrFlag(tensor_core_info_).Mutate(s);
+    s = EmitForTensorCore(s, tensor_core_info_);
+  } else if (info_.user_config_.GetEnableTensorCore()) {
+    tensor_core_info_.cast_tensors_ = info_.analysis_result_.GetCastTensors();
+    s = EmitForTensorCoreDesignOne(s, tensor_core_info_);
+  }
 
   return s;
 }
@@ -997,8 +1386,72 @@ Stmt GpuIslEmitter::EmitMark(const isl::ast_node_mark &node) {
       reduce_info_.is_atomic = true;
     }
   }
+
+  // add for prefetch pass
+  if (mark == PROMOTE_GLOBAL_TO_SHARED_AB) {
+    Stmt stmt = EmitAst(node.get_node());
+    if (!stmt.defined()) {
+      return Stmt();
+    }
+    return AttrStmt::make(Expr("INFO"), SHARED_MEM_PROMOTED_COMPLETE, StringImm::make(SHARED_MEM_PROMOTED_COMPLETE),
+                          stmt);
+  }
+
+  if ((mark == MATRIX_A) || (mark == MATRIX_B) || (mark == MATRIX_C) || (mark == WARP_MARKER)) {
+    if (!tensor_core_info_.data_is_set_) {
+      PrepareDataForTensorCore();
+      tensor_core_info_.data_is_set_ = true;
+    }
+    tensor_core_info_.fragment_axis_begin_ = false;
+    if (mark == WARP_MARKER) {
+      mark = MMA_SYNC;
+    }
+    if (mark == MATRIX_C) {
+      mark = MMA_C;
+    }
+
+    if (!tensor_core_info_.data_is_set_) {
+      PrepareDataForTensorCore();
+      tensor_core_info_.data_is_set_ = true;
+    }
+
+    tensor_core_info_.is_tensor_core_ = true;
+    tensor_core_info_.matrix_info_[mark] = true;
+    tensor_core_info_.core_area_ = true;
+
+    Stmt stmt = EmitAst(node.get_node());
+    stmt = DeleteUselessFor().Mutate(stmt);
+    tensor_core_info_.matrix_info_[mark] = false;
+    tensor_core_info_.core_area_ = false;
+    return AttrStmt::make(Expr("INFO"), mark, StringImm::make(mark), stmt);
+  }
+
+  if ((mark == FRAGMENT_A) || (mark == FRAGMENT_B)) {
+    tensor_core_info_.fragment_axis_begin_ = true;
+    if (mark == FRAGMENT_A) {
+      tensor_core_info_.is_fragment_m_ = true;
+    } else if (mark == FRAGMENT_B) {
+      tensor_core_info_.is_fragment_n_ = true;
+    }
+    Stmt stmt = EmitAst(node.get_node());
+    tensor_core_info_.fragment_axis_begin_ = false;
+    tensor_core_info_.is_fragment_m_ = false;
+    tensor_core_info_.is_fragment_n_ = false;
+    if (!stmt.defined()) {
+      return Stmt();
+    }
+    return AttrStmt::make(Expr("INFO"), mark, StringImm::make(mark), stmt);
+  }
+
+  if ((mark == "promote_vectorization") || (mark == "promote_local_to_global")) {
+    Stmt stmt = EmitAst(node.get_node());
+    if (!stmt.defined()) {
+      return Stmt();
+    }
+    return AttrStmt::make(Expr("INFO"), mark, StringImm::make(mark), stmt);
+  }
   return EmitAst(node.get_node());
-}
+}  // namespace poly
 
 std::string GpuIslEmitter::FindRealizeScopeToString(const isl::id &var) {
   if (info_.analysis_result_.CountBufferDefInfo(var)) {
@@ -1042,6 +1495,9 @@ Stmt GpuIslEmitter::InsertRealize(Stmt stmt, const isl::id &var) {
   auto tt = placeholder(t->shape, t->dtype, t->op->name);
 
   stmt = TensorSubstitute(stmt, t->op, tt->op, tt->value_index);
+  if (tensor_core_info_.is_tensor_core_) {
+    stmt = TensorSubstituteTensorCore(t->op, tt->op, tt->value_index).Mutate(stmt);
+  }
   t = tt;
   if (info_.analysis_result_.CountBufferDefInfo(var)) {
     auto decl = info_.analysis_result_.GetBufferDefInfo(var);
@@ -1115,20 +1571,32 @@ Expr GpuIslEmitter::AdaptPolyNewVar(std::string name) {
   int mx = mapping_cfg->GetX().second;
   int my = mapping_cfg->GetY().second;
   int mz = mapping_cfg->GetZ().second;
-  if (name.find(T0) != std::string::npos) {
-    e = Mod::make(iter_name_map_[T0], mx);
-    return e;
-  } else if (name.find(T1) != std::string::npos) {
-    e = Div::make(iter_name_map_[T0], mx);
-    if (mz == 1) {
+  if (name.find(WARP_COMPUTE) != std::string::npos) {
+    if (name.find(T0) != std::string::npos) {
+      e = Div::make(iter_name_map_[T0], WARP_SIZE);
+      e = Mod::make(e, mx);
+      return e;
+    } else if (name.find(T1) != std::string::npos) {
+      e = Div::make(iter_name_map_[T0], WARP_SIZE);
+      e = Div::make(e, mx);
       return e;
     }
-    e = Mod::make(e, my);
-    return e;
-  } else if (name.find(T2) != std::string::npos) {
-    e = Div::make(iter_name_map_[T0], mx);
-    e = Div::make(e, my);
-    return e;
+  } else {
+    if (name.find(T0) != std::string::npos) {
+      e = Mod::make(iter_name_map_[T0], mx);
+      return e;
+    } else if (name.find(T1) != std::string::npos) {
+      e = Div::make(iter_name_map_[T0], mx);
+      if (mz == 1) {
+        return e;
+      }
+      e = Mod::make(e, my);
+      return e;
+    } else if (name.find(T2) != std::string::npos) {
+      e = Div::make(iter_name_map_[T0], mx);
+      e = Div::make(e, my);
+      return e;
+    }
   }
   return e;
 }
@@ -1185,6 +1653,285 @@ VarExpr GpuIslEmitter::AllocUniqueIterName(const VarExpr v) {
     for_iter_name_map_[v->name_hint] = 1;
     return v;
   }
+}
+
+void GetNameWithoutShared(isl::id &tensor_id, ScopInfo &info) {
+  if (info.user_config_.GetEnableMatmul()) {
+    size_t pos = tensor_id.get_name().find(SHARE_SUFFIX);
+    std::string substr = tensor_id.get_name().substr(0, pos);
+    if (pos != 0) tensor_id = isl::id(tensor_id.ctx(), substr);
+  }
+}
+
+isl::multi_aff GpuIslEmitter::TensorAccessMultAff(isl::id &tensor_id, const Array<Expr> &tensor_index,
+                                                  const isl::id &node_id) {
+  GetNameWithoutShared(tensor_id, info_);
+  return IslEmitter::TensorAccessMultAff(tensor_id, tensor_index, node_id);
+}
+
+Array<Expr> EmitTensorCoreHelper::GetTileSize(const std::string &name) {
+  auto it = tensor_core_info_.matrix_abc_.find(name);
+  auto it2 = tensor_core_info_.matrix_major_.find(name);
+  CHECK(it != tensor_core_info_.matrix_abc_.end() && it2 != tensor_core_info_.matrix_major_.end())
+    << "Cannot find matrix info for " << name;
+  Expr size0 = make_const(Int(32), 16);
+  Expr size1 = make_const(Int(32), 16);
+  if (it->second == MMA_A && it2->second == COL_MAJOR) {
+    size0 = make_const(Int(32), tensor_core_info_.warp_tile_.k);
+    size1 = make_const(Int(32), tensor_core_info_.warp_tile_.m);
+  }
+  if (it->second == MMA_A && it2->second == ROW_MAJOR) {
+    size0 = make_const(Int(32), tensor_core_info_.warp_tile_.m);
+    size1 = make_const(Int(32), tensor_core_info_.warp_tile_.k);
+  }
+  if (it->second == MMA_B && it2->second == ROW_MAJOR) {
+    size0 = make_const(Int(32), tensor_core_info_.warp_tile_.k);
+    size1 = make_const(Int(32), tensor_core_info_.warp_tile_.n);
+  }
+  if (it->second == MMA_B && it2->second == COL_MAJOR) {
+    size0 = make_const(Int(32), tensor_core_info_.warp_tile_.n);
+    size1 = make_const(Int(32), tensor_core_info_.warp_tile_.k);
+  }
+
+  if (it->second == MATRIX_C) {
+    size0 = make_const(Int(32), tensor_core_info_.warp_tile_.m);
+    size1 = make_const(Int(32), tensor_core_info_.warp_tile_.n);
+  }
+  Array<Expr> tile_size = {size0, size1};
+  return tile_size;
+}
+
+void EmitTensorCoreHelper::SetDataForLoad(Expr src, Expr stride, Expr major, const Call *call, const Provide *op,
+                                          NodePtr<BufferNode> &node) {
+  data_for_load_.src = src;
+  data_for_load_.stride = stride;
+  data_for_load_.major = major;
+  data_for_load_.call = call;
+  data_for_load_.op = op;
+  data_for_load_.node = node;
+}
+void EmitTensorCoreHelper::SetDataForStore(Expr dst, Expr stride, const Call *call, NodePtr<BufferNode> &node) {
+  data_for_store_.dst = dst;
+  data_for_store_.stride = stride;
+  data_for_store_.call = call;
+  data_for_store_.node = node;
+}
+void EmitTensorCoreHelper::SetDataForFill(const Provide *op, const Call *call, NodePtr<BufferNode> &node) {
+  data_for_fill_.call = call;
+  data_for_fill_.op = op;
+  data_for_fill_.node = node;
+}
+void EmitTensorCoreHelper::SetDataForSync(Expr a, Expr b, Expr c, NodePtr<BufferNode> &node_a,
+                                          NodePtr<BufferNode> &node_b, NodePtr<BufferNode> &node_c) {
+  data_for_sync_.a = a;
+  data_for_sync_.b = b;
+  data_for_sync_.c = c;
+  data_for_sync_.node_a = node_a;
+  data_for_sync_.node_b = node_b;
+  data_for_sync_.node_c = node_c;
+}
+
+void EmitTensorCoreHelper::PrepareDataCore() {
+  auto it = tensor_core_info_.bounds_.find(key_);
+  CHECK(it != tensor_core_info_.bounds_.end());
+  Array<Expr> min_bound;
+  for (auto i : it->second) {
+    min_bound.push_back(i->min);
+  }
+
+  CHECK_GE(it->second.size(), 2);
+  Array<Expr> shape;
+  for (size_t i = 0; i < it->second.size() - 2; ++i) {
+    shape.push_back(it->second[i]->extent);
+  }
+  auto tile_size = GetTileSize(SimplifyName(call_->name));
+  shape.push_back(tile_size[0]);
+  shape.push_back(tile_size[1]);
+
+  tensor_core_info_.min_bounds_[call_->name] = min_bound;
+
+  Array<Expr> strides;
+  for (size_t i = 1; i < shape.size(); ++i) {
+    Expr stride = IntImm::make(Int(32), 1);
+    for (size_t j = shape.size() - 1; j >= i; --j) {
+      stride = Mul::make(stride, shape[j]);
+    }
+    strides.push_back(stride);
+  }
+  strides.push_back(make_const(Int(32), 1));
+
+  Expr elem_offset = IntImm::make(Int(32), 0);
+  CHECK_EQ(call_->args.size(), min_bound.size());
+  for (size_t i = 0; i < min_bound.size(); i++) {
+    auto arg = call_->args[i];
+    arg = DeleteThreadIdx().Mutate(arg);
+    arg = Simplify(arg);
+    elem_offset = Add::make(elem_offset, Mul::make(strides[i], Sub::make(arg, min_bound[i])));
+  }
+
+  auto it2 = tensor_core_info_.matrix_abc_.find(SimplifyName(call_->name));
+  CHECK(it2 != tensor_core_info_.matrix_abc_.end()) << "Cannot find matrix info for " << call_->name;
+  buffer_node_->data = Variable::make(Handle(), call_->name);
+  buffer_node_->name = call_->name;
+  std::string name = it2->second;
+  if (name == MATRIX_C) {
+    name = MMA_C;
+  }
+  buffer_node_->scope = "wmma." + name;
+  buffer_node_->dtype = data_type_;
+  buffer_node_->strides = strides;
+  buffer_node_->shape = shape;
+  buffer_node_->data_alignment = 1;
+  buffer_node_->elem_offset = Simplify(elem_offset);
+  buffer_node_->offset_factor = 1;
+  Buffer buffer(buffer_node_);
+
+  NodePtr<TensorNode> tensor_node = make_node<TensorNode>();
+  tensor_node->value_index = key_.value_index;
+  tensor_node->op = Downcast<Operation>(key_.f);
+  tensor_node->shape = shape;
+  tensor_node->dtype = data_type_;
+  Tensor tensor(tensor_node);
+
+  Array<Expr> args;
+  for (size_t i = 0; i < call_->args.size(); ++i) {
+    auto arg = call_->args[i];
+    arg = DeleteThreadIdx().Mutate(arg);
+    arg = Simplify(arg);
+
+    args.push_back(arg);
+    args.push_back(shape[i]);
+  }
+  tuple_ = Call::make(Handle(), air::ir::intrinsic::tvm_tuple, args, Call::Intrinsic);
+  node_ = {buffer, tensor};
+}
+
+Stmt EmitTensorCoreHelper::MakeLoadTransform() {
+  key_ = air::ir::TensorKey{data_for_load_.op->func, data_for_load_.op->value_index};
+  call_ = data_for_load_.call;
+  buffer_node_ = data_for_load_.node;
+  data_type_ = call_->type;
+
+  PrepareDataCore();
+  Buffer buffer = Downcast<Buffer>(node_[0]);
+  Stmt stmt = Evaluate::make(Call::make(
+    Handle(), air::ir::intrinsic::tvm_load_matrix_sync,
+    {buffer->data, tensor_core_info_.warp_tile_.m, tensor_core_info_.warp_tile_.n, tensor_core_info_.warp_tile_.k,
+     Simplify(buffer->elem_offset), data_for_load_.src, data_for_load_.stride, data_for_load_.major},
+    Call::Intrinsic));
+  return AttrStmt::make(node_, "buffer_bind_scope", tuple_, stmt);
+}
+
+Stmt EmitTensorCoreHelper::MakeStoreTransform() {
+  key_ = air::ir::TensorKey{data_for_store_.call->func, data_for_store_.call->value_index};
+  call_ = data_for_store_.call;
+  buffer_node_ = data_for_store_.node;
+  data_type_ = call_->type;
+
+  PrepareDataCore();
+  Buffer buffer = Downcast<Buffer>(node_[0]);
+  Stmt stmt = Evaluate::make(Call::make(
+    Handle(), air::ir::intrinsic::tvm_store_matrix_sync,
+    {buffer->data, tensor_core_info_.warp_tile_.m, tensor_core_info_.warp_tile_.n, tensor_core_info_.warp_tile_.k,
+     buffer->elem_offset, data_for_store_.dst, data_for_store_.stride, StringImm::make(ROW_MAJOR)},
+    Call::Intrinsic));
+  return AttrStmt::make(node_, "buffer_bind_scope", tuple_, stmt);
+}
+
+Stmt EmitTensorCoreHelper::MakeFillTransform() {
+  key_ = air::ir::TensorKey{data_for_fill_.call->func, data_for_fill_.call->value_index};
+  call_ = data_for_fill_.call;
+  buffer_node_ = data_for_fill_.node;
+  data_type_ = call_->type;
+
+  PrepareDataCore();
+  Buffer buffer = Downcast<Buffer>(node_[0]);
+  Stmt stmt = Evaluate::make(Call::make(Handle(), air::ir::intrinsic::tvm_fill_fragment,
+                                        {buffer->data, tensor_core_info_.warp_tile_.m, tensor_core_info_.warp_tile_.n,
+                                         tensor_core_info_.warp_tile_.k, buffer->elem_offset, data_for_fill_.op->value},
+                                        Call::Intrinsic));
+  return AttrStmt::make(node_, "buffer_bind_scope", tuple_, stmt);
+}
+
+Stmt EmitTensorCoreHelper::MakeSyncTransform() {
+  bool is_cast = false;
+  if (data_for_sync_.a.as<Call>()) {
+    auto call_a = data_for_sync_.a.as<Call>();
+    key_ = air::ir::TensorKey{call_a->func, call_a->value_index};
+    call_ = call_a;
+    buffer_node_ = data_for_sync_.node_a;
+    data_type_ = call_->type;
+    is_cast = true;
+  } else if (data_for_sync_.a.as<Cast>()) {
+    auto cast_a = data_for_sync_.a.as<Cast>();
+    auto call_a = cast_a->value.as<Call>();
+    CHECK(call_a);
+    key_ = air::ir::TensorKey{call_a->func, call_a->value_index};
+    call_ = call_a;
+    buffer_node_ = data_for_sync_.node_a;
+    data_type_ = call_->type;
+    is_cast = true;
+  }
+
+  PrepareDataCore();
+
+  auto tuple_a = tuple_;
+  auto node_a = node_;
+
+  if (data_for_sync_.b.as<Call>()) {
+    auto call_b = data_for_sync_.b.as<Call>();
+    key_ = air::ir::TensorKey{call_b->func, call_b->value_index};
+    call_ = call_b;
+    buffer_node_ = data_for_sync_.node_b;
+    data_type_ = call_->type;
+    is_cast = true;
+  } else if (data_for_sync_.b.as<Cast>()) {
+    auto cast_b = data_for_sync_.b.as<Cast>();
+    auto call_b = cast_b->value.as<Call>();
+    CHECK(call_b);
+    key_ = air::ir::TensorKey{call_b->func, call_b->value_index};
+    call_ = call_b;
+    buffer_node_ = data_for_sync_.node_b;
+    data_type_ = call_->type;
+    is_cast = true;
+  }
+
+  PrepareDataCore();
+
+  auto tuple_b = tuple_;
+  auto node_b = node_;
+
+  auto call_c = data_for_sync_.c.as<Call>();
+  CHECK(call_c);
+  key_ = air::ir::TensorKey{call_c->func, call_c->value_index};
+  call_ = call_c;
+  buffer_node_ = data_for_sync_.node_c;
+  data_type_ = call_->type;
+
+  PrepareDataCore();
+
+  auto tuple_c = tuple_;
+  auto node_c = node_;
+
+  Buffer buffer_a(data_for_sync_.node_a);
+  Buffer buffer_b(data_for_sync_.node_b);
+  Buffer buffer = Downcast<Buffer>(node_c[0]);
+
+  Stmt stmt = Evaluate::make(Call::make(Handle(), air::ir::intrinsic::tvm_mma_sync,
+                                        {buffer->data, buffer->elem_offset, buffer_a->data, buffer_a->elem_offset,
+                                         buffer_b->data, buffer_b->elem_offset, buffer->data, buffer->elem_offset},
+                                        Call::Intrinsic));
+
+  stmt = AttrStmt::make(node_c, "buffer_bind_scope", tuple_c, stmt);
+  stmt = AttrStmt::make(node_b, "buffer_bind_scope", tuple_b, stmt);
+  stmt = AttrStmt::make(node_a, "buffer_bind_scope", tuple_a, stmt);
+
+  std::string cast_mode = CAST_MODE_1;
+  if (is_cast) {
+    stmt = AttrStmt::make(Expr("INFO"), CAST_FLAG, StringImm::make(cast_mode), stmt);
+  }
+
+  return stmt;
 }
 
 }  // namespace poly

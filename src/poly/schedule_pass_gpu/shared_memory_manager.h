@@ -1,5 +1,5 @@
 /**
- * Copyright 2020 Huawei Technologies Co., Ltd
+ * Copyright 2020-2021 Huawei Technologies Co., Ltd
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -34,6 +34,7 @@ class SharedMemoryManager : public SchedulePass {
     pass_name_ = __FUNCTION__;
     // use 48KB in current GPU
     share_memory_size_ = 49152;
+    tensor_core_share_memory_size_ = 61440;
     if (!scop_info.user_config_.GetSharedTensors().empty()) {
       configed_tensors_ = Split(scop_info.user_config_.GetSharedTensors(), " ");
     }
@@ -51,7 +52,8 @@ class SharedMemoryManager : public SchedulePass {
 
   MappingCfg *GetCurrentConfig(isl::schedule_node &node);
 
-  isl::schedule_node ManageToShareBelow(isl::schedule &root, isl::schedule_node &node, size_t &remaining_memory);
+  isl::schedule_node ManageToShareBelow(const isl::schedule &root_sch, isl::schedule_node &node,
+                                        size_t &remaining_memory);
 
   void CreateClusterList(const isl::schedule_node &node, const isl::union_map &outer_sch);
 
@@ -82,16 +84,24 @@ class SharedMemoryManager : public SchedulePass {
   std::set<std::string> AnalysisReduceTensors();
 
   size_t Bytes(const isl::id tensor_id);
+  isl::schedule_node CollectMarkNode(isl::schedule_node root, const std::string mark);
+
+  isl::schedule_node HoistSharedMemoryOnMark(const isl::schedule_node &root, size_t &remain_memory, size_t depth);
 
  private:
   ScopInfo &scop_info_;
   isl::schedule schedule_;
   size_t share_memory_size_;
+  size_t tensor_core_share_memory_size_;
   int depth_{1};
   bool use_config_{false};
   std::vector<std::string> configed_tensors_;
   bool unroll_copies_;
   bool bank_conflict_{false};
+  bool hoist_tensor_c_ = true;
+  std::string tensor_c_;
+  std::string tensor_a_;
+  std::string tensor_b_;
 };
 
 }  // namespace poly

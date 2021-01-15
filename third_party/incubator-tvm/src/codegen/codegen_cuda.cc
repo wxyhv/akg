@@ -30,6 +30,18 @@
  *     Delete the offset checkout of VisitStmt_(const ir::For* op)
  */
 
+/*
+ * 2021.01.13
+ *   Add function Simplify_name.
+ *   Modify the functions:
+ *     Finish()
+ *     VisitExpr_(const Call *op, std::ostream& os)
+ *     VisitStmt_(const AttrStmt* op)
+ *     VisitStmt_(const Allocate* op)
+ *     PrintWmmaScope
+ *     GetWmmaFragmentSize
+ */
+
 #include <tvm/base.h>
 #include <tvm/runtime/registry.h>
 #include <tvm/packed_func_ext.h>
@@ -44,6 +56,14 @@ namespace codegen {
 
 CodeGenCUDA::CodeGenCUDA() {
   restrict_keyword_ = "__restrict__";
+}
+
+std::string CodeGenCUDA::Simplify_name(std::string input) {
+  auto pos = input.find("_local");
+  if (pos != std::string::npos) {
+    return input.substr(0, pos);
+  }
+  return input;
 }
 
 void CodeGenCUDA::Init(bool output_ssa) {
@@ -91,7 +111,11 @@ std::string CodeGenCUDA::Finish() {
   }
 
   if (need_mma_h_) {
-    decl_stream << "#include <mma.h>\n";
+    if (wmma_scope == "akg") {
+      decl_stream << "#include \"akg_mma_lib/m16n16k4.hpp\"\n";
+    } else{
+      decl_stream << "#include <mma.h>\n";
+    }
   }
 
   return CodeGenC::Finish();
@@ -359,20 +383,63 @@ void CodeGenCUDA::VisitExpr_(const Call *op, std::ostream& os) {
   if (op->is_intrinsic(intrinsic::tvm_fill_fragment)) {
     need_mma_h_ = true;
     CHECK_EQ(op->args.size(), 6U);
-    os << "nvcuda::wmma::fill_fragment(";
+    os << wmma_scope << "::wmma::fill_fragment(";
     this->PrintExpr(op->args[0], os);
     os << "[";
-    this->PrintExpr(op->args[4], os);
+    Expr new_args = op->args[4];
+    if (auto add = op->args[4].as<Add>()) {
+      warp_tile_n = op->args[2];
+      new_args = Div::make(add->a, warp_tile_n);
+      new_args = Add::make(new_args, add->b);
+    }
+    if (is_scheme_two_) {
+      this->PrintExpr(op->args[4], os);
+    } else {
+      this->PrintExpr(new_args, os);
+    }
     os << "], ";
-    this->PrintExpr(op->args[5], os);
+    Expr fill = FloatImm::make(Float(32), 0.0);
+    this->PrintExpr(fill, os);
     os << ")";
   } else if (op->is_intrinsic(intrinsic::tvm_load_matrix_sync)) {
     need_mma_h_ = true;
     CHECK_EQ(op->args.size(), 8U);
-    os << "nvcuda::wmma::load_matrix_sync(";
+    warp_tile_m = op->args[1];
+    warp_tile_n = op->args[2];
+    warp_tile_k = op->args[3];
+    os << wmma_scope << "::wmma::load_matrix_sync(";
     this->PrintExpr(op->args[0], os);
     os << "[";
-    this->PrintExpr(op->args[4], os);
+    Expr new_args = op->args[4];
+    Expr warp_tile;
+    auto var_node = op->args[0].as<Variable>();
+    auto it_matrix = matrix_abc.find(Simplify_name(var_node->name_hint));
+    if (it_matrix != matrix_abc.end()) {
+      if (it_matrix->second == "matrix_a") {
+        if (op->args[7].as<StringImm>()->value == "row_major") {
+          warp_tile = warp_tile_k;
+        } else {
+          warp_tile = warp_tile_m;
+        }
+      } else if (it_matrix->second == "matrix_b") {
+        if (op->args[7].as<StringImm>()->value == "col_major") {
+          warp_tile = warp_tile_k;
+        } else {
+          warp_tile = warp_tile_n;
+        }
+      } else {
+        LOG(FATAL) << "Not support matrix to load !"; 
+      }
+    }
+    if (auto add = op->args[4].as<Add>()) {
+      new_args = Div::make(add->a, warp_tile);
+      new_args = Add::make(new_args, add->b);
+    }
+    if (is_scheme_two_) {
+      this->PrintExpr(op->args[4], os);
+    } else {
+      this->PrintExpr(new_args, os);
+    }
     os << "], ";
     this->PrintExpr(op->args[5], os);
     os << ", ";
@@ -381,12 +448,21 @@ void CodeGenCUDA::VisitExpr_(const Call *op, std::ostream& os) {
   } else if (op->is_intrinsic(intrinsic::tvm_store_matrix_sync)) {
     need_mma_h_ = true;
     CHECK_EQ(op->args.size(), 8U);
-    os << "nvcuda::wmma::store_matrix_sync(";
+    os << wmma_scope << "::wmma::store_matrix_sync(";
     this->PrintExpr(op->args[5], os);
     os << ", ";
     this->PrintExpr(op->args[0], os);
     os << "[";
-    this->PrintExpr(op->args[4], os);
+    Expr new_args = op->args[4];
+    if (auto add = op->args[4].as<Add>()) {
+      new_args = Div::make(add->a, warp_tile_n);
+      new_args = Add::make(new_args, add->b);
+    }
+    if (is_scheme_two_) {
+      this->PrintExpr(op->args[4], os);
+    } else {
+      this->PrintExpr(new_args, os);
+    }
     os << "], ";
     this->PrintExpr(op->args[6], os);
     if (const StringImm *str = op->args[7].as<StringImm>()) {
@@ -398,11 +474,26 @@ void CodeGenCUDA::VisitExpr_(const Call *op, std::ostream& os) {
   } else if (op->is_intrinsic(intrinsic::tvm_mma_sync)) {
     need_mma_h_ = true;
     CHECK_EQ(op->args.size(), 8U);
-    os << "nvcuda::wmma::mma_sync(";
+    os << wmma_scope << "::wmma::mma_sync(";
     for (int i = 0; i < 4; ++i) {
       this->PrintExpr(op->args[i * 2], os);
       os << "[";
-      this->PrintExpr(op->args[i * 2 + 1], os);
+      Expr new_args = op->args[i * 2 + 1];
+      if (auto add = op->args[i * 2 + 1].as<Add>()) {
+        Expr warp_size;
+        if (i == 0 || i == 3) {
+          warp_size = warp_tile_n;
+        } else {
+          warp_size = warp_tile_k;
+        }
+        new_args = Div::make(add->a, warp_size);
+        new_args = Add::make(new_args, add->b);
+      }
+      if (is_scheme_two_) {
+        this->PrintExpr(op->args[i * 2 + 1], os);
+      } else {
+        this->PrintExpr(new_args, os);
+      }
       os << "]" << ((i < 3) ? ", ": ")");
     }
   } else {
@@ -411,7 +502,10 @@ void CodeGenCUDA::VisitExpr_(const Call *op, std::ostream& os) {
 }
 
 void CodeGenCUDA::VisitStmt_(const AttrStmt* op) {
-  if (op->attr_key == attr::fragment_shape) {
+  if (op->attr_key == attr::wmma_scope) {
+    const StringImm* scope_str = op->value.as<StringImm>();
+    wmma_scope = scope_str->value;
+  } else if (op->attr_key == attr::fragment_shape) {
     const Variable* buffer = op->node.as<Variable>();
     const StringImm* shape_str = op->value.as<StringImm>();
     fragment_shapes[buffer] = shape_str->value;
@@ -430,6 +524,11 @@ void CodeGenCUDA::VisitStmt_(const AttrStmt* op) {
       std::string origin_tensor = name.substr(0, n);
       std::string change_tensor = name.substr(n+1);
       tensor_name_mod_[origin_tensor] = change_tensor;
+    }
+  } else if (op->attr_key == "pragma_tensor_core") {
+    CHECK(op->value.as<StringImm>());
+    if (op->value.as<StringImm>()->value == "2") {
+      is_scheme_two_ = true;
     }
   }
   CodeGenC::VisitStmt_(op);
@@ -453,6 +552,12 @@ void CodeGenCUDA::VisitStmt_(const Allocate* op) {
     const Variable* buffer = op->buffer_var.as<Variable>();
     std::string scope = alloc_storage_scope_.at(buffer);
     if (scope.find("wmma.") == 0) {
+      std::string matrix_scope = scope;
+      auto pos = matrix_scope.find(".");
+      if (pos != std::string::npos) {
+        matrix_scope = matrix_scope.substr(pos + 1);
+      }
+      matrix_abc.insert(std::make_pair(Simplify_name(vid), matrix_scope));
       if (scope == "wmma.matrix_a" || scope == "wmma.matrix_b") {
         CHECK(op->type == Float(16) || op->type == Int(8) || op->type == UInt(8))
           << "Matrix_a and matrix_b only support half or char or unsigned char type for now";
@@ -581,20 +686,24 @@ void CodeGenCUDA::PrintWmmaScope(const std::string &scope, Type t,
   std::stringstream type;
   PrintType(t, type);
   std::string shape_str = fragment_shapes[variable];
+  auto pos_wmma = scope.find("wmma");
+  if (pos_wmma != std::string::npos) {
+    os << wmma_scope << "::";
+  }
   if (scope == "wmma.matrix_a") {
     need_mma_h_ = true;
     std::string layout_str = fragment_layouts[variable];
-    os << "nvcuda::wmma::fragment<nvcuda::wmma::matrix_a, "
+    os << "wmma::fragment<nvcuda::wmma::matrix_a, "
       << shape_str << ", " << type.str() << ", nvcuda::wmma::" << layout_str <<">";
   } else if (scope == "wmma.matrix_b") {
     need_mma_h_ = true;
     std::string layout_str = fragment_layouts[variable];
-    os << "nvcuda::wmma::fragment<nvcuda::wmma::matrix_b, "
+    os << "wmma::fragment<nvcuda::wmma::matrix_b, "
        << shape_str << ", " << type.str() << ", nvcuda::wmma::" << layout_str <<">";
   } else if (scope == "wmma.accumulator") {
     need_mma_h_ = true;
-    os << "nvcuda::wmma::fragment<nvcuda::wmma::accumulator, "
-       << shape_str << ", "<< type.str() << ">";
+    os << "wmma::fragment<nvcuda::wmma::accumulator, "
+       << shape_str << ", "<< "float" << ">";
   }
 }
 

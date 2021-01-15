@@ -1,5 +1,5 @@
 /**
- * Copyright 2020 Huawei Technologies Co., Ltd
+ * Copyright 2020-2021 Huawei Technologies Co., Ltd
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -197,6 +197,11 @@ isl::schedule MappingOuterBand::DoThreadMapping(const isl::schedule &sch) {
       is_reduce_stmt = true;
     }
 
+    if (scop_info_.user_config_.GetEnableTensorCoreUsePoly() && node.get_tree_depth() >= 2 &&
+        !GetMarkerName(node.ancestor(2), PROMOTE_SHARED_TO_REGISTER).empty()) {
+      return node;
+    }
+
     size_t num_mapped_desc = NumMappedDescendant(thread_record, node);
 
     if (CanBeMappedToThread(node, thread_record)) {
@@ -263,6 +268,17 @@ isl::schedule_node MappingOuterBand::DoThreadSynchronization(const isl::schedule
   // Step 1. prepare info
   bool is_outer = IsOuterBandWithNoCoincident(node);
   auto domain_thread = MapDomainToThread(node, thread_cfg, scop_info_.upa_node_mapping_);
+
+  if (scop_info_.user_config_.GetEnableTensorCoreUsePoly()) {
+    auto warp_cfg = scop_info_.user_config_.GetReplaceConfig()[WARP_COMPUTE];
+    CHECK(warp_cfg != nullptr) << "warp config is null";
+    auto domain_thread_warp = MapDomainToThread(node, warp_cfg, scop_info_.upa_node_mapping_);
+    domain_thread = domain_thread.union_add(domain_thread_warp);
+  }
+  auto domain_node = CollectDomain(node);
+  bool sub_set = domain_node.is_subset(domain_thread.domain());
+  CHECK(sub_set) << "There are remaining domains that have not been mapped to threadID";
+
   auto domain_warp = MapDomainToWarp(node, thread_cfg, domain_thread);
 
   // Step 2. construct a linked list for all nodes in the input sequence node
@@ -448,6 +464,15 @@ size_t MappingOuterBand::MapThreadHelper(isl::schedule_node &thread_root) {
   // Step 1. Determine max num dimension of threads that can be mapped.
   auto n_thread_map = CountConsecutiveCoincident(band_node);
 
+  bool is_bmm_statement = false;
+  if (scop_info_.user_config_.GetEnableTensorCoreUsePoly() && thread_root.has_parent() &&
+      !GetMarkerName(thread_root.parent(), PROMOTE_SHARED_TO_REGISTER).empty()) {
+    auto warp_cfg = scop_info_.user_config_.GetReplaceConfig()[WARP_COMPUTE];
+    CHECK(warp_cfg != nullptr) << "warp config is null";
+    thread_cfg = warp_cfg;
+    is_bmm_statement = true;
+  }
+
   bool is_reduce_stmt = false;
   std::string reduce_marker_name = "";
   if (band_node.has_parent()) {
@@ -491,9 +516,13 @@ size_t MappingOuterBand::MapThreadHelper(isl::schedule_node &thread_root) {
 
   // Step 3. Map band under thread_root from inner dim to outer dim.
   Mapping mapping;
-  auto after_map_pair = MapInnerDimToThreads(band_node, false, thread_cfg, mapping,
-                                             scop_info_.analysis_result_.GetReduceDirection() == Y_DIRECTION);
+  bool is_y_reduce =
+    scop_info_.analysis_result_.GetReduceDirection() == Y_DIRECTION || scop_info_.user_config_.GetEnableTensorCore();
+  auto after_map_pair = MapInnerDimToThreads(band_node, false, thread_cfg, mapping, is_y_reduce);
   thread_root = after_map_pair.first;
+  if (is_bmm_statement && !GetMarkerName(thread_root, THREAD_MARKER).empty()) {
+    thread_root = thread_root.del().insert_mark(isl::id(thread_root.ctx(), WARP_MARKER));
+  }
   scop_info_.upa_node_mapping_.emplace_back(std::make_pair(thread_root, mapping));
   int end_node_depth = thread_root.get_tree_depth() - start_node_depth;
 
@@ -568,7 +597,7 @@ isl::schedule MappingOuterBand::DetectAndMarkReduce(const isl::schedule &sch) {
 
     isl::union_map dependences = pass_info_.dependences_;
     auto node_bak = node;
-    if (!reduce_manager.SplitReduceStatements(node, reduce_statements, dependences)) {
+    if (!reduce_manager.SplitReduceStatements(node, reduce_statements, dependences, true)) {
       return node_bak;
     }
     done_separate = all_reduce_map.empty();

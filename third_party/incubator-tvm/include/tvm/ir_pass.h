@@ -319,7 +319,7 @@ Stmt InjectPrefetch(Stmt stmt);
  * \param split_loop Loop splitting factor.
  * \return Transformed stmt.
  */
-Stmt InjectDoubleBuffer(Stmt stmt, int split_loop);
+Stmt InjectDoubleBuffer(Stmt stmt, int split_loop, bool use_transfer_buffer = false);
 
 /*!
  * \brief Inject copy intrinsics with optional pad.

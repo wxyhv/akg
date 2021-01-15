@@ -39,5 +39,21 @@
                 "bind_thread": "64 16 1"
             }
         }
+    },
+    "2.BatchMatMul12.2": {
+        "any_shape": {
+            "float16--": {
+                "metadata": {
+                    "attrs": {
+                        "use_shared_memory": true,
+                        "pragma_enable_tensor_core": true,
+                        "pragma_enable_matmul": true,
+                        "enable_auto_fuse": false,
+                        "vector_load_type": "float4",
+                        "bind_thread": "32 4"
+                    }
+                }
+            }
+        }
     }
 }

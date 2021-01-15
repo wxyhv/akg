@@ -1,5 +1,5 @@
 /**
- * Copyright 2020 Huawei Technologies Co., Ltd
+ * Copyright 2020-2021 Huawei Technologies Co., Ltd
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -65,7 +65,8 @@ isl::schedule_node RealizeManager::BreadthFirstTopDown(const isl::schedule_node 
     }
     auto filter_node = top.as<isl::schedule_node_filter>();
     std::string filter_name = GetFilterName(filter_node);
-    if (filter_name != READ_ID_NAME && filter_name != WRITE_ID_NAME) {
+    if (filter_name != READ_ID_NAME && filter_name != WRITE_ID_NAME &&
+        filter_name != SHARED_READ_ID_NAME && filter_name != SHARED_WRITE_ID_NAME) {
       continue;
     }
     std::string tensor_name = GetTensorName(filter_node);
@@ -73,18 +74,19 @@ isl::schedule_node RealizeManager::BreadthFirstTopDown(const isl::schedule_node 
       continue;
     }
     // Insert realize node for read node
-    if (filter_name == READ_ID_NAME) {
+    if (filter_name == READ_ID_NAME || filter_name == SHARED_READ_ID_NAME) {
       top = InsertExtensionNodeBefore(top.child(0), tensor_name).parent();
       names_set_.insert(tensor_name);
       break;
     }
     // Insert realize node for write node
-    if (filter_name == WRITE_ID_NAME) {
+    if (filter_name == WRITE_ID_NAME || filter_name == SHARED_WRITE_ID_NAME) {
       size_t i = 0;
       auto top_parent = top.parent();
       for (; i < top_parent.n_children(); ++i) {
         auto tmp_name = GetFilterName(top_parent.child(i).as<isl::schedule_node_filter>());
-        if ((tmp_name != READ_ID_NAME) && (tmp_name != WRITE_ID_NAME)) {
+        if ((tmp_name != READ_ID_NAME) && (tmp_name != WRITE_ID_NAME) &&
+            (tmp_name != SHARED_READ_ID_NAME) && (tmp_name != SHARED_WRITE_ID_NAME)) {
           break;
         }
       }

@@ -1,5 +1,5 @@
 /**
- * Copyright 2020 Huawei Technologies Co., Ltd
+ * Copyright 2020-2021 Huawei Technologies Co., Ltd
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -30,7 +30,7 @@ void GPUMgrStrategy::RegisterTilingPasses() { RegisterPass(std::make_shared<Tile
 
 void GPUMgrStrategy::RegisterMemPromPasses() {
   RegisterPass(std::make_shared<SharedMemoryManager>(scop_info_));
-  RegisterPass(std::make_shared<RegisterMemoryManager>(scop_info_));
+  RegisterPass(std::make_shared<RegisterMemoryManager>(pass_info_, scop_info_));
 }
 
 void GPUMgrStrategy::RegisterPasses() {
