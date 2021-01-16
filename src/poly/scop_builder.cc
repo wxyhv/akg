@@ -964,19 +964,23 @@ isl::schedule MakeScheduleTreeHelper(const NodeRef &s, ScopInfo &scop_info, cons
       if (!scop_info_.user_config_.GetEnableMatmul()) {
         return false;
       }
-      auto GetTensorType = [this](const std::string tensor_name) -> Type {
+      bool get_tensor_type = false;
+      auto GetTensorType = [this, &get_tensor_type](const std::string tensor_name) -> Type {
         auto all_tensors = scop_info_.user_config_.GetRealizeTensors();
         for (auto it : all_tensors) {
           if (it->op->name == tensor_name) {
+            get_tensor_type = true;
             return it->dtype;
           }
         }
         auto orig_binds = scop_info_.user_config_.GetOriginBind();
         for (auto it : orig_binds) {
           if (it.first->op->name == tensor_name) {
+            get_tensor_type = true;
             return it.first->dtype;
           }
         }
+        get_tensor_type = false;
         return Type();
       };
 
@@ -1002,7 +1006,7 @@ isl::schedule MakeScheduleTreeHelper(const NodeRef &s, ScopInfo &scop_info, cons
         return false;
       }
       auto tensor_c_type = GetTensorType(tensor_c->name);
-      if (tensor_c_type == Type()) {
+      if (!get_tensor_type) {
         return false;
       }
       if (tensor_c_type != Float(16) && tensor_c_type != Float(32) && tensor_c_type != Int(32)) {
@@ -1022,7 +1026,7 @@ isl::schedule MakeScheduleTreeHelper(const NodeRef &s, ScopInfo &scop_info, cons
       if (tensor_a.as<Call>()) {
         auto tensor_a_p = tensor_a.as<Call>();
         auto tensor_a_type = GetTensorType(tensor_a_p->name);
-        if (tensor_a_type == Type()) {
+        if (!get_tensor_type) {
           return false;
         }
         if ((tensor_a_type != Float(16)) && (tensor_a_type != Int(8))) {
@@ -1044,7 +1048,7 @@ isl::schedule MakeScheduleTreeHelper(const NodeRef &s, ScopInfo &scop_info, cons
       if (tensor_b.as<Call>()) {
         auto tensor_b_p = tensor_b.as<Call>();
         auto tensor_b_type = GetTensorType(tensor_b_p->name);
-        if (tensor_b_type == Type()) {
+        if (!get_tensor_type) {
           return false;
         }
         if ((tensor_b_type != Float(16)) && (tensor_b_type != Int(8))) {
@@ -1393,3 +1397,4 @@ isl::schedule MakeScheduleTree(const isl::space &param_space, isl::set param_set
 }  // namespace poly
 }  // namespace ir
 }  // namespace akg
+
