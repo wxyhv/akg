@@ -381,6 +381,7 @@ class UserConfig {
   std::string GetIterPrefix(bool is_spec_gemm = false) const {
     return is_spec_gemm ? kGemmIterNamePrefix : kIterNamePrefix;
   }
+  int GetDataType(const std::string &name) const;
 
   // dump all info
   void DumpScopDataScheduleAttrs(std::ofstream &of);

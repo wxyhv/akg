@@ -15,6 +15,9 @@
  */
 
 #include "register_memory_manager.h"
+
+#include <numeric>
+
 #include "poly/scop.h"
 #include "poly/dma_inject.h"
 #include "poly/schedule_tree_util.h"
@@ -338,22 +341,22 @@ void RegisterMemoryManager::CreateTensorCluster(const isl::schedule_node &node, 
 }
 
 void RegisterMemoryManager::IsOutofMemory(std::vector<BufferDefInfo> promoted_infos) {
+  int64_t alloc_threads = 1;
+  auto thread_cfg = scop_info_.user_config_.GetThreadConfig();
+  if (thread_cfg != nullptr) {
+    for (size_t i = 0; i < thread_cfg->bound; ++i) {
+      alloc_threads *= thread_cfg->GetAt(i).second;
+    }
+  }
+  size_t total_alloc_size = 0;
   memory_exceeding_ = false;
   for (auto promoted_info : promoted_infos) {
     auto box_sizes = promoted_info.footprints_cluster->GetFixedBoxSizes();
     if (!box_sizes.empty()) {
-      auto tensor_size = box_sizes[0];
-      for (unsigned int i = 1; i < box_sizes.size(); ++i) {
-        tensor_size = tensor_size * box_sizes[i];
-      }
-
-      if (scop_info_.user_config_.GetEnableTensorCoreUsePoly()) {
-        auto thread_cfg = scop_info_.user_config_.GetThreadConfig();
-        int tx = thread_cfg->GetX().second;
-        tensor_size = tensor_size / tx;
-      }
-
-      if (tensor_size > MAX_REGISTER_TENSOR_SIZE) {
+      auto tensor_size = std::accumulate(box_sizes.begin(), box_sizes.end(), 1, std::multiplies<size_t>());
+      auto data_bytes = scop_info_.user_config_.GetDataType(promoted_info.tensor_id.get_name());
+      total_alloc_size += tensor_size * std::max<int>(1, data_bytes / BYTES_PER_REGISTER);
+      if (total_alloc_size * alloc_threads > MAX_REGISTER_PER_THREAD_BLOCK * REGISTER_ALLOC_RATIO) {
         memory_exceeding_ = true;
         break;
       }
@@ -415,6 +418,7 @@ isl::schedule RegisterMemoryManager::HoistRegisterMemory(isl::schedule_node root
   bands = BandsSplitAfterDepth(bands, root, depth);
 
   isl::schedule tmp_sch = root.get_schedule();
+  int distance_to_extension = 3;
   for (auto band : bands) {
     if (IsThreadMappedMark(band)) {
       band = band.child(0);
@@ -424,6 +428,11 @@ isl::schedule RegisterMemoryManager::HoistRegisterMemory(isl::schedule_node root
       continue;
     }
 
+    if (band.has_parent() && band.parent().has_parent() && band.parent().parent().has_parent() &&
+        band.ancestor(distance_to_extension) &&
+        band.ancestor(distance_to_extension).isa<isl::schedule_node_extension>()) {
+      break;
+    }
     tmp_sch = HoistRegisterMemoryOnDepth(band, depth);
     break;
   }

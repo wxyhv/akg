@@ -1327,17 +1327,6 @@ void TileAxis::RemoveAttr(const AttrInfo &attr) {
   }
 }
 
-int TilingAnalyzer::GetDataType(const std::string &name) const {
-  auto binds = scop_info_.user_config_.GetBind();
-  for (auto i : binds) {
-    if (i.first->op->name == name) {
-      int size = i.first->dtype.bytes();
-      return size;
-    }
-  }
-  return 1;
-}
-
 int TilingAnalyzer::GetNumOfAxisInBand(int band_idx) const {
   int max = 0;
   auto UpdateMax = [&band_idx, &max](TileAxis *axis) {

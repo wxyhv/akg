@@ -282,7 +282,6 @@ class TilingAnalyzer {
     auto it = tile_axis_.find(loop);
     return it != tile_axis_.end() ? it->second : nullptr;
   }
-  int GetDataType(const std::string &name) const;
   int GetNumOfAxisInBand(int band_idx) const;
 
   void DumpLinearSeq();
