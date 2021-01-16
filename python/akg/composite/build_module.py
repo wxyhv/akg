@@ -452,6 +452,8 @@ def _build_to_gpu_func(desc_s, desc_d, attrs=None, poly=False):
     """
     if os.getenv('MS_GRAPH_KERNEL_TILING'):
         repository_gpu = read_repo_file(str(os.getenv('MS_GRAPH_KERNEL_TILING')))
+    elif 'buffer_stitch' in desc_d:
+        repository_gpu = {}
     else:
         file_path = _get_repository_file_path("repository_gpu.json")
         repository_gpu = read_repo_file(file_path)
