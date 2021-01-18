@@ -47,6 +47,13 @@
  *     GetWmmaFragmentSize
  */
 
+/*
+ * 2021.1.16
+ *   Modify the functions:
+ *     Add print total shared_memory of VisitStmt_(const AttrStmt* op)
+ *     Print offset shared memory when use total shared_memory of VisitStmt_(const Allocate* op)
+ */
+
 #include <tvm/base.h>
 #include <tvm/runtime/registry.h>
 #include <tvm/packed_func_ext.h>
@@ -534,6 +541,13 @@ void CodeGenCUDA::VisitStmt_(const AttrStmt* op) {
     if (op->value.as<StringImm>()->value == "2") {
       is_scheme_two_ = true;
     }
+  } else if (op->attr_key == "total_shared_memory") {
+    this->PrintIndent();
+    stream << "__shared__ char total_shared_memory[" << op->value.as<IntImm>()->value << "];\n";
+  } else if (op->attr_key == "shared_memory_offset") {
+    const Variable* buffer = op->node.as<Variable>();
+    int offset = op->value.as<IntImm>()->value;
+    sm_offsets[buffer] = offset;
   }
   CodeGenC::VisitStmt_(op);
 }
@@ -548,6 +562,18 @@ void CodeGenCUDA::VisitStmt_(const Allocate* op) {
     this->PrintIndent();
     PrintType(op->type, stream);
     stream << "* "<< vid << '=' << new_data << ";\n";
+  } else if (sm_offsets.find(op->buffer_var.as<Variable>()) != sm_offsets.end()) {
+    // e.g:
+    // __shared__ float input_shared[1000];
+    // ==>
+    // float* input_shared = (float*)(total_shared_memory + 0);
+    const Variable* buffer = op->buffer_var.as<Variable>();
+    int offset = sm_offsets.at(buffer);
+    this->PrintIndent();
+    PrintType(op->type, stream);
+    stream << "* " << vid << " = (";
+    PrintType(op->type, stream);
+    stream << "*)(total_shared_memory + " << offset << ");\n";
   } else {
     this->PrintIndent();
     int32_t constant_size = op->constant_allocation_size();

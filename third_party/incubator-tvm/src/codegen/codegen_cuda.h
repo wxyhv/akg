@@ -132,6 +132,7 @@ class CodeGenCUDA final : public CodeGenC {
   // indicate which TensorCore interface
   std::string wmma_scope;
 
+  std::unordered_map<const Variable*, int> sm_offsets;
   std::unordered_map<const Variable*, std::string> fragment_shapes;
   std::unordered_map<const Variable*, std::string> fragment_layouts;
   friend void PrintConst(const FloatImm* op, std::ostream& os, CodeGenCUDA* p);
