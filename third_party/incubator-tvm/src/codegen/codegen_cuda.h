@@ -28,6 +28,11 @@
  */
 
 /*
+ * 2021.01.12
+ * Add const for reduce
+ */
+
+/*
  * 2021.01.13
  * Add function Simplify_name.  
  * Add variables for TensorCore:
@@ -49,6 +54,14 @@
 namespace air {
 namespace codegen {
 
+constexpr auto REDUCE_LIB_TYPE = "reduceLibType";
+constexpr auto AKG_REDUCE = "akg_reduce::AkgReduce";
+constexpr auto AKG_ATOMIC_RETURN = "akg_reduce::AkgAtomicReturn";
+constexpr auto PARIS_REDUCE = "paris_reduce::ParisReduce";
+constexpr auto PARIS_ATOMIC_RETURN = "paris_reduce::ParisReturn";
+constexpr auto ORIGIN_REDUCE_LIB = "origin";
+constexpr auto PARIS_REDUCE_LIB = "paris";
+
 class CodeGenCUDA final : public CodeGenC {
  public:
   CodeGenCUDA();
@@ -62,7 +75,6 @@ class CodeGenCUDA final : public CodeGenC {
   // override behavior
   void VisitStmt_(const ir::For* op) final;
   void PrintStorageSync(const Call* op) final;
-  void PrintReduce(const Call* op) final;
   void PrintStorageScope(const std::string& scope, std::ostream& os) final;  // NOLINT(*)
   void PrintVecBinaryOp(
       const std::string&op, Type t,

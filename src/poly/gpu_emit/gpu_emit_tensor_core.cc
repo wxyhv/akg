@@ -454,7 +454,7 @@ class ModifySizeOfLocal : public IRMutator {
   }
 
  private:
-  struct TensorCoreInfo info_;
+  TensorCoreInfo info_;
   Expr m_size_;
   Expr n_size_;
 };
@@ -638,7 +638,7 @@ class ModifyTheLocalOffset : public IRMutator {
 
     return e;
   }
-  struct TensorCoreInfo info_;
+  TensorCoreInfo info_;
 };
 
 class DeleteUselessAttr : public IRMutator {
@@ -654,13 +654,13 @@ class DeleteUselessAttr : public IRMutator {
   }
 };
 
-Stmt EmitForTensorCoreDesignOne(Stmt stmt, struct TensorCoreInfo &info) {
+Stmt EmitForTensorCoreDesignOne(Stmt stmt, TensorCoreInfo &info) {
   AdaptCastDesignOne adapt(info);
   stmt = adapt.Mutate(stmt);
   return stmt;
 }
 
-Stmt EmitForTensorCore(Stmt stmt, struct TensorCoreInfo &info) {
+Stmt EmitForTensorCore(Stmt stmt, TensorCoreInfo &info) {
   stmt = ModifySizeOfLocal(info).Mutate(stmt);
   stmt = ModifyTheLocalOffset(info).Mutate(stmt);
   stmt = DeleteUselessAttr().Mutate(stmt);

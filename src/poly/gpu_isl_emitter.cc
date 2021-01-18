@@ -23,18 +23,6 @@
 namespace akg {
 namespace ir {
 namespace poly {
-std::string GetDataTypeStr(Type t) {
-  std::stringstream ss;
-  ss << t;
-  if (normal_data_type_adapter.find(ss.str()) != normal_data_type_adapter.end()) {
-    return normal_data_type_adapter.at(ss.str());
-  }
-  if (unique_data_type_adapter.find(ss.str()) != unique_data_type_adapter.end()) {
-    return unique_data_type_adapter.at(ss.str());
-  }
-  CHECK(false) << "unsupported data type!";
-  return "";
-}
 
 Expr GpuIslEmitter::EmitLoad(const isl::ast_expr &expr, const Type type) {
   if (PRINT_EMITTER) {
@@ -47,38 +35,6 @@ Expr GpuIslEmitter::EmitLoad(const isl::ast_expr &expr, const Type type) {
       Array<Expr> local_args;
       for (unsigned int i = 1; i < op.get_n_arg(); ++i) {
         local_args.push_back(Interpret(op.get_arg(i)));
-      }
-
-      Tensor t = info_.FindTensor(var);
-      auto call = Call::make(type, t->op->name, local_args, Call::CallType::Halide, t->op, t->value_index);
-      if (PRINT_EMITTER) {
-        LOG(INFO) << ">>>>>>>>>>>>OUTPUT STMT<<<<<<<<<<<<\n" << call;
-      }
-      return call;
-    }
-  }
-  return Expr();
-}
-
-Expr GpuIslEmitter::EmitLoadAtomic(const isl::ast_expr &expr, const Type type) {
-  if (PRINT_EMITTER) {
-    LOG(INFO) << ">>>>>>>>>>>>INPUT AST_NODE[LOADAtomic]<<<<<<<<<<<<<<\n" << expr;
-  }
-  if (auto op = expr.as<isl::ast_expr_op>()) {
-    if (auto access = op.as<isl::ast_expr_op_access>()) {
-      CHECK(op.get_arg(0).as<isl::ast_expr_id>());
-      auto var = op.get_arg(0).as<isl::ast_expr_id>().get_id();
-      Array<Expr> local_args;
-      reduce_info_.output_promoted_tensor_indexs_for_atomic_.clear();
-      for (unsigned int i = 1; i < op.get_n_arg(); ++i) {
-        Expr arg = Interpret(op.get_arg(i));
-        local_args.push_back(arg);
-        std::stringstream ss;
-        ss << arg;
-        std::string arg_name = ss.str();
-        if (arg_name != USELESS_INDEX) {
-          reduce_info_.output_promoted_tensor_indexs_for_atomic_.push_back(arg_name);
-        }
       }
 
       Tensor t = info_.FindTensor(var);
@@ -323,33 +279,23 @@ Stmt GpuIslEmitter::EmitWriteAtomic(const isl::ast_node_user &node) {
   auto rhs = build.access_from(isl::multi_pw_aff(hoisted));
   auto lhs = build.access_from(isl::multi_pw_aff(original));
 
-  auto opl = lhs.as<isl::ast_expr_op>();
-  reduce_info_.output_tensor_name_ = opl.get_arg(0).as<isl::ast_expr_id>().get_id().name();
   auto opr = rhs.as<isl::ast_expr_op>();
   reduce_info_.output_promoted_tensor_name_for_atomic_ = opr.get_arg(0).as<isl::ast_expr_id>().get_id().name();
   reduce_info_.atomic_tensors_.insert(reduce_info_.output_promoted_tensor_name_for_atomic_);
 
   Type type = info_.GetDtypeOf(lhs);
-  reduce_info_.output_tensor_data_type_ = GetDataTypeStr(type);
-  CHECK(!reduce_info_.output_tensor_data_type_.empty()) << "output tensor type should not be empty!";
+  reduce_info_.output_tensor_data_type_info_ = type;
 
   if (auto op = lhs.as<isl::ast_expr_op>()) {
     if (auto access = op.as<isl::ast_expr_op_access>()) {
-      Expr value = EmitLoadAtomic(rhs, type);
+      Expr value = EmitLoad(rhs, type);
+      reduce_info_.atomic_rhs_ = value;
       auto var = op.get_arg(0).as<isl::ast_expr_id>().get_id();
 
       Array<Expr> local_args;
-      reduce_info_.output_tensor_indexs_.clear();
       for (unsigned int i = 1; i < op.get_n_arg(); ++i) {
         Expr arg = Interpret(op.get_arg(static_cast<int>(i)));
         local_args.push_back(arg);
-
-        std::stringstream ss;
-        ss << arg;
-        std::string arg_name = ss.str();
-        if (arg_name != USELESS_INDEX) {
-          reduce_info_.output_tensor_indexs_.push_back(arg_name);
-        }
       }
 
       Tensor t = info_.FindTensor(var);
@@ -365,72 +311,95 @@ Stmt GpuIslEmitter::EmitSync() {
   return Evaluate::make(Call::make(Int(32), STORAGE_SYNC, {StringImm::make(SYNC_SCOP_SHARED)}, Call::Intrinsic));
 }
 
+void GpuIslEmitter::SetScalarTensorBind() {
+  Array<Expr> shapes;
+  shapes.push_back(Expr(1));
+  Type type = reduce_info_.reduce_data_type_info_;
+  std::string scalar_tensor_name = reduce_info_.scalar_tensor_name_;
+  reduce_info_.added_tensors_.insert(scalar_tensor_name);
+
+  Tensor tensor = placeholder(shapes, type, scalar_tensor_name);
+  const Buffer buffer = decl_buffer(shapes, type, scalar_tensor_name);
+  reduce_info_.scalar_tensor_ = tensor;
+
+  info_.user_config_.SetBind(tensor, buffer);
+}
+
+void GpuIslEmitter::SetSharedTensorBind() {
+  auto thread_cfg = info_.user_config_.GetThreadConfig();
+  CHECK(thread_cfg) << "thread config is null.";
+  int tx = thread_cfg->GetX().second;
+  int ty = thread_cfg->GetY().second;
+
+  int size = tx * ty;
+  Array<Expr> shapes;
+  shapes.push_back(Expr(size));
+  Type type = reduce_info_.reduce_data_type_info_;
+  std::string shared_tensor_name = reduce_info_.shared_compute_name_;
+  reduce_info_.added_tensors_.insert(shared_tensor_name);
+
+  Tensor tensor = placeholder(shapes, type, shared_tensor_name);
+  const Buffer buffer = decl_buffer(shapes, type, shared_tensor_name);
+  reduce_info_.shared_tensor_ = tensor;
+
+  info_.user_config_.SetBind(tensor, buffer);
+}
+
 Stmt GpuIslEmitter::EmitReduceInit(const isl::ast_node_user &node) {
   CHECK(node.get_expr().isa<isl::ast_expr_op>());
   isl::ast_expr_op usr_expr = node.get_expr().as<isl::ast_expr_op>();
   CHECK(usr_expr);
   auto stmt_id = usr_expr.get_arg(0).as<isl::ast_expr_id>().get_id();
 
-  CHECK(!reduce_info_.scalar_tensor_info_.empty()) << "scalar tensor info should not be empty!";
+  CHECK(!reduce_info_.scalar_tensor_name_.empty()) << "scalar tensor info should not be empty!";
 
-  std::string temp_name = stmt_id.name();
-
-  std::vector<std::string> strs = common::Split(temp_name, "_");
+  std::vector<std::string> strs = common::Split(stmt_id.name(), "_");
   CHECK_EQ(strs.size(), REDUCE_FLAG_SIZE) << "red init format is not right!.";
 
-  std::string scalar_info = reduce_info_.reduce_data_type_ + " ";
-  scalar_info += reduce_info_.scalar_tensor_info_;
-
   std::string stmt_name = strs[REDUCE_FLAG_STMT_PREFIX_POS] + "_" + strs[REDUCE_FLAG_STMT_NUM_POS];
-  std::string init_value = "";
+  Expr init_value;
   for (auto it : info_.analysis_result_.GetReduceInitValueMap()) {
     if (it.first.name() == stmt_name) {
-      std::stringstream ss;
-      ss << it.second;
-      init_value = ss.str();
+      init_value = it.second;
       break;
     }
   }
 
-  if (IsEndsWith(init_value, "h") || IsEndsWith(init_value, "f")) {
-    init_value.pop_back();
-  }
+  Array<Expr> args;
+  args.push_back(Expr(0));
+  Stmt scalar_stmt = Provide::make(reduce_info_.scalar_tensor_->op, 0, init_value, args);
 
-  std::string flag = "bool";
-  if (init_value.find(flag) != std::string::npos) {
-    init_value.replace(init_value.find(flag), flag.size(), "signed char");
-  }
+  auto p = reduce_info_.reduce_compute_stmt_.as<Provide>();
+  CHECK(p);
+  reduce_info_.reduce_compute_stmt_ = Provide::make(p->func, 0, init_value, p->args);
 
-  CHECK(!init_value.empty()) << "init value should not be empty!";
+  CHECK(reduce_info_.reduce_area_stmt_.defined());
+  reduce_info_.stmts_.insert(reduce_info_.stmts_.begin(), reduce_info_.reduce_area_stmt_);
 
-  scalar_info += " = ";
-  scalar_info += init_value;
-  scalar_info += ";";
+  CHECK(reduce_info_.reduce_compute_stmt_.defined());
+  reduce_info_.stmts_.insert(reduce_info_.stmts_.begin(), reduce_info_.reduce_compute_stmt_);
 
-  int size = info_.user_config_.GetThreadConfig()->GetX().second * info_.user_config_.GetThreadConfig()->GetY().second;
-  CHECK_NE(size, 0) << "Buffer size should not be zero!"
-                    << "\n";
-  std::string shared_info = SHARED_MEMORY_PREFIX;
-  shared_info += " ";
-  shared_info += reduce_info_.reduce_data_type_;
-  shared_info += " ";
-  CHECK(!reduce_info_.shared_compute_info_.empty()) << "shared compute info should not be empty!";
-  shared_info += reduce_info_.shared_compute_info_;
-  shared_info += "[";
-  shared_info += std::to_string(size);
-  shared_info += "];";
-  std::string map_info = "";
-  CHECK(!reduce_info_.promoted_tensor_name_for_reduce_.empty())
-    << "promoted tensor for reduce name should not be empty!";
-  map_info += reduce_info_.promoted_tensor_name_for_reduce_;
-  map_info += "|";
-  map_info += reduce_info_.scalar_tensor_info_;
+  CHECK(scalar_stmt.defined());
+  reduce_info_.stmts_.insert(reduce_info_.stmts_.begin(), scalar_stmt);
 
-  Stmt stmt = Evaluate::make(Call::make(
-    Int(32), REDUCE, {StringImm::make(stmt_id.name()), StringImm::make(scalar_info), StringImm::make(shared_info)},
-    Call::Intrinsic));
-  stmt = AttrStmt::make(Expr("INFO"), TENSOR_MAP_INFO_FLAG, StringImm::make(map_info), stmt);
+  MakeReduceStmt();
+
+  Stmt stmt = Block::make(reduce_info_.stmts_);
+  stmt = InsertRealizeWithMemType(stmt, isl::id(stmt_id.ctx(), reduce_info_.scalar_tensor_name_), MEM_TYPE_LOCAL);
+  stmt = InsertRealizeWithMemType(stmt, isl::id(stmt_id.ctx(), reduce_info_.shared_compute_name_), MEM_TYPE_SHARED);
+
+  ResetStatus();
   return stmt;
+}
+
+void GpuIslEmitter::ResetStatus() {
+  reduce_info_.stmts_.clear();
+  reduce_info_.reduce_compute_stmt_ = Stmt();
+  reduce_info_.reduce_area_stmt_ = Stmt();
+  reduce_info_.origin_reduce_stmt_ = Stmt();
+  reduce_info_.gm_write_stmt_ = Stmt();
+  reduce_info_.atomic_rhs_ = Expr();
+  is_out_most_stmt_ = true;
 }
 
 Stmt GpuIslEmitter::EmitReduceUpdate(const isl::ast_node_user &node) {
@@ -439,15 +408,16 @@ Stmt GpuIslEmitter::EmitReduceUpdate(const isl::ast_node_user &node) {
   CHECK(usr_expr);
   auto stmt_id = usr_expr.get_arg(0).as<isl::ast_expr_id>().get_id();
 
-  std::string temp_name = stmt_id.name();
-
-  std::vector<std::string> strs = common::Split(temp_name, "_");
+  std::vector<std::string> strs = common::Split(stmt_id.name(), "_");
   CHECK_EQ(strs.size(), REDUCE_FLAG_SIZE) << "red update format is not right!.";
 
-  reduce_info_.scalar_tensor_info_ = SCALAR_TENSOR_PREFIX;
-  reduce_info_.scalar_tensor_info_ += strs[REDUCE_FLAG_REDUCE_INDEX];
   reduce_info_.reduce_stmt_index_ = strs[REDUCE_FLAG_REDUCE_INDEX];
-  reduce_info_.reduce_op_.clear();
+  reduce_info_.scalar_tensor_name_ = SCALAR_TENSOR_PREFIX;
+  reduce_info_.scalar_tensor_name_ += reduce_info_.reduce_stmt_index_;
+
+  reduce_info_.shared_compute_name_ = SHARED_TENSOR_PREFIX;
+  reduce_info_.shared_compute_name_ += reduce_info_.reduce_stmt_index_;
+
   if (AkgSupportedReduceOp.count(strs[REDUCE_FLAG_TYPE_POS])) {
     reduce_info_.reduce_op_ = AKG_REDUCE_LIB_SPACE;
     reduce_info_.reduce_op_ += "::";
@@ -455,15 +425,12 @@ Stmt GpuIslEmitter::EmitReduceUpdate(const isl::ast_node_user &node) {
   }
   CHECK(!reduce_info_.reduce_op_.empty()) << "reduce op should not be empty!";
   std::string stmt_name = strs[REDUCE_FLAG_STMT_PREFIX_POS] + "_" + strs[REDUCE_FLAG_STMT_NUM_POS];
-  std::string data_type = "";
   for (auto it : info_.analysis_result_.GetReduceWriteDtypeMap()) {
     if (it.first.name() == stmt_name) {
-      data_type = GetDataTypeStr(it.second);
+      reduce_info_.reduce_data_type_info_ = it.second;
       break;
     }
   }
-  CHECK(!data_type.empty()) << "data type should not be empty!";
-  reduce_info_.reduce_data_type_ = data_type;
 
   std::string origin_tensor_name = "";
   for (auto it : info_.analysis_result_.GetReduceStatementWriteTensorMap()) {
@@ -483,49 +450,93 @@ Stmt GpuIslEmitter::EmitReduceUpdate(const isl::ast_node_user &node) {
     }
   }
 
-  CHECK(!reduce_info_.promoted_tensor_name_for_reduce_.empty())
-    << "promoted tensor name for reduce  should not be empty!";
+  MakeAkgReduceFuncName();
+  SetScalarTensorBind();
+  SetSharedTensorBind();
 
-  MakePromotedTensorInfoForReduce();
-  std::string info = PrepareAkgReduceInfo();
-
-  Stmt stmt = Evaluate::make(
-    Call::make(Int(32), REDUCE, {StringImm::make(stmt_id.name()), StringImm::make(info)}, Call::Intrinsic));
-
-  CHECK(!reduce_info_.promoted_tensor_name_for_reduce_.empty())
-    << "promoted tensor for reduce name should not be empty!";
-  Expr tensor_name = StringImm::make(reduce_info_.promoted_tensor_name_for_reduce_);
-  stmt = AttrStmt::make(Expr("INFO"), TENSOR_INDEX_MODIFY_FLAG, tensor_name, stmt);
-  stmt = AttrStmt::make(Expr("INFO"), REDUCE_LIB_TYPE_FLAG, info_.user_config_.GetReduceLibType(), stmt);
-  return stmt;
+  return Stmt();
 }
 
-std::string GpuIslEmitter::GetTheIndexOfPromotedTensor(std::string s) {
-  CHECK(!reduce_info_.promoted_tensor_name_for_reduce_.empty())
-    << "promoted tensor for reduce name should not be empty!";
-  std::string name = reduce_info_.promoted_tensor_name_for_reduce_;
-  int len = name.size();
-  std::string::size_type n1 = s.find(name);
-  if (n1 == std::string::npos) {
-    return "";
+void GpuIslEmitter::MakeReduceStmt() {
+  std::string func_name = reduce_info_.akg_reduce_api_;
+  std::string op_info = reduce_info_.reduce_op_ + "()";
+
+  Expr template_arg0 = make_const(reduce_info_.reduce_data_type_info_, 1);
+  CHECK(!reduce_info_.akg_reduce_template_arg_.empty());
+  Expr template_arg1 = StringImm::make(reduce_info_.akg_reduce_template_arg_);
+
+  Array<Expr> args_a1;
+  Expr a1 = Call::make(Int(32), reduce_info_.reduce_op_, args_a1, Call::Extern);
+
+  auto p = reduce_info_.origin_reduce_stmt_.as<Provide>();
+  CHECK(p);
+  Expr a2 = Call::make(p->value.type(), p->func->func_name(), p->args, Call::Halide, p->func, 0);
+  a2 = Call::make(a2.type(), "&", {a2}, Call::Extern);
+
+  Tensor tensor = info_.FindTensor(reduce_info_.shared_compute_name_);
+  auto bind = info_.user_config_.GetBind();
+  Buffer buffer;
+  for (auto &i : bind) {
+    if (!i.first.defined()) continue;
+    if (i.first == tensor) {
+      buffer = i.second;
+    }
   }
-  int start = n1 + len + 1;
 
-  std::string::size_type n2 = s.find("=");
-  if (n2 == std::string::npos) {
-    return "";
-  }
-  int end = n2 - 2;
-  int sub_len = end - start;
+  CHECK(buffer.defined());
 
-  std::string index = s.substr(start, sub_len);
-  auto itor = remove_if(index.begin(), index.end(), ::isspace);
-  index.erase(itor, index.end());
+  Tensor tt = reduce_info_.scalar_tensor_;
+  Array<Expr> args;
+  args.push_back(Expr(0));
+  Expr a4 = Call::make(tt->dtype, tt->op->func_name(), args, Call::Halide, tt->op, 0);
 
-  return index;
+  auto thread_cfg = info_.user_config_.GetThreadConfig();
+  CHECK(thread_cfg);
+  int tx = thread_cfg->GetX().second;
+  int ty = thread_cfg->GetY().second;
+  Expr a5 = Expr(tx);
+
+  Stmt stmt = Evaluate::make(
+    Call::make(Int(32), func_name, {template_arg0, template_arg1, a1, a2, buffer->data, a4, a5}, Call::Extern));
+
+  stmt = AttrStmt::make(Expr("INFO"), REDUCE_LIB_TYPE_FLAG, info_.user_config_.GetReduceLibType(), stmt);
+
+  int size = tx * ty;
+  stmt = AttrStmt::make(buffer->data, air::ir::attr::storage_scope, Expr(MEM_TYPE_SHARED),
+                        Allocate::make(buffer->data, buffer->dtype, {Expr(size)}, const_true(), stmt));
+  reduce_info_.stmts_.insert(reduce_info_.stmts_.end(), stmt);
+  return;
+}
+
+Stmt GpuIslEmitter::MakeAtomicStmt() {
+  std::string func_name = reduce_info_.akg_atomic_api_;
+
+  Expr template_arg0 = make_const(reduce_info_.output_tensor_data_type_info_, 1);
+  CHECK(!reduce_info_.akg_atomic_template_arg_.empty());
+  Expr template_arg1 = StringImm::make(reduce_info_.akg_atomic_template_arg_);
+
+  Expr a1 = reduce_info_.atomic_rhs_;
+
+  auto p = reduce_info_.gm_write_stmt_.as<Provide>();
+  CHECK(p);
+
+  Expr a2 = Call::make(p->value.type(), p->func->func_name(), p->args, Call::Halide, p->func, 0);
+  a2 = Call::make(a2.type(), "&", {a2}, Call::Extern);
+
+  std::string op_info = reduce_info_.reduce_op_ + "()";
+
+  Array<Expr> args;
+  Expr a3 = Call::make(Int(32), reduce_info_.reduce_op_, args, Call::Extern);
+
+  return Evaluate::make(Call::make(Int(32), func_name, {template_arg0, template_arg1, a1, a2, a3}, Call::Extern));
 }
 
 Stmt GpuIslEmitter::EmitReduceArea(const isl::ast_node_user &node) {
+  bool add_to_reduce_area = false;
+  if (in_reduce_area_ && is_out_most_stmt_) {
+    add_to_reduce_area = true;
+    is_out_most_stmt_ = false;
+  }
   CHECK(node.get_expr().isa<isl::ast_expr_op>());
   isl::ast_expr_op usr_expr = node.get_expr().as<isl::ast_expr_op>();
   stmt_id_ = usr_expr.get_arg(0).as<isl::ast_expr_id>().get_id();
@@ -546,34 +557,22 @@ Stmt GpuIslEmitter::EmitReduceArea(const isl::ast_node_user &node) {
   }
 
   Stmt stmt = EmitUserStmtContent(stmt_node);
+
+  reduce_info_.reduce_compute_stmt_ = stmt;
+  CHECK(!reduce_info_.promoted_tensor_name_for_reduce_.empty())
+    << "promoted_tensor_name_for_reduce_ should not be empty";
   reduce_info_.reduce_stmt_[reduce_info_.promoted_tensor_name_for_reduce_] = stmt;
-  std::stringstream ss;
-  ss << stmt;
-  std::string stmt_str = ss.str();
-  std::string index_str = GetTheIndexOfPromotedTensor(stmt_str);
-  if (index_str == "") {
-    return stmt;
-  }
+  reduce_info_.origin_reduce_stmt_ = stmt;
 
-  std::vector<std::string> args = common::Split(index_str, ",");
-  reduce_info_.promoted_tensor_indexs_for_reduce_[reduce_info_.promoted_tensor_name_for_reduce_].clear();
-  for (auto s : args) {
-    if (s != USELESS_INDEX) {
-      reduce_info_.promoted_tensor_indexs_for_reduce_[reduce_info_.promoted_tensor_name_for_reduce_].push_back(s);
-    }
-  }
+  Array<Expr> args_scalar;
+  args_scalar.push_back(Expr(0));
 
-  Tensor t = info_.FindTensor(reduce_info_.promoted_tensor_name_for_reduce_);
-  CHECK(t.defined());
-  std::vector<std::string> shapeInfo;
-  for (auto &e : t->shape) {
-    std::stringstream ss;
-    ss << e;
-    if (ss.str() != USELESS_SHAPE_SIZE) {
-      shapeInfo.push_back(ss.str());
-    }
+  stmt = AkgReduceStmtChange(reduce_info_.scalar_tensor_, args_scalar, reduce_info_.promoted_tensor_name_for_reduce_)
+           .Mutate(stmt);
+  if (add_to_reduce_area) {
+    reduce_info_.reduce_area_stmt_ = stmt;
+    return Stmt();
   }
-  reduce_info_.promoted_tensor_shape_for_reduce_[reduce_info_.promoted_tensor_name_for_reduce_] = shapeInfo;
 
   return stmt;
 }
@@ -678,50 +677,34 @@ Stmt GpuIslEmitter::EmitStmt(const isl::ast_node_user &node) {
       s = EmitRead(node);
       s = AttrStmt::make(Expr(""), GMREAD_FLAG, StringImm::make(GMREAD_FLAG), s);
     }
-    if (PRINT_EMITTER) {
-      LOG(INFO) << ">>>>>>>>>>>>INPUT AST_NODE[READ]<<<<<<<<<<<<<<\n" << node;
-      LOG(INFO) << ">>>>>>>>>>>>OUTPUT STMT<<<<<<<<<<<<\n" << s;
-    }
     return s;
   } else if (info_.IsWrite(stmt_id)) {
-    auto s = Stmt();
     if (info_.IsGMWrite(stmt_id)) {
       if (tensor_core_info_.core_area_) {
         is_sync_before_ = false;
-        s = EmitWriteCore(node);
-        return s;
+        return EmitWriteCore(node);
       }
       auto iterator_map = node_info_map_.at(node_id).iterator_map;
       auto original = iterator_map.range_factor_domain().range_factor_range();
       auto srcid = original.get_tuple_id(isl_dim_out);
-      if (!NoNeedToEmitForTempTensor(srcid)) {
-        if (reduce_info_.is_atomic) {
-          s = EmitWriteAtomic(node);
-          MakeOutputTensorInfo();
-          MakeOutputPromotedTensorInfoForAtomic();
-          std::string info = PrepareAkgAtomicReturnInfo();
-          s = AttrStmt::make(Expr("INFO"), GM_WRITE_FLAG, Expr("True"), s);
-          Stmt ato_info = EmitAkgAtomicReturnInfo(s, info);
-          is_sync_before_ = false;
-          s = Block::make(s, ato_info);
-        } else {
-          is_sync_before_ = false;
-          s = EmitWrite(node);
-        }
+      bool no_need_to_emit = NoNeedToEmitForTempTensor(srcid);
+      if (no_need_to_emit) return Stmt();
+
+      if (reduce_info_.is_atomic) {
+        reduce_info_.gm_write_stmt_ = EmitWriteAtomic(node);
+        ConstructAtomicReturnFuncName();
+        is_sync_before_ = false;
+        return MakeAtomicStmt();
       }
-    } else {
       is_sync_before_ = false;
       if (tensor_core_info_.core_area_) {
-        s = EmitWriteCore(node);
+        return EmitWriteCore(node);
       } else {
-        s = EmitWrite(node);
+        return EmitWrite(node);
       }
     }
-    if (PRINT_EMITTER) {
-      LOG(INFO) << ">>>>>>>>>>>>INPUT AST_NODE[WRITE]<<<<<<<<<<<<<<\n" << node;
-      LOG(INFO) << ">>>>>>>>>>>>OUTPUT STMT<<<<<<<<<<<<\n" << s;
-    }
-    return s;
+    is_sync_before_ = false;
+    return EmitWrite(node);
   } else if (info_.IsSync(stmt_id)) {
     if (is_sync_before_) {
       return Stmt();
@@ -738,8 +721,9 @@ Stmt GpuIslEmitter::EmitStmt(const isl::ast_node_user &node) {
     return EmitReduceArea(node);
   } else if (info_.IsReduceUpdate(stmt_id)) {
     is_sync_before_ = false;
+    Stmt s = EmitReduceUpdate(node);
     in_reduce_area_ = true;
-    return EmitReduceUpdate(node);
+    return s;
   } else {
     is_sync_before_ = false;
     Stmt s;
@@ -753,7 +737,7 @@ Stmt GpuIslEmitter::EmitStmt(const isl::ast_node_user &node) {
   }
 }
 
-std::string GpuIslEmitter::PrepareAkgReduceInfo() {
+void GpuIslEmitter::MakeAkgReduceFuncName() {
   auto thread_cfg = info_.user_config_.GetThreadConfig();
   CHECK(thread_cfg) << "thread config is null.";
   auto block_cfg = info_.user_config_.GetBlockConfig();
@@ -785,14 +769,14 @@ std::string GpuIslEmitter::PrepareAkgReduceInfo() {
   std::string ret = reduce_lib_namespace;
   ret += "::";
   ret += reduce_lib_name;
-  ret += "<";
-  ret += reduce_info_.reduce_data_type_;
-  ret += ", ";
+
+  reduce_info_.akg_reduce_api_ = ret;
+  ret = "";
+
   std::string op = reduce_info_.reduce_op_;
   ret += op;
   ret += ", ";
 
-  // modify for one dimension mapping
   ret += std::to_string(tx);
   ret += ", ";
   ret += std::to_string(ty);
@@ -806,28 +790,11 @@ std::string GpuIslEmitter::PrepareAkgReduceInfo() {
   }
   ret += ", ";
   ret += reduce_type;
-  ret += ">(";
-  ret += op;
-  ret += "(), ";
 
-  reduce_info_.shared_compute_info_ = SHARED_TENSOR_PREFIX;
-  reduce_info_.shared_compute_info_ += reduce_info_.reduce_stmt_index_;
-  CHECK(!reduce_info_.promoted_tensor_info_for_reduce_.empty())
-    << "output promoted tensor info for reduce should not be empty!";
-  ret += reduce_info_.promoted_tensor_info_for_reduce_;
-  ret += ", ";
-  ret += reduce_info_.shared_compute_info_;
-  ret += ", ";
-  ret += reduce_info_.scalar_tensor_info_;
-  std::string size = std::to_string(tx);
-  ret += ", ";
-  ret += size;
-  ret += ");";
-
-  return ret;
+  reduce_info_.akg_reduce_template_arg_ = ret;
 }
 
-std::string GpuIslEmitter::PrepareAkgAtomicReturnInfo() {
+void GpuIslEmitter::ConstructAtomicReturnFuncName() {
   std::string reduce_lib_namespace = "";
   std::string reduce_return_name = "";
   if (info_.user_config_.GetReduceLibType() == REDUCE_LIB_TYPE_ORIGIN) {
@@ -844,123 +811,14 @@ std::string GpuIslEmitter::PrepareAkgAtomicReturnInfo() {
   ret += reduce_lib_namespace;
   ret += "::";
   ret += reduce_return_name;
-  ret += "<";
-  ret += reduce_info_.output_tensor_data_type_;
-  ret += ", ";
+
+  reduce_info_.akg_atomic_api_ = ret;
+  ret = "";
+
   std::string op = reduce_info_.reduce_op_;
   ret += op;
-  ret += ">(";
-  CHECK(!reduce_info_.output_promoted_tensor_info_for_atomic_.empty())
-    << "output promoted tensor info for atomic should not be empty!";
-  ret += reduce_info_.output_promoted_tensor_info_for_atomic_;
-  ret += ", ";
-  CHECK(!reduce_info_.output_tensor_info_.empty()) << "output tensor info should not be empty!";
-  ret += reduce_info_.output_tensor_info_;
-  ret += ", ";
-  ret += op;
-  ret += "());";
-  return ret;
-}
 
-void GpuIslEmitter::MakeOutputTensorInfo() {
-  std::string ret = "";
-  ret += "&";
-  CHECK(!reduce_info_.output_tensor_name_.empty()) << "output tensor name should not be empty!";
-  ret += reduce_info_.output_tensor_name_;
-
-  Tensor t = info_.FindTensor(reduce_info_.output_tensor_name_);
-  CHECK(t.defined());
-  std::vector<std::string> shapeInfo;
-  for (auto &e : t->shape) {
-    std::stringstream ss;
-    ss << e;
-    if (ss.str() != USELESS_SHAPE_SIZE) {
-      shapeInfo.push_back(ss.str());
-    }
-  }
-
-  int size = reduce_info_.output_tensor_indexs_.size();
-  if (size == 0) {
-    ret += DEFAULT_TENSOR_INDEX;
-  } else if (size == 1) {
-    ret += "[";
-    ret += reduce_info_.output_tensor_indexs_.at(0);
-    ret += "]";
-  } else {
-    ret += "[";
-    for (int i = 0; i < size - 1; ++i) {
-      ret += reduce_info_.output_tensor_indexs_.at(i);
-      for (int j = i + 1; j < size; ++j) {
-        ret += "*";
-        ret += "(";
-        ret += shapeInfo.at(j);
-        ret += ")";
-      }
-      ret += "+";
-    }
-    ret += reduce_info_.output_tensor_indexs_.at(size - 1);
-    ret += "]";
-  }
-
-  reduce_info_.output_tensor_info_ = ret;
-}
-
-void GpuIslEmitter::MakeOutputPromotedTensorInfoForAtomic() {
-  std::string ret = "";
-  CHECK(!reduce_info_.output_promoted_tensor_name_for_atomic_.empty())
-    << "output promoted tensor name should not be empty!";
-  ret += reduce_info_.output_promoted_tensor_name_for_atomic_;
-
-  Tensor t = info_.FindTensor(reduce_info_.output_promoted_tensor_name_for_atomic_);
-  CHECK(t.defined());
-  std::vector<std::string> shapeInfo;
-  for (auto &e : t->shape) {
-    std::stringstream ss;
-    ss << e;
-    if (ss.str() != USELESS_SHAPE_SIZE) {
-      shapeInfo.push_back(ss.str());
-    }
-  }
-
-  int size = reduce_info_.output_promoted_tensor_indexs_for_atomic_.size();
-  if (size == 0) {
-    ret += DEFAULT_TENSOR_INDEX;
-  } else if (size == 1) {
-    ret += "[";
-    ret += reduce_info_.output_promoted_tensor_indexs_for_atomic_.at(0);
-    ret += "]";
-  } else {
-    ret += "[";
-    for (int i = 0; i < size - 1; ++i) {
-      ret += reduce_info_.output_promoted_tensor_indexs_for_atomic_.at(i);
-      for (int j = i + 1; j < size; ++j) {
-        ret += "*";
-        ret += "(";
-        ret += shapeInfo.at(j);
-        ret += ")";
-      }
-      ret += "+";
-    }
-    ret += reduce_info_.output_promoted_tensor_indexs_for_atomic_.at(size - 1);
-    ret += "]";
-  }
-
-  reduce_info_.output_promoted_tensor_info_for_atomic_ = ret;
-}
-
-void GpuIslEmitter::MakePromotedTensorInfoForReduce() {
-  std::string ret = "";
-  ret += "&";
-  CHECK(!reduce_info_.promoted_tensor_name_for_reduce_.empty())
-    << "promoted tensor for reduce name should not be empty!";
-  ret += reduce_info_.promoted_tensor_name_for_reduce_;
-
-  reduce_info_.promoted_tensor_info_for_reduce_ = ret;
-}
-
-Stmt GpuIslEmitter::EmitAkgAtomicReturnInfo(Stmt s, std::string info) {
-  return Evaluate::make(
-    Call::make(Int(32), REDUCE, {StringImm::make(REDUCE_ATOMIC_FLAG), StringImm::make(info)}, Call::Intrinsic));
+  reduce_info_.akg_atomic_template_arg_ = ret;
 }
 
 bool GpuIslEmitter::NoNeedToEmitForTempTensor(const isl::id &id) {
@@ -978,6 +836,12 @@ bool GpuIslEmitter::NoNeedToEmitForTempTensor(const isl::id &id) {
 }
 
 Stmt GpuIslEmitter::EmitBlock(const isl::ast_node_block &block_node) {
+  bool add_to_reduce_area = false;
+  if (in_reduce_area_ && is_out_most_stmt_) {
+    add_to_reduce_area = true;
+    is_out_most_stmt_ = false;
+  }
+
   std::vector<Stmt> stmts;
 
   int num = block_node.get_children().size();
@@ -1024,23 +888,32 @@ Stmt GpuIslEmitter::EmitBlock(const isl::ast_node_block &block_node) {
   }
 
   if (last_num == len - 1) {
+    if (add_to_reduce_area) {
+      reduce_info_.reduce_area_stmt_ = stmts[0];
+      return Stmt();
+    }
     return stmts[0];
   } else {
     for (int index = len - 2 - last_num; index >= 0; --index) {
       auto p_index = static_cast<unsigned int>(index);
       stmts[p_index] = Block::make(stmts[p_index], stmts[p_index + 1]);
     }
+    if (add_to_reduce_area) {
+      reduce_info_.reduce_area_stmt_ = stmts[0];
+      return Stmt();
+    }
     return stmts[0];
   }
 }
 
 Stmt GpuIslEmitter::EmitFor(const isl::ast_node_for &node) {
+  bool add_to_reduce_area = false;
+  if (in_reduce_area_ && is_out_most_stmt_) {
+    add_to_reduce_area = true;
+    is_out_most_stmt_ = false;
+  }
   isl::id isl_iter_id = node.get_iterator().as<isl::ast_expr_id>().get_id();
   VarExpr iter_expr(isl_iter_id.to_str());
-  VarExpr iter_expr_new = AllocUniqueIterName(iter_expr);
-  if (iter_expr.get() != iter_expr_new.get()) {
-    iter_map_ssa_[iter_expr.get()] = iter_expr_new.get();
-  }
   PushIter(iter_expr.get());
 
   Expr init_expr = Interpret(node.get_init());
@@ -1061,8 +934,8 @@ Stmt GpuIslEmitter::EmitFor(const isl::ast_node_for &node) {
     Expr original_init_expr = init_expr;
     init_expr = ModifyTheInitExpr(init_expr);
     cond_expr = ModifyTheCondExpr(cond_expr, static_cast<int>(inc));
-    Expr modify_iter = ModifyTheIterExpr(iter_expr_new, static_cast<int>(inc), original_init_expr);
-    stride_modify_iter_map_[iter_expr_new.get()] = modify_iter;
+    Expr modify_iter = ModifyTheIterExpr(iter_expr, static_cast<int>(inc), original_init_expr);
+    stride_modify_iter_map_[iter_expr.get()] = modify_iter;
   }
 
   if (isl_cond.as<isl::ast_expr_op_le>()) {
@@ -1074,7 +947,7 @@ Stmt GpuIslEmitter::EmitFor(const isl::ast_node_for &node) {
   // add for tensor core
 
   if (tensor_core_info_.core_area_) {
-    tensor_core_info_.core_area_for_extent_[iter_expr_new] = cond_expr;
+    tensor_core_info_.core_area_for_extent_[iter_expr] = cond_expr;
   }
 
   if (tensor_core_info_.fragment_axis_begin_) {
@@ -1089,25 +962,34 @@ Stmt GpuIslEmitter::EmitFor(const isl::ast_node_for &node) {
 
   if (!body_stmt.defined()) {
     PopIter(iter_expr.get());
-    iter_map_ssa_.erase(iter_expr.get());
     if (tensor_core_info_.core_area_) {
-      tensor_core_info_.core_area_for_extent_.erase(iter_expr_new);
+      tensor_core_info_.core_area_for_extent_.erase(iter_expr);
     }
     return Stmt();
   }
 
   if (need_to_modify_inc_) {
-    stride_modify_iter_map_.erase(iter_expr_new.get());
+    stride_modify_iter_map_.erase(iter_expr.get());
   }
   PopIter(iter_expr.get());
-  iter_map_ssa_.erase(iter_expr.get());
   if (tensor_core_info_.core_area_) {
-    tensor_core_info_.core_area_for_extent_.erase(iter_expr_new);
+    tensor_core_info_.core_area_for_extent_.erase(iter_expr);
   }
-  return For::make(iter_expr_new, init_expr, cond_expr, ForType::Serial, DeviceAPI::None, body_stmt);
+  Stmt stmt = For::make(iter_expr, init_expr, cond_expr, ForType::Serial, DeviceAPI::None, body_stmt);
+  if (add_to_reduce_area) {
+    reduce_info_.reduce_area_stmt_ = stmt;
+    return Stmt();
+  }
+  return stmt;
 }
 
 Stmt GpuIslEmitter::EmitIf(const isl::ast_node_if &node) {
+  bool add_to_reduce_area = false;
+  if (in_reduce_area_ && is_out_most_stmt_) {
+    add_to_reduce_area = true;
+    is_out_most_stmt_ = false;
+  }
+
   Expr cond_expr = Interpret(node.get_cond());
   cur_if_list_.push_back(cond_expr.get());
   Stmt then_case = EmitAst(node.get_then_node());
@@ -1126,41 +1008,19 @@ Stmt GpuIslEmitter::EmitIf(const isl::ast_node_if &node) {
     }
   }
 
+  Stmt s;
   if (!cond_expr.defined()) {
-    return then_case;
+    s = then_case;
+  } else {
+    s = IfThenElse::make(cond_expr, then_case, else_case);
   }
 
-  return IfThenElse::make(cond_expr, then_case, else_case);
-}
-
-Stmt GpuIslEmitter::EmitUserStmt(const isl::ast_node_user &node) {
-  CHECK(node.get_expr().isa<isl::ast_expr_op>());
-  isl::ast_expr_op usr_expr = node.get_expr().as<isl::ast_expr_op>();
-  stmt_id_ = usr_expr.get_arg(0).as<isl::ast_expr_id>().get_id();
-  node_id_ = node.get_annotation();
-  const Node *stmt_node = info_.analysis_result_.GetStatementMap().at(stmt_id_);
-  CHECK(stmt_node);
-  // compute VarMap to replace old iterators
-  auto build = node_info_map_.at(node_id_).build;
-  auto tuple = info_.analysis_result_.GetOperatorDomainMap().at(stmt_id_).tuple;
-  auto iterator_map = node_info_map_.at(node_id_).iterator_map;
-
-  auto ids = info_.analysis_result_.GetReduceInitIds();
-  for (auto &i : ids) {
-    if (i.get_name() == stmt_id_.get_name()) {
-      reduce_info_.init_stmt_emit_ = true;
-    }
+  if (add_to_reduce_area) {
+    reduce_info_.reduce_area_stmt_ = s;
+    return Stmt();
   }
 
-  var_map_.clear();
-  for (unsigned int i = 0; i < tuple.size(); ++i) {
-    isl::id isl_old_iter = tuple.get_id(i);
-    auto isl_expr = build.expr_from(iterator_map.get_pw_aff(i));
-    Expr halide_new_iter = Interpret(isl_expr);
-    var_map_.emplace(isl_old_iter, halide_new_iter);
-  }
-
-  return EmitUserStmtContent(stmt_node);
+  return s;
 }
 
 Expr GpuIslEmitter::ModifyTheInitExpr(const Expr &e) { return 0; }
@@ -1293,13 +1153,15 @@ Stmt GpuIslEmitter::Emit(const isl::ast_node &node) {
   std::map<std::string, VarExpr>::iterator it;
   for (it = iter_name_map_.begin(); it != iter_name_map_.end(); it++) {
     IterVar axis = IterVarNode::make(Range(), it->second, air::kThreadIndex, it->second->name_hint);
-    stmt = AttrStmt::make(axis, "thread_extent", Expr(GetThreadExtent(it->second->name_hint)), stmt);
+    stmt = AttrStmt::make(axis, air::ir::attr::thread_extent, Expr(GetThreadExtent(it->second->name_hint)), stmt);
   }
 
   // attr for one dimension mapping
   if (info_.user_config_.GetEnableOneDimThread()) {
-    stmt =
-      AttrStmt::make(Expr(""), ORIGIN_THREAD_DIM_X, Expr(info_.user_config_.GetThreadConfig()->GetX().second), stmt);
+    auto thread_cfg = info_.user_config_.GetThreadConfig();
+    CHECK(thread_cfg) << "thread config is null.";
+    int tx = thread_cfg->GetX().second;
+    stmt = AttrStmt::make(Expr(""), ORIGIN_THREAD_DIM_X, Expr(tx), stmt);
   }
 
   // add tensor core plan two attr
@@ -1312,26 +1174,15 @@ Stmt GpuIslEmitter::Emit(const isl::ast_node &node) {
     }
   }
 
-  bool emit_attr = AddAttrCheck().Run(stmt);
-  if (emit_attr) {
-    IterVar axis = IterVarNode::make(Range(), VarExpr(THREAD_IDX_X), air::kThreadIndex, THREAD_IDX_X);
-    int value = GetThreadExtent(THREAD_IDX_X);
-    stmt = AttrStmt::make(axis, "thread_extent", Expr((value == 0) ? 1 : value), stmt);
-  }
-
-  Stmt s = AkgReduceAddTensorIndex(reduce_info_.promoted_tensor_indexs_for_reduce_,
-                                   reduce_info_.promoted_tensor_shape_for_reduce_)
-             .Mutate(stmt);
-
   if (tensor_core_info_.is_tensor_core_ && info_.user_config_.GetEnableTensorCoreUsePoly()) {
-    s = AddMmaAttrFlag(tensor_core_info_).Mutate(s);
-    s = EmitForTensorCore(s, tensor_core_info_);
+    stmt = AddMmaAttrFlag(tensor_core_info_).Mutate(stmt);
+    stmt = EmitForTensorCore(stmt, tensor_core_info_);
   } else if (info_.user_config_.GetEnableTensorCore()) {
     tensor_core_info_.cast_tensors_ = info_.analysis_result_.GetCastTensors();
-    s = EmitForTensorCoreDesignOne(s, tensor_core_info_);
+    stmt = EmitForTensorCoreDesignOne(stmt, tensor_core_info_);
   }
 
-  return s;
+  return stmt;
 }
 
 Stmt GpuIslEmitter::EmitRealizeForGlobalTensor(Stmt stmt) {
@@ -1363,6 +1214,10 @@ Stmt GpuIslEmitter::EmitRealizeForGlobalTensor(Stmt stmt) {
       continue;
     }
 
+    if (reduce_info_.added_tensors_.find(name) != reduce_info_.added_tensors_.end()) {
+      continue;
+    }
+
     // if the tensor is temporary and it is not promoted, it needs to emit realize
     stmt = InsertRealize(stmt, isl::id(info_.GetCtx(), name));
   }
@@ -1370,6 +1225,12 @@ Stmt GpuIslEmitter::EmitRealizeForGlobalTensor(Stmt stmt) {
 }
 
 Stmt GpuIslEmitter::EmitMark(const isl::ast_node_mark &node) {
+  bool add_to_reduce_area = false;
+  if (in_reduce_area_ && is_out_most_stmt_) {
+    add_to_reduce_area = true;
+    is_out_most_stmt_ = false;
+  }
+
   std::string mark = node.get_id().get_name();
   if (IsStartsWith(mark, REDUCE_ATOMIC_FLAG)) {
     std::vector<std::string> strs = common::Split(mark, "_");
@@ -1387,16 +1248,7 @@ Stmt GpuIslEmitter::EmitMark(const isl::ast_node_mark &node) {
     }
   }
 
-  // add for prefetch pass
-  if (mark == PROMOTE_GLOBAL_TO_SHARED_AB) {
-    Stmt stmt = EmitAst(node.get_node());
-    if (!stmt.defined()) {
-      return Stmt();
-    }
-    return AttrStmt::make(Expr("INFO"), SHARED_MEM_PROMOTED_COMPLETE, StringImm::make(SHARED_MEM_PROMOTED_COMPLETE),
-                          stmt);
-  }
-
+  // add for tensor core
   if ((mark == MATRIX_A) || (mark == MATRIX_B) || (mark == MATRIX_C) || (mark == WARP_MARKER)) {
     if (!tensor_core_info_.data_is_set_) {
       PrepareDataForTensorCore();
@@ -1443,15 +1295,34 @@ Stmt GpuIslEmitter::EmitMark(const isl::ast_node_mark &node) {
     return AttrStmt::make(Expr("INFO"), mark, StringImm::make(mark), stmt);
   }
 
-  if ((mark == "promote_vectorization") || (mark == "promote_local_to_global")) {
+  // add for prefetch pass
+  if (mark == PROMOTE_GLOBAL_TO_SHARED_AB) {
     Stmt stmt = EmitAst(node.get_node());
     if (!stmt.defined()) {
       return Stmt();
     }
-    return AttrStmt::make(Expr("INFO"), mark, StringImm::make(mark), stmt);
+    return AttrStmt::make(Expr("INFO"), SHARED_MEM_PROMOTED_COMPLETE, StringImm::make(SHARED_MEM_PROMOTED_COMPLETE),
+                          stmt);
   }
-  return EmitAst(node.get_node());
-}  // namespace poly
+
+  Stmt stmt;
+
+  if ((mark == PROMOTE_VECTORIZATION) || (mark == PROMOTE_LOCAL_TO_GLOBAL)) {
+    stmt = EmitAst(node.get_node());
+    if (!stmt.defined()) {
+      return Stmt();
+    }
+    stmt = AttrStmt::make(Expr("INFO"), mark, StringImm::make(mark), stmt);
+  } else {
+    stmt = EmitAst(node.get_node());
+  }
+
+  if (add_to_reduce_area) {
+    reduce_info_.reduce_area_stmt_ = stmt;
+    return Stmt();
+  }
+  return stmt;
+}
 
 std::string GpuIslEmitter::FindRealizeScopeToString(const isl::id &var) {
   if (info_.analysis_result_.CountBufferDefInfo(var)) {
@@ -1508,6 +1379,39 @@ Stmt GpuIslEmitter::InsertRealize(Stmt stmt, const isl::id &var) {
   stmt = Realize::make(t->op, t->value_index, t->dtype, bounds, const_true(1), stmt);
   realized_.insert(t);
   stmt = AttrStmt::make(t->op, air::ir::attr::realize_scope, FindRealizeScope(var), stmt);
+
+  return stmt;
+}
+
+Stmt GpuIslEmitter::InsertRealizeWithMemType(Stmt stmt, const isl::id &var, std::string mem) {
+  stmt = FindInnerRealize(var.get_name()).Mutate(stmt);
+
+  Tensor t = info_.FindTensorWithLargestShape(var);
+  Region bounds;
+
+  // no isolate
+  if (bounds.empty()) {
+    for (auto j : t->shape) {
+      bounds.push_back(Range::make_by_min_extent(Expr(0), j));
+    }
+  }
+
+  // If isolate, make a new buffer
+  auto buf = info_.user_config_.GetBind().at(t);
+
+  auto tt = placeholder(t->shape, t->dtype, t->op->name);
+
+  stmt = TensorSubstitute(stmt, t->op, tt->op, tt->value_index);
+  t = tt;
+  if (info_.analysis_result_.CountBufferDefInfo(var)) {
+    auto decl = info_.analysis_result_.GetBufferDefInfo(var);
+    decl.tensor = t;
+  }
+  info_.user_config_.SetBind(t, buf);
+  stmt = TensorSubstitute2(stmt, t->op->func_name(), t->op, t->value_index);
+  stmt = Realize::make(t->op, t->value_index, t->dtype, bounds, const_true(1), stmt);
+  realized_.insert(t);
+  stmt = AttrStmt::make(t->op, air::ir::attr::realize_scope, Expr(mem), stmt);
 
   return stmt;
 }
@@ -1608,13 +1512,6 @@ Expr GpuIslEmitter::Interpret(const isl::ast_expr &e) {
     // If this variable is defined by loop index, we need sharing it.
     const Variable *var = GetIterByName(id_expr.get_id().get_name());
     if (var) {
-      if (iter_map_ssa_.find(var) != iter_map_ssa_.end()) {
-        if (stride_modify_iter_map_.find(iter_map_ssa_.at(var)) != stride_modify_iter_map_.end()) {
-          return stride_modify_iter_map_[iter_map_ssa_.at(var)];
-        }
-        return VarExpr(GetObjPtr(iter_map_ssa_.at(var)));
-      }
-
       if (stride_modify_iter_map_.find(var) != stride_modify_iter_map_.end()) {
         return stride_modify_iter_map_[var];
       }
@@ -1641,18 +1538,6 @@ Stmt GpuIslEmitter::EmitAccessNodeFromPromoteAcsProvide(isl::id var, const Node 
   Tensor t = info_.FindTensor(var);
   Stmt s = Provide::make(t->op, 0, provide->value, args);
   return s;
-}
-
-VarExpr GpuIslEmitter::AllocUniqueIterName(const VarExpr v) {
-  std::string ret = v->name_hint;
-  if (for_iter_name_map_.find(ret) != for_iter_name_map_.end()) {
-    ret += std::to_string(for_iter_name_map_[ret]);
-    for_iter_name_map_[v->name_hint]++;
-    return Variable::make(v.type(), ret);
-  } else {
-    for_iter_name_map_[v->name_hint] = 1;
-    return v;
-  }
 }
 
 void GetNameWithoutShared(isl::id &tensor_id, ScopInfo &info) {
