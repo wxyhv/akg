@@ -98,7 +98,7 @@ class OpDescsParser {
  public:
   std::vector<OpDesc> op_descs_;
   FuncRefSet input_funcs_;
-  FuncRefSet output_funcs_;
+  FuncRefList output_funcs_;
 
  private:
   const picojson::array op_descs_json_;
@@ -135,7 +135,7 @@ class OpDescsParser {
           input_funcs_.insert(t->op);
         }
         if (std::find(output_tensors_.begin(), output_tensors_.end(), info.name_) != output_tensors_.end()) {
-          output_funcs_.insert(t->op);
+          output_funcs_.emplace_back(t->op);
         }
       }
       tensors.push_back(tensor_map_[info.name_]);
@@ -510,7 +510,7 @@ class TypeCastInserter : public IRMutator {
   };
 };
 
-Stmt Optimize(Stmt &s, BuildInfoOpt &opt, const FuncRefSet &input_funcs, const FuncRefSet &output_funcs,
+Stmt Optimize(Stmt &s, BuildInfoOpt &opt, const FuncRefSet &input_funcs, const FuncRefList &output_funcs,
               const std::string &target) {
   // reshape optimize
   s = ReshapeTensor(s);
