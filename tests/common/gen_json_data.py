@@ -360,6 +360,7 @@ def gen_json_data(op_desc):
 
     inplace_assign_write = []
     fake_output_tensors = []
+    elemwise_op_list = ["TensorAdd", "RealDiv", "Mul", "Minimum", "Maximum", "Sub"]
     for op in desc["op_desc"]:
         dsl_fun = op_dsl.get(op["name"], None)
         if op["name"] == "InplaceAssign" and with_inplace_assign:
@@ -371,6 +372,46 @@ def gen_json_data(op_desc):
             inplace_assign_write.append(op["input_desc"][0][0]["tensor_name"])
             if fake_output:
                 fake_output_tensors.append(op["output_desc"][0]["tensor_name"])
+        elif op["name"] in elemwise_op_list and "format" in op["output_desc"][0]and \
+             op["output_desc"][0]["format"] =="FRACTAL_NZ":
+            if op["input_desc"][0][0]["format"] == "DefaultFormat" and \
+               op["input_desc"][1][0]["format"] == "FRACTAL_NZ":
+                fractal_tensor = op["input_desc"][1][0]
+                default_tensor = op["input_desc"][0][0]
+                need_reshape = True
+            elif op["input_desc"][0][0]["format"] == "FRACTAL_NZ" and \
+                 op["input_desc"][1][0]["format"] == "DefaultFormat":
+                fractal_tensor = op["input_desc"][0][0]
+                default_tensor = op["input_desc"][1][0]
+                need_reshape = True
+            if need_reshape:
+                shape_fractal = fractal_tensor["shape"]
+                shape_default = default_tensor["shape"]
+                orig_shape = shape_fractal[:-4] + [shape_fractal[-3] * shape_fractal[-2]] + [shape_fractal[-4] * shape_fractal[-1]]
+                shape_tmp = []
+                shape_out = []
+                diff_dims = len(orig_shape) - len(shape_default)
+                for i in range(diff_dims):
+                    shape_tmp.append(1)
+                    shape_out.append(orig_shape[i])
+                for i in range(len(shape_default)):
+                    shape_tmp.append(shape_default[i])
+                    if orig_shape[i + diff_dims] == 1:
+                        shape_out.append(shape_default[i])
+                    else:
+                        shape_out.append(orig_shape[i + diff_dims])
+                shape_new = []
+                for i in range(len(shape_out) - 2):
+                    shape_new.append(shape_out[i])
+                if shape_tmp[-2] == 1 and shape_tmp[-1] == 1:
+                    shape_new.extend([1, 1, 1, 1])
+                elif shape_tmp[-2] == 1 and shape_tmp[-1] == shape_default[-1]:
+                    shape_new.extend([shape_fractal[-4], 1, 1, shape_fractal[-1]])
+                elif shape_tmp[-2] == shape_default[-2] and shape_tmp[-1] == 1:
+                    shape_new.extend([1, shape_fractal[-3], shape_fractal[-2], 1])
+                sent_reshape_tensor = "%s = np.reshape(%s, %s)" \
+                    % (default_tensor["tensor_name"], default_tensor["tensor_name"], tuple(shape_new))
+                p.out(sent_reshape_tensor, True)
         if dsl_fun is None:
             logging.info("[%s] is not support for %s", op["name"], op)
             continue

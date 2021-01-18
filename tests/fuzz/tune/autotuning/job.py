@@ -119,8 +119,11 @@ def launch_json(debug_mode: bool = True, save_res: bool = False, json_dir="", re
             print("get space time: ", time_end_get_space - time_start_get_space)
             index_table = space_res['index']
             tiling_spaces = space_res['tuning_space']
-            if not tiling_spaces:
-                raise RuntimeError('empty tiling spaces')
+            if not isinstance(tiling_spaces, list):
+                with open('res/empty_space_list.txt', 'a') as fe:
+                    fe.write(input_file)
+                    fe.write("\n")
+                continue
             dim_names = ['tiling_' + str(i) for i in range(len(tiling_spaces[0]))]
             use_tuning_attrs = len(tiling_spaces) < 10 ** 5
             if tuning_attrs and use_tuning_attrs:
