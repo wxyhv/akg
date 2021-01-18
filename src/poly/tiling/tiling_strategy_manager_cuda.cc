@@ -174,24 +174,32 @@ void ReduceStrategy::AkgReduceLibStrategyOnGpu() {
 
   int64_t min_blocks = square_thread ? 32 : 512;
   int64_t min_elem_per_thread = use_local ? 2 : 8;
-
+  int64_t min_ty = 8;
   if (total_injective_size * total_reduce_size / min_blocks / max_num_threads_ < min_elem_per_thread) {
-    square_thread = true;
     min_blocks = 32;
+    min_ty = square_thread ? min_ty : 1;
   }
 
   std::pair<int64_t, int64_t> tx_range{1, max_num_threads_};
   std::pair<int64_t, int64_t> ty_range{1, max_num_threads_};
+  auto AlignToPowerOfTwo = [](int64_t original_factor) -> int64_t {
+    while ((original_factor) & (original_factor - 1)) {
+      --original_factor;
+    }
+    return original_factor;
+  };
   if (square_thread) {
-    tx_range.first = std::min(warp_sizes_, total_injective_size);
-    ty_range.first = std::min<int64_t>(8, total_reduce_size);
-    tx_range.second = std::min<int64_t>(tx_range.second, ceil(static_cast<float>(tx_range.second) / ty_range.first));
-    tx_range.second = std::min(tx_range.second, total_injective_size);
+    tx_range.first = AlignToPowerOfTwo(std::min(warp_sizes_, total_injective_size));
+    ty_range.first = AlignToPowerOfTwo(std::min<int64_t>(min_ty, total_reduce_size));
+    tx_range.second =
+      AlignToPowerOfTwo(std::min<int64_t>(tx_range.second, ceil(static_cast<float>(tx_range.second) / ty_range.first)));
+    tx_range.second = AlignToPowerOfTwo(std::min(tx_range.second, total_injective_size));
   } else {
-    tx_range.first = std::min(warp_sizes_, total_reduce_size);
-    ty_range.first = std::min<int64_t>(8, total_injective_size);
-    tx_range.second = std::min<int64_t>(tx_range.second, ceil(static_cast<float>(tx_range.second) / ty_range.first));
-    tx_range.second = std::min(tx_range.second, total_reduce_size);
+    tx_range.first = AlignToPowerOfTwo(std::min(warp_sizes_, total_reduce_size));
+    ty_range.first = AlignToPowerOfTwo(std::min<int64_t>(min_ty, total_injective_size));
+    tx_range.second =
+      AlignToPowerOfTwo(std::min<int64_t>(tx_range.second, ceil(static_cast<float>(tx_range.second) / ty_range.first)));
+    tx_range.second = AlignToPowerOfTwo(std::min(tx_range.second, total_reduce_size));
   }
   ty_range.second =
     std::min(ty_range.second, static_cast<int64_t>(ceil(static_cast<float>(ty_range.second) / tx_range.second)));
@@ -600,6 +608,9 @@ void GpuStrategy::InnerThreadOuterBlock() {
 void GpuStrategy::SetMappingConfig() {
   std::stringstream ss;
   ss << "Use template " << template_map_[template_];
+  if (template_ == Template::REDUCTION) {
+    ss << "(" << analyzer_->scop_info_.analysis_result_.GetReduceDirection() << ")";
+  }
   analyzer_->logger_.AppendLog(GPU_MAPPING, ss);
   if (thread_cfg_.empty()) {
     thread_cfg_.emplace_back(1);
