@@ -54,6 +54,7 @@ bool ShapeIsOne(const Array<Expr> &shape);
 std::string GetOpName(const Provide *p);
 std::string CreateDataFormatKey(const std::string &tensor_name);
 
+using FuncRefList = std::vector<FunctionRef>;
 using FuncRefMap = std::unordered_map<FunctionRef, FunctionRef, NodeHash, NodeEqual>;
 using FuncRefSet = std::unordered_set<FunctionRef, NodeHash, NodeEqual>;
 using FuncRefGraph = std::unordered_map<FunctionRef, FuncRefSet, NodeHash, NodeEqual>;
@@ -100,7 +101,7 @@ struct Graph {
   FuncRefGraph post_graph;
   FuncStmtMap func_stmts;
   FuncRefSet input_funcs;
-  FuncRefSet output_funcs;
+  FuncRefList output_funcs;
   FuncRefSet visited_funcs;
   FuncShape func_shape;
   bool CanChangeElem(const FunctionRef &output) {
@@ -118,7 +119,7 @@ struct Graph {
 
 class StmtToGraph : public IRVisitor {
  public:
-  StmtToGraph(const FuncRefSet &input_funcs, const FuncRefSet &output_funcs) {
+  StmtToGraph(const FuncRefSet &input_funcs, const FuncRefList &output_funcs) {
     g_.input_funcs = input_funcs;
     g_.output_funcs = output_funcs;
   };
@@ -166,7 +167,7 @@ struct AnalysisResult {
                       const Array<Expr> &changed_shape) {
     if (EqualShape(origin_shape, changed_shape)) return;
     NeedReshape nr;
-    nr.func = func;
+    nr.func = to_be_replaced.count(func) ? to_be_replaced[func] : func;
     nr.origin_shape = origin_shape;
     need_reshape_map[op].emplace_back(nr);
   }
@@ -371,9 +372,7 @@ class GridBlockDimsAttr : public IRVisitor {
     }
     IRVisitor::Visit(op->body);
   }
-  void Visit_(const For *op) {
-    Visit(op->body);
-  }
+  void Visit_(const For *op) { Visit(op->body); }
 
  public:
   GridBlockDims dims;
