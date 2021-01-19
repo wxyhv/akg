@@ -898,7 +898,8 @@ bool TraverseSolver::IsTilable(TileInfo *info) {
   }
 
   if (level == LEVEL1) {
-    bool use_tile_min = (info->axis->forbid_iso && const_extent % cons.tile_mod_.as<IntImm>()->value != 0) ||
+    bool use_tile_min = (analyzer_.scop_info_.user_config_.GetTarget() == TARGET_CUDA) ||
+                        (info->axis->forbid_iso && const_extent % cons.tile_mod_.as<IntImm>()->value != 0) ||
                         (cons.tile_min_.as<IntImm>()->value == MIN_TILE) || (axis->HasAttr(AT_VECTORIZED)) ||
                         (cons.tile_min_.as<IntImm>()->value > cons.tile_mod_.as<IntImm>()->value);
     if (use_tile_min) {
