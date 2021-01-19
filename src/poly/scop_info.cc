@@ -82,6 +82,16 @@ std::unordered_set<std::string> AnalysisResult::ExtractWithStmtId() const {
   return res;
 }
 
+int UserConfig::GetDataType(const std::string &name) const {
+  for (auto i : GetBind()) {
+    if (i.first->op->name == name) {
+      int size = i.first->dtype.bytes();
+      return size;
+    }
+  }
+  return 1;
+}
+
 std::string CubeInfo::ExtractStringFromAttrs(const std::string &name) const {
   for (auto i : analysis_result_.GetStmtOpInfoMap()) {
     if (!i.second.isCube) {

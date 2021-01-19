@@ -23,7 +23,9 @@ namespace akg {
 namespace ir {
 namespace poly {
 
-constexpr auto MAX_REGISTER_TENSOR_SIZE = 10000;
+constexpr auto MAX_REGISTER_PER_THREAD_BLOCK = 65536;
+constexpr auto BYTES_PER_REGISTER = 4;
+constexpr auto REGISTER_ALLOC_RATIO = 1.0;  // percentage of local memory that allocated to tensors
 constexpr auto M_N_K_COUNT = 3;
 constexpr auto M_POSITION = 0;
 constexpr auto N_POSITION = 1;
