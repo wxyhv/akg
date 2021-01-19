@@ -77,6 +77,8 @@ class RegisterMemoryManager : public SchedulePass {
 
   void SharedTensors();
 
+  bool IsReadOrWriteBand(isl::schedule_node node);
+
  private:
   PassInfo &pass_info_;
   ScopInfo &scop_info_;
