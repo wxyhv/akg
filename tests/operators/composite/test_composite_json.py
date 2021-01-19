@@ -22,141 +22,113 @@ from akg.utils import custom_tiling
 from akg.utils import kernel_exec as utils
 from akg.utils.result_analysis import gpu_profiling
 from akg.utils.format_transform import to_tvm_nd_array
+from akg.ms.message import should_enable_atomic_add
 from gen_json_data import gen_json_data
 from base import get_rtol_atol
 from tensorio import compare_tensor
 
 logging.getLogger().setLevel(logging.INFO)
 
-
 def print_usage():
-    logging.info("\nUsage:")
-    logging.info("1. To run single file :")
+    template = "  {0:15}{1}"
     logging.info(
-        "  python test_composite_json.py [-c, -a/--auto] -f <filename>.")
-    logging.info("2. To run files in a directory, default to be ./json_dir :")
-    logging.info("  python test_composite_json.py -d [-a or --auto]")
-    logging.info("3. To run ci files :")
-    logging.info("  python test_composite_json.py --ci [-a/--auto, --profile]")
-    logging.info("\nOptions:")
-    logging.info("-f <filename>")
-    logging.info("  single file name, '*.info' or '*.json'.")
-    logging.info("-c")
-    logging.info("  use tiling dim attribute.")
-    logging.info("-a, --auto")
-    logging.info("  use poly schedule mode.")
-    logging.info("--profile")
-    logging.info("  use profiling env.")
+        "\nUsage: python test_composite_json.py [arguments] <-f/-d/--ci> [file name].\n")
+    logging.info(template.format("-f", "Run single file."))
+    logging.info(template.format("-d", "Run all files in json_dir."))
+    logging.info(template.format("--ci", "Run files for CI testing."))
+    logging.info(
+        "\nNote: if no other arguments are specified, it will run according to the sets in files, or by default.")
+    logging.info("\n")
+    logging.info("Optional arguments:")
+    logging.info(template.format("-h, --help", "Show the usage."))
+    logging.info(template.format("-a, --auto", "Use poly schedule, which is enable by default."))
+    logging.info(template.format("-m, --manual", "Use tvm schedule."))
+    logging.info(template.format("-c", "Use custom attributes of tiling (defined in json_dir/dims.json) when use '-d' command."))
+    logging.info(template.format("--profile", "Enable profiling when use '--ci' command."))
+    logging.info(template.format("--enable_atomic_add=true or false",""))
+    logging.info(template.format("", "Set true or false to enable atomic add when use poly schedule."))
+    logging.info(template.format("--dim=<args>", ""))
+    logging.info(template.format("", "Set attribute of 'dim' when use '-f' command."))
+    logging.info(template.format("--bind_block=<args>", ""))
+    logging.info(template.format("", "Set attribute of 'bind_block' when use '-f' command."))
+    logging.info(template.format("--bind_thread=<args>", ""))
+    logging.info(template.format("", "Set attribute of 'bind_thread' when use '-f' command."))
     logging.info("\n")
 
+def _get_json_dict(desc):
+    return json.loads(desc) if isinstance(desc, str) else desc
+
+def _get_backend(desc):
+    json_obj = _get_json_dict(desc)
+    if "process" not in json_obj.keys():
+        logging.info("Can't identify the backend.")
+        return None
+    return json_obj["process"]
+
+def _add_attrs_from_json(desc, attrs, poly=True):
+    json_obj = _get_json_dict(desc)
+    if "enable_atomic_add" not in attrs.keys():
+        attrs["enable_atomic_add"] = should_enable_atomic_add(json_obj) if poly else False
+    return attrs if attrs is not None else {}
+
+def _compare_func(output, expect):
+    rtol, atol = get_rtol_atol("FUSED", str(output.dtype))
+    return compare_tensor(output, expect, rtol=rtol, atol=atol)
 
 def get_result(desc, poly, attrs=None):
+    backend = _get_backend(desc)
+    if backend == "cuda" and not attrs:
+        attrs = _add_attrs_from_json(desc, attrs, poly)
     if poly:
         reduce_lib_key = "enable_akg_reduce_lib"
         if reduce_lib_key not in attrs.keys():
             attrs[reduce_lib_key] = poly
-    if attrs == {}:
-        mod = composite.build(desc, poly=poly)
-    else:
-        mod = composite.build(desc, attrs, poly=poly)
+
+    build_attrs = attrs if attrs else None
+    mod = composite.build(desc, build_attrs, poly=poly)
+
     input_for_mod, expect, output_indexes = gen_json_data(desc)
     output = utils.mod_launch(mod, input_for_mod, output_indexes)
 
-    rtol, atol = get_rtol_atol("FUSED", "float32")
-    flag = True
-    if len(output_indexes) > 1:
-        if not all(map(lambda x, y: compare_tensor(x, y, rtol=rtol, atol=atol), output, expect)):
-            logging.info(mod.imported_modules[0].get_source())
-            flag = False
-    else:
-        if not compare_tensor(output, expect, rtol=rtol, atol=atol):
-            logging.info(mod.imported_modules[0].get_source())
-            flag = False
-    desc_d = json.loads(desc)
-    if desc_d["process"] == "cuda":
+    if not all(map(_compare_func, output if isinstance(output, (list, tuple)) else [output],
+        expect if isinstance(expect, (list, tuple)) else [expect])):
+        logging.info(mod.imported_modules[0].get_source())
+        return False
+    if backend == "cuda":
         inputs = to_tvm_nd_array(input_for_mod)
         expect = to_tvm_nd_array(expect)
         gpu_profiling(mod, *inputs, *expect, repeat_time=400)
-    return flag
-
-
-def _should_use_poly(kernel_info):
-    """Judge whether to use poly."""
-    if os.getenv('MS_AKG_USE_POLY') == "on":
-        return True
-    for desc in kernel_info['op_desc']:
-        if desc['name'].startswith('Reduce'):
-            return True
-    return False
-
-
-def _enable_atomic_add(kernel_info):
-    """Judge whether to enable atomic add."""
-    for op in kernel_info["op_desc"]:
-        if not op["attr"]:
-            continue
-        for attr in op["attr"]:
-            if attr["name"] == "enable_atomic_add" and attr["value"]:
-                return True
-    return False
-
-
-def _add_composite_attrs(desc, attrs, poly=True):
-    if isinstance(desc, str):
-        json_obj = json.loads(desc)
-    elif isinstance(desc, dict):
-        json_obj = desc
-    else:
-        return poly
-
-    if not poly:
-        return False
-    use_poly = _should_use_poly(json_obj)
-    if use_poly and _enable_atomic_add(json_obj):
-        attrs["enable_atomic_add"] = True
-    return use_poly
-
+    return True
 
 @pytest.mark.skip
-def test_single_file(input_file, use_custom, poly=False):
+def test_single_file(input_file, attrs, poly):
     with open(input_file, 'r') as f:
         desc = f.read()
-        attrs = {}
-        if use_custom:
-            attrs["dim"] = custom_tiling.set_dims(((4, 1), (4, 1)))
-        use_poly = _add_composite_attrs(desc, attrs, poly)
-        flag = get_result(desc, use_poly, attrs)
-        if flag:
+        if get_result(desc, poly, attrs):
             logging.info("Run Pass!")
         else:
             logging.info("Precision Error")
 
-
-@pytest.mark.level0
-@pytest.mark.platform_gpu
-def test_json_dir(poly=False):
+@pytest.mark.skip
+def test_json_dir(poly, use_custom):
     json_dir = "./json_dir/"
     json_dims_file = "./json_dir/dims.json"
-    files = os.listdir(json_dir)
-    flag = True
-    with open(json_dims_file, 'r') as f:
-        base = f.read()
-        dims_dict = json.loads(base)
+    dims_dict = {}
+    if use_custom:
+        with open(json_dims_file, 'r') as f:
+            base = f.read()
+            dims_dict = json.loads(base)
     idx = 1
+    files = os.listdir(json_dir)
     for input_file in files:
+        if input_file == "dims.json":
+            continue
         with open(json_dir + input_file, 'r') as f:
-            if input_file == "dims.json":
-                continue
             logging.info("Begin run No.%d file:%s" % (idx, input_file))
             idx = idx + 1
             desc = f.read()
-            attrs = {}
-            if input_file in dims_dict:
-                dim_info = dims_dict[input_file]
-                attrs = {'dim': dim_info}
-            use_poly = _add_composite_attrs(desc, attrs, poly)
-            flag = get_result(desc, use_poly, attrs)
-            if not flag:
+            attrs = dims_dict.get(input_file, {}) if use_custom else {}
+            if not get_result(desc, poly, attrs):
                 logging.info("----------Error Json name is----------")
                 logging.info(input_file)
                 raise ValueError("Precision Error")
@@ -171,7 +143,6 @@ def get_op_cycles_info(desc, cycle_info_file, old_op_cycles=100000000):
 
 
 @pytest.mark.level0
-@pytest.mark.platform_gpu
 def test_ci(profile=False, poly=False):
     ci_path = "./need_adapt/"
     target_process = ["cuda"]
@@ -234,16 +205,27 @@ def test_ci(profile=False, poly=False):
 def main(argv):
     import getopt
     try:
-        options, args = getopt.getopt(argv, "adcf:", ["auto", "ci", "profile"])
-        poly = False
-        use_custom = False
+        options, args = getopt.getopt(argv, "adcf:mh", ["auto", "manual", "ci", "profile",
+            "enable_atomic_add=", "dim=", "bind_block=", "bind_thread=", "help"])
+        poly = True
         single_file = False
         dir_test = False
+        use_custom = False
         ci_test = False
         use_profiling = False
+        attrs_list = {}
         for option, value in options:
+            if option in ("-h", "--help"):
+                print_usage()
+                sys.exit()
             if option in ("-a", "--auto"):
                 poly = True
+            elif option in ("-m", "--manual"):
+                poly = False
+            elif option == "--ci":
+                ci_test = True
+            elif option == "--profile":
+                use_profiling = True
             elif option == "-d":
                 dir_test = True
             elif option == "-c":
@@ -251,17 +233,24 @@ def main(argv):
             elif option == "-f":
                 single_file = True
                 file_name = value
-            elif option == "--profile":
-                use_profiling = True
+            elif option == "--enable_atomic_add":
+                attrs_list["enable_atomic_add"] = True if value == "true" else False
+            elif option == "--dim":
+                attrs_list["dim"] = value
+            elif option == "--bind_block":
+                attrs_list["bind_block"] = value
+            elif option == "--bind_thread":
+                attrs_list["bind_thread"] = value
     except:
         print_usage()
         return
 
     if single_file and (file_name.endswith(".info") or file_name.endswith(".json")):
-        test_single_file(file_name, use_custom, poly)
+        test_single_file(file_name, attrs_list, poly)
     elif dir_test:
-        test_json_dir(poly)
+        test_json_dir(poly, use_custom)
     elif ci_test:
+        poly = False
         test_ci(use_profiling, poly)
     else:
         print_usage()

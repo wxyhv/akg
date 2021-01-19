@@ -1,5 +1,3 @@
-#!/usr/bin/env python3
-# coding: utf-8
 # Copyright 2019-2021 Huawei Technologies Co., Ltd
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
@@ -33,16 +31,16 @@ from . import gpu
 from . import op_build
 
 
-def _should_use_poly(kernel_info):
+def should_use_poly(kernel_info):
+    if os.getenv('MS_AKG_USE_POLY') != "off":
+        return True
     for desc in kernel_info['op_desc']:
         if desc['name'].startswith('Reduce'):
             return True
-    if os.getenv('MS_AKG_USE_POLY') == "off":
-        return False
-    return True
+    return False
 
 
-def _enable_atomic_add(kernel_info):
+def should_enable_atomic_add(kernel_info):
     for op in kernel_info["op_desc"]:
         if not op["attr"]:
             continue
@@ -72,8 +70,8 @@ def compilewithjson_to_func(json_str):
     if 'composite' in kernel_info and kernel_info['composite'] is True:
         try:
             if processor == 'cuda':
-                use_poly = _should_use_poly(kernel_info) 
-                enable_atomic_add = _enable_atomic_add(kernel_info)
+                use_poly = should_use_poly(kernel_info) 
+                enable_atomic_add = should_enable_atomic_add(kernel_info)
                 _ = composite._build(json_str, kernel_info, attrs={
                                      "target": "cuda", "enable_akg_reduce_lib": True, "enable_atomic_add": enable_atomic_add}, poly=use_poly)
                 return True
