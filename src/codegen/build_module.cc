@@ -531,7 +531,7 @@ NodeRef LowerStmt(Schedule sch, const Array<NodeRef> &in_args, const Array<NodeR
         }
         Map<std::string, NodeRef> attrs_1 = global_attrs;
         attrs_1.Set(kDumpTuningLevel, air::make_const(Int(32), level));
-        NodeRef tuning_spaces = NEXT_PASS(GenTuningSpace, stmt, target, *binds_0, attrs_1, false);
+        NodeRef tuning_spaces = NEXT_PASS(GenTuningSpace, stmt, target, *binds_0, attrs_1, false, new_sch);
         return tuning_spaces;
       }
 
@@ -727,7 +727,7 @@ NodeRef Lower(Schedule sch, const Array<NodeRef> &in_args, const Array<NodeRef> 
 
       Map<std::string, NodeRef> attrs_1 = global_attrs;
       attrs_1.Set(kDumpTuningLevel, air::make_const(Int(32), level));
-      NodeRef tuning_spaces = NEXT_PASS(GenTuningSpace, stmt, target, binds_0, attrs_1, false);
+      NodeRef tuning_spaces = NEXT_PASS(GenTuningSpace, stmt, target, binds_0, attrs_1, false, Schedule());
       return tuning_spaces;
     }
   }
@@ -740,7 +740,8 @@ NodeRef Lower(Schedule sch, const Array<NodeRef> &in_args, const Array<NodeRef> 
   Stmt stmt_before_poly = stmt;
   while (enter_count < max_enter_poly_times) {
     if (target != "aicpu" && polyhedral) {
-      Array<NodeRef> poly_res = NEXT_PASS(AutoPoly, stmt_before_poly, binds_0, target, global_attrs, false, is_dynamic, Schedule());
+      Array<NodeRef> poly_res =
+        NEXT_PASS(AutoPoly, stmt_before_poly, binds_0, target, global_attrs, false, is_dynamic, Schedule());
       enter_count++;
       CHECK_EQ(poly_res.size(), 2);
       stmt = air::Downcast<Stmt>(poly_res[0]);
