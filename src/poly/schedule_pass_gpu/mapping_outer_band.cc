@@ -595,7 +595,7 @@ isl::schedule MappingOuterBand::DetectAndMarkReduce(const isl::schedule &sch) {
       return node;
     }
 
-    isl::union_map dependences = pass_info_.dependences_;
+    isl::union_map dependences = pass_info_.dependences_.subtract(pass_info_.force_dependences_);
     auto node_bak = node;
     if (!reduce_manager.SplitReduceStatements(node, reduce_statements, dependences, true)) {
       return node_bak;

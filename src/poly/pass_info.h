@@ -79,6 +79,7 @@ class PassInfo {
   bool coincident_{true};
 
   isl::union_map dependences_;
+  isl::union_map force_dependences_;
 
   isl::union_map orig_dependences_;
   isl::union_set transfer_stmt_;

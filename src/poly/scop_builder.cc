@@ -833,7 +833,7 @@ isl::schedule MakeScheduleTreeHelper(const NodeRef &s, ScopInfo &scop_info, cons
       scop_info_.analysis_result_.RecordReduceWriteDataType(red_id);
       std::string reduce_direction;
       PostOrderVisit(op->value, [&reduce_direction, &reduce_attrs, op](const NodeRef &node) -> void {
-        if (reduce_direction == X_DIRECTION) {
+        if (reduce_direction == Y_DIRECTION) {
           return;
         }
         auto call = node.as<Call>();

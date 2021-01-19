@@ -803,6 +803,7 @@ class AnalysisResult {
   void RecordReduceInitValue(isl::id reduce_stmt);
   void RecordReduceInitIds(isl::id reduce_init_id) { reduce_init_ids_.push_back(reduce_init_id); }
   std::vector<isl::id> GetReduceInitIds() const { return reduce_init_ids_; }
+  bool IsReduceInitStmt(const isl::id id) const;
   std::unordered_map<isl::id, Expr, isl::IslIdIslHash> GetReduceInitValueMap() { return reduce_init_value_map_; }
   std::unordered_map<isl::id, Type, isl::IslIdIslHash> GetReduceWriteDtypeMap() { return reduce_write_dtype_map_; }
   bool GetEnabledAutoTiling() const { return enabled_auto_tiling_; }
