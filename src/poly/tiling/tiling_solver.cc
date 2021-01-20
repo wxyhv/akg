@@ -1055,8 +1055,8 @@ bool TraverseSolver::DoTiling(const TileInfo *info) {
     analyzer_.logger_.AppendLog(DO_TILING, ss);
   };
   if (!is_retry_ && !cons.cand_factor.empty()) {
-    for (auto cand : cons.cand_factor) {
-      int64_t t = cand.as<IntImm>()->value;
+    for (int i = static_cast<int>(cons.cand_factor.size()) - 1; i >= 0; --i) {
+      int64_t t = cons.cand_factor[i].as<IntImm>()->value;
       UpdateTile(t);
       bool mem_ok = MemoryVerify(info->level, info->band, &deviation);
       if (deviation < 0) {
