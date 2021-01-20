@@ -1029,17 +1029,18 @@ std::vector<Stmt> LowerStitchIRs(const NodeRef &block_json, StitchAttrInfo &stit
 }
 
 Module CompositeWithJsonListGpu(const Array<NodeRef> &json_str_node, const Array<NodeRef> &inputs,
-                                const Array<NodeRef> &outputs, const Map<std::string, Array<NodeRef>> &alloc_map,
-                                const Map<std::string, Array<NodeRef>> &reuse_map,
-                                const Map<std::string, Array<NodeRef>> &clean_op_map,
-                                const Map<std::string, NodeRef> &attrs, bool poly) {
+                                const Array<NodeRef> &outputs, const Array<NodeRef> &alloc_map_list,
+                                const Array<NodeRef> &reuse_map_list, const Array<NodeRef> &clean_op_map_list,
+                                const Array<NodeRef> &attrs_list, bool poly) {
   CHECK(!json_str_node.empty());
   std::vector<Stmt> block_irs;
   Array<NodeRef> all_args;
   std::unordered_map<std::string, NodeRef> outputs2args;
   std::string merge_name;
   size_t idx = 0;
-  for (auto &block_json : json_str_node) {
+  for (size_t i = 0; i < json_str_node.size(); ++i) {
+    auto &block_json = json_str_node[i];
+    auto attrs = Downcast<Map<std::string, NodeRef>>(attrs_list[i]);
     if (block_json.as<StringImm>()) {
       ++idx;
       auto single_ir =
@@ -1050,6 +1051,9 @@ Module CompositeWithJsonListGpu(const Array<NodeRef> &json_str_node, const Array
       std::vector<Stmt> stitch_irs =
         LowerStitchIRs(block_json, stitch_attr, attrs, poly, all_args, outputs2args, merge_name, idx);
       StitchBufAlloc buf_manager;
+      auto alloc_map = Downcast<Map<std::string, Array<NodeRef>>>(alloc_map_list[i]);
+      auto reuse_map = Downcast<Map<std::string, Array<NodeRef>>>(reuse_map_list[i]);
+      auto clean_op_map = Downcast<Map<std::string, Array<NodeRef>>>(clean_op_map_list[i]);
       buf_manager.BufferAllocReuse(stitch_irs, alloc_map, reuse_map, clean_op_map, outputs2args);
       auto stitched_ir = StitchFusion(stitch_irs, stitch_attr, buf_manager.stitch_buffer_map,
                                       buf_manager.buf_within_op_map, buf_manager.allocate_revoke);
