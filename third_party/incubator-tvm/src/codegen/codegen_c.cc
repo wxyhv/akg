@@ -34,6 +34,13 @@
  *     AddFunction(LoweredFunc f)
  */
 
+/*
+ * 2021.01.11
+ *   Modify the functions for data access vectorization:
+ *     VisitStmt_(const Store* op)
+ *     VisitStmt_(const For* op)
+ */
+
 #include <iomanip>
 #include <cctype>
 #include "codegen_c.h"
@@ -337,9 +344,6 @@ void CodeGenC::BindThreadIndex(const IterVar& iv) {
 }
 
 void CodeGenC::PrintStorageSync(const Call* op) { // NOLINT(*)
-}
-
-void CodeGenC::PrintReduce(const Call* op) { // NOLINT(*)
 }
 
 void CodeGenC::PrintStorageScope(const std::string& scope, std::ostream& os) { // NOLINT(*)
@@ -685,32 +689,44 @@ void CodeGenC::VisitExpr_(const Load* op, std::ostream& os) {  // NOLINT(*)
 }
 
 void CodeGenC::VisitStmt_(const Store* op) {
-  if (is_GMWrite_) {
-    is_GMWrite_ = false;
-    return;
-  }
-
   Type t = op->value.type();
   if (t.lanes() == 1) {
     std::string value = this->PrintExpr(op->value);
     std::string ref  = this->GetBufferRef(t, op->buffer_var.get(), op->index);
     this->PrintIndent();
 
-    if (in_reduce_area_) {
-      std::map<std::string, std::string>::iterator it;
-      for (it = tensor_name_mod_.begin(); it != tensor_name_mod_.end(); ++it) {
-        if (ref.find(it->first) != std::string::npos) {
-          std::string change = it->second;
-          int len = ref.size();
-          std::size_t found = value.find(ref);
-          ref = change;
-          value = value.replace(found, len, change);
-          break;
-        }
+    if (enable_vectorize_ == true) {
+      auto pos_call = value.find("[");
+      auto pos_ref = ref.find("[");
+      if (pos_ref != std::string::npos) {
+        ref = ref.substr(0, pos_ref) + ")" + ref.substr(pos_ref);
       }
+      if (pos_call != std::string::npos) {
+        value = value.substr(0, pos_call) + ")" + value.substr(pos_call);
+      }
+      ref = ref.replace(ref.find(vectorize_var_), vectorize_var_.length(), "0");
+      auto scale = std::to_string(vectorize_scale_.as<IntImm>()->value);
+      auto pos_end = ref.find("]");
+      if (pos_end != std::string::npos) {
+        ref = ref.substr(0, pos_end) + " / " + scale + ref.substr(pos_end);
+      }
+      value = value.replace(value.find(vectorize_var_), vectorize_var_.length(), "0");
+      pos_end = value.find("]");
+      if (pos_end != std::string::npos) {
+        value = value.substr(0, pos_end) + " / " + scale + value.substr(pos_end);
+      }
+      std::string target_dtype;
+      if (((vectorize_scale_.as<IntImm>()->value * op->value.type().bits()) / 32) > 1) {
+        target_dtype = std::to_string((vectorize_scale_.as<IntImm>()->value * op->value.type().bits()) / 32);
+      }
+      stream << "((float" << target_dtype << "*)" << ref << " = " 
+                     << "((float" << target_dtype << "*)" << value << ";\n";
+      enable_vectorize_ = false;
+      vectorize_var_ = "";
+      vectorize_scale_ = IntImm::make(Int(32), 1);
+    } else {
+      stream << ref << " = " << value << ";\n";
     }
-
-    stream << ref << " = " << value << ";\n";
   } else {
     CHECK(is_one(op->predicate))
         << "Predicated store is not supported";
@@ -877,20 +893,27 @@ void CodeGenC::VisitStmt_(const AssertStmt* op) {
 }
  
 void CodeGenC::VisitStmt_(const For* op) {
-  std::string min = PrintExpr(op->min);
-  std::string extent = is_zero(op->min) ? PrintExpr(op->extent) : PrintExpr(op->min + op->extent);
-  PrintIndent();
-  std::string vid = AllocVarID(op->loop_var.get());
-  stream << "for (";
-  PrintType(op->loop_var.type(), stream);
-  stream << ' ' << vid << " = " << min << "; "
-            << vid << " < " << extent
-            << "; ++" << vid << ") {\n";
-  int for_scope = BeginScope();
-  PrintStmt(op->body);
-  this->EndScope(for_scope);
-  PrintIndent();
-  stream << "}\n";
+  if (op->for_type == ir::ForType::Vectorized) {
+    enable_vectorize_ = true;
+    CHECK(op->loop_var.as<Variable>());
+    vectorize_scale_ = op->extent;
+    std::string vid = AllocVarID(op->loop_var.get());
+    vectorize_var_ = vid;
+    PrintStmt(op->body);
+  } else{
+    std::string min = PrintExpr(op->min);
+    std::string extent = is_zero(op->min) ? PrintExpr(op->extent) : PrintExpr(op->min + op->extent);
+    PrintIndent();
+    std::string vid = AllocVarID(op->loop_var.get());
+    stream << "for (";
+    PrintType(op->loop_var.type(), stream);
+    stream << ' ' << vid << " = " << min << "; " << vid << " < " << extent << "; ++" << vid << ") {\n";
+    int for_scope = BeginScope();
+    PrintStmt(op->body);
+    this->EndScope(for_scope);
+    PrintIndent();
+    stream << "}\n";
+  }
 }
 
 void CodeGenC::VisitStmt_(const IfThenElse* op) {
@@ -927,10 +950,6 @@ void CodeGenC::VisitStmt_(const Evaluate *op) {
   if (call) {
     if (call->is_intrinsic(intrinsic::tvm_storage_sync)) {
       this->PrintStorageSync(call); return;
-    } else if (call->is_intrinsic("reduce")) {
-      need_reduce_lib_ = true;
-      this->PrintReduce(call);
-      return;
     } else if (call->is_intrinsic(intrinsic::tvm_struct_set)) {
       CHECK_EQ(call->args.size(), 4);
       std::string value = PrintExpr(call->args[3]);

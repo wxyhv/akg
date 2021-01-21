@@ -1,5 +1,5 @@
 /**
- * Copyright 2019 Huawei Technologies Co., Ltd
+ * Copyright 2019-2021 Huawei Technologies Co., Ltd
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -51,6 +51,7 @@ constexpr auto kRecordCore = "record_core";
 constexpr auto kEnableBisectOptimize = "enable_bisect_optimize";
 constexpr auto kEnableCoverProtectOptimize = "enable_cover_protect_optimize";
 constexpr auto kEnableDoubleBuffer = "enable_double_buffer";
+constexpr auto kEnableTransferBuffer = "enable_transfer_buffer";
 constexpr auto kEnableUnrollLoop = "enable_unroll_loop";
 constexpr auto kAlgebraSimplify = "enable_algebra_simplify";
 constexpr auto kPromoteCommonExpr = "promote_common_expr";

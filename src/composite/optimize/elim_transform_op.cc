@@ -32,7 +32,7 @@ class ElimTransformAnalysis {
 
     for (const auto &p : result_.to_be_removed) {
       // if output removed, should collect opt.sames
-      if (g_.output_funcs.count(p->func)) {
+      if (std::find(g_.output_funcs.begin(), g_.output_funcs.end(), p->func) != g_.output_funcs.end()) {
         opt_.sames[p->func] = result_.to_be_replaced[p->func];
       }
     }
@@ -47,9 +47,10 @@ class ElimTransformAnalysis {
     CHECK(call->args[0].as<Call>());
     auto input = call->args[0].as<Call>()->func;
     // if output is kernel output and input is kernel input, cannot remove this op
-    if (!(g_.output_funcs.count(output) && g_.input_funcs.count(input))) {
-      // if not visited or input shape and output shape as same, can remove this op, change input shape to output shape,
-      // replace output tensor to input tensor
+    if (!(std::find(g_.output_funcs.begin(), g_.output_funcs.end(), output) != g_.output_funcs.end() &&
+        g_.input_funcs.count(input))) {
+      // if not visited or input shape and output shape as same, can remove this op, change input shape to output
+      // shape, replace output tensor to input tensor
       auto input_shape = result_.ShapeChanged(input) ? result_.changed_shapes[input] : g_.func_shape[input];
       auto output_shape = result_.ShapeChanged(output) ? result_.changed_shapes[output] : g_.func_shape[output];
       if (!g_.visited_funcs.count(input) || EqualShape(input_shape, output_shape)) {
@@ -140,7 +141,7 @@ class ElimTransformAnalysis {
   AnalysisResult &result_;
 };
 
-Stmt ElimTransformOp(Stmt &s, const FuncRefSet &input_funcs, const FuncRefSet &output_funcs, BuildInfoOpt &opt) {
+Stmt ElimTransformOp(Stmt &s, const FuncRefSet &input_funcs, const FuncRefList &output_funcs, BuildInfoOpt &opt) {
   auto f = StmtToGraph(input_funcs, output_funcs);
   f.Visit(s);
   AnalysisResult result;

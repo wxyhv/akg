@@ -1,5 +1,5 @@
 /**
- * Copyright 2020 Huawei Technologies Co., Ltd
+ * Copyright 2020-2021 Huawei Technologies Co., Ltd
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -80,20 +80,28 @@ isl::schedule_node InsertContextNode(isl::schedule_node &node, ScopInfo &scop_in
   // step1. get config
   std::unordered_map<isl::id, int, isl::IslIdIslHash> mapping_ids_with_sizes;
   auto block_cfg = scop_info.user_config_.GetBlockConfig();
-  CHECK(block_cfg != nullptr) << "blockconfig is null";
+  CHECK(block_cfg != nullptr) << "block config is null";
 
   auto thread_cfg = scop_info.user_config_.GetThreadConfig();
-  CHECK(thread_cfg != nullptr) << "threadconfig is null";
+  CHECK(thread_cfg != nullptr) << "thread config is null";
 
-  for (size_t i = 0; i < block_cfg->bound; ++i) {
-    std::pair<std::string, int> bi = block_cfg->GetAt(i);
-    auto id = isl::id(node.ctx(), bi.first);
-    mapping_ids_with_sizes.insert({id, bi.second});
-  }
-  for (size_t i = 0; i < thread_cfg->bound; ++i) {
-    std::pair<std::string, int> ti = thread_cfg->GetAt(i);
-    auto id = isl::id(node.ctx(), ti.first);
-    mapping_ids_with_sizes.insert({id, ti.second});
+  auto InsertMappingConfig = [&mapping_ids_with_sizes, node](MappingCfg *mapping_cfg) -> void {
+    for (size_t i = 0; i < mapping_cfg->bound; ++i) {
+      std::pair<std::string, int> pair_i = mapping_cfg->GetAt(i);
+      auto id = isl::id(node.ctx(), pair_i.first);
+      mapping_ids_with_sizes.insert({id, pair_i.second});
+    }
+  };
+
+  InsertMappingConfig(block_cfg);
+  InsertMappingConfig(thread_cfg);
+
+  auto replace_cfg_map = scop_info.user_config_.GetReplaceConfig();
+  for (auto replace_cfg : replace_cfg_map) {
+    if (!scop_info.user_config_.GetEnableTensorCoreUsePoly() && replace_cfg.first == WARP_COMPUTE) {
+      continue;
+    }
+    InsertMappingConfig(replace_cfg.second);
   }
 
   // step2. construct context
@@ -307,6 +315,86 @@ bool ReplaceScheduleTree(isl::schedule &schedule, ScopInfo &info) {
   }
   return false;
 }
+
+std::vector<int> GetTileSizeOfLevel(const int member_size, const int dim_size, const std::string &tile_level,
+                                    TileSizes tile_sizes, const int count_coincident) {
+  std::vector<int> tile_size(member_size, 0);
+  for (auto i = 0; i < member_size; ++i) {
+    if (i >= dim_size) {
+      tile_size[i] = MAX_STRIDE;
+      continue;
+    }
+    // tile_size maybe bigger than dim_num
+    if (tile_level == L0) {
+      tile_size[i] = static_cast<int>(tile_sizes[i].l0_tiling_size);
+    } else if (tile_level == L1) {
+      tile_size[i] = static_cast<int>(tile_sizes[i].l1_tiling_size);
+    } else {
+      // The tiling size of n and m is warp_number times of l0_tiling_size, which is equivalent to extracting the for
+      // loop generated during mapping.This avoids the if condition and facilitates isl_emitter.
+      tile_size[i] = (i < count_coincident) ? static_cast<int>(tile_sizes[i].l1_tiling_size)
+                                            : static_cast<int>(tile_sizes[i].l0_tiling_size);
+    }
+  }
+  return tile_size;
+}
+
+std::string GetPromotionTensorName(const isl::schedule_node &node, const std::vector<BufferDefInfo> &buffer_def_infos) {
+  std::string id_name = "";
+  if (!node.isa<isl::schedule_node_band>()) {
+    return id_name;
+  }
+  for (size_t i = 0; i < buffer_def_infos.size(); ++i) {
+    auto tensor_id = buffer_def_infos[i].tensor_id;
+    isl::union_set id_domain = node.as<isl::schedule_node_band>().get_partial_schedule().domain();
+    id_domain.foreach_set([tensor_id, &id_name](const isl::set &s) -> void {
+      if (s.to_str().find(tensor_id.get_name()) != std::string::npos) {
+        id_name = tensor_id.get_name();
+      }
+    });
+
+    if (!id_name.empty()) {
+      break;
+    }
+  }
+  return id_name;
+}
+
+bool IsReadOrWriteTensor(const isl::schedule_node &node, const std::string read_name, const std::string write_name) {
+  // transform isl::union_set to a vector of isl::set
+  if (!node.isa<isl::schedule_node_filter>()) {
+    return false;
+  }
+  isl::union_set uset = node.as<isl::schedule_node_filter>().get_filter();
+  std::vector<isl::set> vset;
+  uset.foreach_set([&vset](isl::set s) { vset.push_back(s); });
+
+  bool is_all_sets_read_or_write = std::all_of(vset.begin(), vset.end(), [read_name, write_name](isl::set s) {
+    auto read_id = isl::id(s.ctx(), read_name);
+    auto write_id = isl::id(s.ctx(), write_name);
+    return s.get_tuple_id() == read_id || s.get_tuple_id() == write_id;
+  });
+  return is_all_sets_read_or_write;
+}
+
+isl::schedule_node GetCanMappingNode(const isl::schedule_node &node) {
+  // It is not allowed multi filter-band pairs below a read/write filter.
+  int count_filter_band_pair = 0;
+  node.foreach_descendant_top_down([&count_filter_band_pair](const isl::schedule_node &sub_node) -> bool {
+    if (sub_node.isa<isl::schedule_node_filter>() && sub_node.n_children() > 0 &&
+        sub_node.child(0).isa<isl::schedule_node_band>()) {
+      count_filter_band_pair++;
+    }
+    return true;
+  });
+  CHECK(count_filter_band_pair == 1) << "multi filter-> band pairs exist in a read/write filter subtree.";
+
+  auto band_node = node.child({0});
+  CHECK(band_node.isa<isl::schedule_node_band>()) << "Type of Node must be band.";
+
+  return band_node;
+}
+
 }  // namespace poly
 }  // namespace ir
 }  // namespace akg

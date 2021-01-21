@@ -1,5 +1,5 @@
 /**
- * Copyright 2020 Huawei Technologies Co., Ltd
+ * Copyright 2020-2021 Huawei Technologies Co., Ltd
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -29,6 +29,27 @@ void GpuDmaAnalysisStrategy::AddGpuConstraint() {
 }
 
 void CastStrategy::AddGpuConstraint() { MarkDataSize(); }
+
+void GemmStrategy::AddGpuConstraint() {
+  if (!analyzer_->scop_info_.user_config_.GetEnableTensorCore()) {
+    return;
+  }
+  auto interested_info = GetInterestedInfo(interested_attr_key);
+  for (auto it : interested_info) {
+    TileAxis *axis = it.first;
+    axis->TileRestrainToSingleValue(CastIntToExpr(64), TileLevel::LEVEL1);
+    axis->TileRestrainToSingleValue(CastIntToExpr(16), TileLevel::LEVEL0);
+    for (const auto &attr : it.second) {
+      if (attr.attr_value == "mi") {
+        axis->thread_constraints.map_min_ = warp_sizes_;
+        axis->thread_constraints.map_extent_ = warp_sizes_;
+      } else if (attr.attr_value == "ni") {
+        axis->thread_constraints.map_min_ = 4;
+        axis->thread_constraints.map_extent_ = 4;
+      }
+    }
+  }
+}
 
 void ReduceStrategy::AddGpuConstraint() {
   // TODO: compare XLA's reduction tiling/mapping strategy with current strategy
@@ -153,24 +174,32 @@ void ReduceStrategy::AkgReduceLibStrategyOnGpu() {
 
   int64_t min_blocks = square_thread ? 32 : 512;
   int64_t min_elem_per_thread = use_local ? 2 : 8;
-
+  int64_t min_ty = 8;
   if (total_injective_size * total_reduce_size / min_blocks / max_num_threads_ < min_elem_per_thread) {
-    square_thread = true;
     min_blocks = 32;
+    min_ty = square_thread ? min_ty : 1;
   }
 
   std::pair<int64_t, int64_t> tx_range{1, max_num_threads_};
   std::pair<int64_t, int64_t> ty_range{1, max_num_threads_};
+  auto AlignToPowerOfTwo = [](int64_t original_factor) -> int64_t {
+    while ((original_factor) & (original_factor - 1)) {
+      --original_factor;
+    }
+    return original_factor;
+  };
   if (square_thread) {
-    tx_range.first = std::min(warp_sizes_, total_injective_size);
-    ty_range.first = std::min<int64_t>(8, total_reduce_size);
-    tx_range.second = std::min<int64_t>(tx_range.second, ceil(static_cast<float>(tx_range.second) / ty_range.first));
-    tx_range.second = std::min(tx_range.second, total_injective_size);
+    tx_range.first = AlignToPowerOfTwo(std::min(warp_sizes_, total_injective_size));
+    ty_range.first = AlignToPowerOfTwo(std::min<int64_t>(min_ty, total_reduce_size));
+    tx_range.second =
+      AlignToPowerOfTwo(std::min<int64_t>(tx_range.second, ceil(static_cast<float>(tx_range.second) / ty_range.first)));
+    tx_range.second = AlignToPowerOfTwo(std::min(tx_range.second, total_injective_size));
   } else {
-    tx_range.first = std::min(warp_sizes_, total_reduce_size);
-    ty_range.first = std::min<int64_t>(8, total_injective_size);
-    tx_range.second = std::min<int64_t>(tx_range.second, ceil(static_cast<float>(tx_range.second) / ty_range.first));
-    tx_range.second = std::min(tx_range.second, total_reduce_size);
+    tx_range.first = AlignToPowerOfTwo(std::min(warp_sizes_, total_reduce_size));
+    ty_range.first = AlignToPowerOfTwo(std::min<int64_t>(min_ty, total_injective_size));
+    tx_range.second =
+      AlignToPowerOfTwo(std::min<int64_t>(tx_range.second, ceil(static_cast<float>(tx_range.second) / ty_range.first)));
+    tx_range.second = AlignToPowerOfTwo(std::min(tx_range.second, total_reduce_size));
   }
   ty_range.second =
     std::min(ty_range.second, static_cast<int64_t>(ceil(static_cast<float>(ty_range.second) / tx_range.second)));
@@ -332,7 +361,7 @@ void ReduceStrategy::DealWithPostReduceTensors() {
 
 void GpuStrategy::AddGpuConstraint() {
   InitMappingLimit();
-  if (template_ == Template::BROADCAST_OP) {
+  if (template_ == Template::BROADCAST_OP || template_ == Template::CUSTOM_CONFIG) {
     BroadcastSpeedup();
   }
   BuildAxesQueue();
@@ -579,6 +608,9 @@ void GpuStrategy::InnerThreadOuterBlock() {
 void GpuStrategy::SetMappingConfig() {
   std::stringstream ss;
   ss << "Use template " << template_map_[template_];
+  if (template_ == Template::REDUCTION) {
+    ss << "(" << analyzer_->scop_info_.analysis_result_.GetReduceDirection() << ")";
+  }
   analyzer_->logger_.AppendLog(GPU_MAPPING, ss);
   if (thread_cfg_.empty()) {
     thread_cfg_.emplace_back(1);
@@ -814,6 +846,10 @@ void GpuStrategy::AdjustThreadMappingLimit() {
 }
 
 void GpuStrategy::InjectiveSpeedup() {
+  // not need speedup if thread_cfg_ or block_cfg_ is empty
+  if (thread_cfg_.size() == 0 || block_cfg_.size() == 0) {
+    return;
+  }
   analyzer_->logger_.AppendLine(GPU_MAPPING, "InjectiveSpeedup");
   std::stringstream ss;
   std::vector<TileAxis *> injective_axes;
@@ -990,7 +1026,9 @@ void GpuStrategy::AnalyzeBroadcastIdx() {
 }
 
 void GpuStrategy::GpuScalarBroadcastStrategy() {
-  template_ = Template::PURE_ELEM;  // change template to enable injective speed up
+  if (template_ != Template::CUSTOM_CONFIG) {
+    template_ = Template::PURE_ELEM;  // change template to enable injective speed up
+  }
   auto broadcast_axes = analyzer_->GetAxesContainsAttr(AT_BROADCAST);
   if (broadcast_axes.empty()) {
     return;
@@ -1108,8 +1146,6 @@ void ShiftAxisStrategy::AddGpuConstraint() {}
 void ModShiftAxisStrategy::AddGpuConstraint() {}
 
 void ConvStrategy::AddGpuConstraint() {}
-
-void GemmStrategy::AddGpuConstraint() {}
 
 // end of null constraint
 

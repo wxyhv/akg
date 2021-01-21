@@ -1,5 +1,5 @@
 /**
- * Copyright 2020 Huawei Technologies Co., Ltd
+ * Copyright 2020-2021 Huawei Technologies Co., Ltd
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -72,4 +72,4 @@ __device__ __forceinline__ void DirectReturn2DY(OutputT *shared_buf, OutputT *ou
 
 }  // namespace akg_reduce
 
-#endif // AKG_REDUCE_STORE_H
+#endif  // AKG_REDUCE_STORE_H

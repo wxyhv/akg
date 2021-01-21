@@ -19,6 +19,8 @@
 This module provides the functions to transform schedule to
 LoweredFunc and compiled Module.
 """
+# 2021.01.13 - Modify variable unroll_explicit to False.
+
 from __future__ import absolute_import as _abs
 import warnings
 
@@ -134,7 +136,7 @@ class BuildConfig(NodeBase):
         "auto_unroll_max_step": 0,
         "auto_unroll_max_depth": 8,
         "auto_unroll_max_extent": 0,
-        "unroll_explicit": True,
+        "unroll_explicit": False,
         "detect_global_barrier": False,
         "partition_const_loop": False,
         "offset_factor": 0,

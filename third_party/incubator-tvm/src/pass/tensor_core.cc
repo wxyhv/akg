@@ -20,6 +20,12 @@
 /*!
  * \file tensor_core.cc
  */
+
+/*!
+ * 2021.01.11
+ *     Modify the pass to enable TensorCore for AKG.
+ */
+
 // IR Passes for TensorCore CodeGen
 #include <tvm/ir.h>
 #include <tvm/expr.h>
@@ -32,6 +38,7 @@
 #include <tvm/target_info.h>
 #include <tvm/build_module.h>
 #include <tvm/runtime/device_api.h>
+#include <cmath>
 #include <unordered_map>
 #include "ir_util.h"
 #include "../arithmetic/compute_expr.h"
@@ -52,12 +59,15 @@ struct Tile {
 };
 
 std::string simplify_name(std::string input) {
-  auto pos = input.find(".");
-  if (pos != std::string::npos) {
-    return input.substr(0, pos);
-  } else {
-    return input;
+  auto pos_shared = input.find("_shared");
+  if (pos_shared != std::string::npos) {
+    return input.substr(0, pos_shared);
   }
+  auto pos_local = input.find("_local");
+  if (pos_local != std::string::npos) {
+    return input.substr(0, pos_local);
+  }
+  return input;
 }
 
 Expr unpack_type_cast(const Expr &input, const Type &target_type) {
@@ -88,8 +98,11 @@ class MMAMatcher: public IRVisitor {
 
   void Visit_(const AttrStmt* op) final {
     if (op->attr_key == attr::pragma_tensor_core) {
-      tensor_core_on_ = true;
-      IRVisitor::Visit_(op);
+      CHECK(op->value.as<StringImm>());
+      if (op->value.as<StringImm>()->value == "1") {
+        tensor_core_on_ = true;
+        IRVisitor::Visit_(op);
+      }
     } else if (op->attr_key == attr::realize_scope) {
       storage_scope_[op->node.get()] = op->value.as<StringImm>()->value;
       Visit(op->body);
@@ -185,7 +198,7 @@ class MMAMatcher: public IRVisitor {
     BufferInfo buffer_c;
     if (!check_local_buffer_(load_c, &buffer_c)
         || !buffer_c.same_as(store_buffer)
-        || !(buffer_c.dtype == Float(32) ||
+        || !(buffer_c.dtype == Float(16) || buffer_c.dtype == Float(32) ||
              buffer_c.dtype == Int(32))) {
       return false;
     }
@@ -235,7 +248,7 @@ class MMAMatcher: public IRVisitor {
 
 // BodyVisitor visits the body stmt of original ComputeOp
 // to get the access indices of input matrices,
-// if it is recognized as matrix multiply.
+// if it is recognized as matrix multiAdaptply.
 class BodyVisitor : public IRVisitor {
  public:
   BodyVisitor() {}
@@ -279,8 +292,8 @@ class ScheduleAnalyser {
 
   bool MatrixIdentify(Schedule schedule) {
     // TODO(minmin): handle the case where MatMul is not the output stage
-    for (Operation output : schedule->outputs) {
-      const ComputeOpNode* compute = output.as<ComputeOpNode>();
+    for (Stage s : schedule->stages) {
+      const ComputeOpNode* compute = s->op.as<ComputeOpNode>();
       if (compute == nullptr) {
         // Not a ComputeOp
         continue;
@@ -315,16 +328,16 @@ class ScheduleAnalyser {
           continue;
         }
         std::string matrix_abc, major;
-        if (var0 == reduce_axis_var && var1 == axis_var[1]) {
+        if (var0 == reduce_axis_var && var1 == axis_var[0]) {
           matrix_abc = "matrix_a";
           major = "col_major";
-        } else if (var0 == reduce_axis_var && var1 == axis_var[0]) {
+        } else if (var0 == reduce_axis_var && var1 == axis_var[1]) {
           matrix_abc = "matrix_b";
           major = "row_major";
-        } else if (var0 == axis_var[1] && var1 == reduce_axis_var) {
+        } else if (var0 == axis_var[0] && var1 == reduce_axis_var) {
           matrix_abc = "matrix_a";
           major = "row_major";
-        } else if (var0 == axis_var[0] && var1 == reduce_axis_var) {
+        } else if (var0 == axis_var[1] && var1 == reduce_axis_var) {
           matrix_abc = "matrix_b";
           major = "col_major";
         }
@@ -332,7 +345,7 @@ class ScheduleAnalyser {
         matrix_major_.insert(std::make_pair(name, major));
       }
       matrix_abc_.insert(std::make_pair(compute->name, "accumulator"));
-      matrix_major_.insert(std::make_pair(compute->name, "col_major"));
+      matrix_major_.insert(std::make_pair(compute->name, "row_major"));
     }
 
     for (auto &mma_sync : mma_sync_) {
@@ -418,6 +431,10 @@ class BufferAnalyser : public IRVisitor {
                 value->value));
       }
       IRVisitor::Visit_(op);
+    } else if (op->attr_key == attr::bind_thread_x) {
+      bind_thread_x_ = op->value.as<IntImm>()->value;
+      vectorization_ = true;
+      IRVisitor::Visit_(op);
     } else if (op->attr_key == attr::realize_scope) {
       storage_scope_[op->node.get()] = op->value.as<StringImm>()->value;
       Visit(op->body);
@@ -439,6 +456,48 @@ class BufferAnalyser : public IRVisitor {
   }
 
   void Visit_(const Provide* op) final {
+    int num_warp = -1;
+    if (bind_thread_x_ != -1) {
+      auto itx = thread_extent_.find("threadIdx.x");
+      if (itx == thread_extent_.end()) {
+        invalid_ = true;
+      }
+      thread_extent_["threadIdx.y"] = itx->second / bind_thread_x_;
+      thread_extent_["threadIdx.x"] = bind_thread_x_;
+    }
+    bind_thread_x_ = -1;
+    auto itx = thread_extent_.find("threadIdx.x");
+    if (itx == thread_extent_.end()) {
+      invalid_ = true;
+    }
+    auto ity = thread_extent_.find("threadIdx.y");
+    if (ity == thread_extent_.end()) {
+      invalid_ = true;
+    }
+    num_warp = std::ceil(itx->second * ity->second / 32);
+    int warp_threads_x = std::min(itx->second, 32);
+    int warp_distribute = std::sqrt(num_warp);
+
+    warp_tile_.m = std::max(warp_threads_x, 32) / warp_distribute;
+    warp_threads_y_ = warp_distribute * 32 / warp_threads_x;
+    warp_threads_x = warp_threads_x / warp_distribute;
+    
+    if (ity->second < warp_threads_y_ || ity->second % warp_threads_y_ != 0) {
+      invalid_ = true;
+    }
+    if (warp_tile_.m == 32) {
+      warp_tile_.n = 8;
+    } else if (warp_tile_.m == 16) {
+      warp_tile_.n = 16;
+    } else if (warp_tile_.m == 8) {
+      warp_tile_.n = 32;
+    } else {
+      invalid_ = true;
+    }
+    warp_tile_.k = thread_tile_.k;
+    thread_tile_.m = warp_tile_.m / warp_threads_x;
+    thread_tile_.n = warp_tile_.n / warp_threads_y_;
+
     IRVisitor::Visit_(op);
     TensorKey key{op->func, op->value_index};
     auto it = buf_map_.find(key);
@@ -462,21 +521,7 @@ class BufferAnalyser : public IRVisitor {
       }
     }
 
-    Array<Expr> strides;
-    if (bi.strides.size() > 0) {
-      strides = bi.strides;
-    } else {
-      for (size_t i = 1; i < bi.shape.size(); ++i) {
-        Expr stride = IntImm::make(Int(32), 1);
-        for (size_t j = bi.shape.size() - 1; j >= i; --j) {
-          stride = Mul::make(stride, bi.shape[j]);
-        }
-        strides.push_back(stride);
-      }
-      strides.push_back(make_const(Int(32), 1));
-    }
-    strides_.insert(std::make_pair(key.GetName(), strides));
-
+    std::vector<int> tile_size;
     if (frag_reg_.count(bi.name)) {
       Expr dst = Call::make(bi.dtype,
                             bi.name,
@@ -491,54 +536,196 @@ class BufferAnalyser : public IRVisitor {
         invalid_ = true;
         return;
       }
-      std::vector<int> tile_size;
-      for (auto i = op->args.size() - 1; i + 2 >= op->args.size(); --i) {
-        index_visitor.scaling_factor_ = 16;
-        if (const IntImm* shape = bi.shape[i].as<IntImm>()) {
-          tile_size.push_back(shape->value);
-          index_visitor.scaling_factor_ = shape->value;
-        } else {
-          invalid_ = true;
-          return;
-        }
-        auto index = rel_index[i];
-        auto simplified_index = ir::Simplify(index);
-        index_visitor.Visit(simplified_index);
-      }
-
+      
       std::string input_name = simplify_name(bi.name);
       auto it = matrix_abc_.find(input_name);
       auto it2 = matrix_major_.find(input_name);
       bool ret = true;
       if (it != matrix_abc_.end() && it2 != matrix_major_.end()) {
         if (it->second == "matrix_a" && it2->second == "col_major") {
+          tile_size.push_back(thread_tile_.m);
+          tile_size.push_back(thread_tile_.k);
+          for (auto i = op->args.size() - 1; i + 2 >= op->args.size(); --i) {
+            index_visitor.scaling_factor_ = 16;
+            if (const IntImm* shape = bi.shape[i].as<IntImm>()) {
+              if (i == (op->args.size() - 2)) {
+                tile_size[op->args.size() - 1 - i] = shape->value;
+                index_visitor.scaling_factor_ = shape->value;
+              } else if (i == (op->args.size() - 1)) {
+                int dim2 = shape->value * warp_threads_x;
+                if (dim2 == 16) {
+                  warp_tile_.m = 16;
+                  warp_tile_.n =16;
+                  thread_tile_.m = warp_tile_.m / warp_threads_x;
+                  thread_tile_.n = warp_tile_.n / warp_threads_y_;
+                }
+                if (dim2 == 8) {
+                  warp_tile_.m = 8;
+                  warp_tile_.n = 32;
+                  thread_tile_.m = warp_tile_.m / warp_threads_x;
+                  thread_tile_.n = warp_tile_.n / warp_threads_y_;
+                }
+                index_visitor.scaling_factor_ = tile_size[op->args.size() - 1 - i];
+              } else {
+                index_visitor.scaling_factor_ = tile_size[op->args.size() - 1 - i];
+              }
+            } else {
+              invalid_ = true;
+              return;
+            }
+            auto index = rel_index[i];
+            auto simplified_index = ir::Simplify(index);
+            index_visitor.Visit(simplified_index);
+          }
           ret &= assign_or_check_(&thread_tile_.m, tile_size[0]);
           ret &= assign_or_check_(&thread_tile_.k, tile_size[1]);
         }
         if (it->second == "matrix_a" && it2->second == "row_major") {
+          tile_size.push_back(thread_tile_.k);
+          tile_size.push_back(thread_tile_.m);
+          for (auto i = op->args.size() - 1; i + 2 >= op->args.size(); --i) {
+            index_visitor.scaling_factor_ = 16;
+            if (const IntImm* shape = bi.shape[i].as<IntImm>()) {
+              if (i == (op->args.size() - 1)) {
+                tile_size[op->args.size() - 1 - i] = shape->value;
+                index_visitor.scaling_factor_ = shape->value;
+              } else if (i == (op->args.size() - 2)) {
+                int dim2 = shape->value * warp_threads_x;
+                if (dim2 == 16) {
+                  warp_tile_.m = 16;
+                  warp_tile_.n =16;
+                  thread_tile_.m = warp_tile_.m / warp_threads_x;
+                  thread_tile_.n = warp_tile_.n / warp_threads_y_;
+                }
+                if (dim2 == 8) {
+                  warp_tile_.m = 8;
+                  warp_tile_.n = 32;
+                  thread_tile_.m = warp_tile_.m / warp_threads_x;
+                  thread_tile_.n = warp_tile_.n / warp_threads_y_;
+                }
+                index_visitor.scaling_factor_ = tile_size[op->args.size() - 1 - i];
+              } else {
+                index_visitor.scaling_factor_ = tile_size[op->args.size() - 1 - i];
+              }
+            } else {
+              invalid_ = true;
+              return;
+            }
+            auto index = rel_index[i];
+            auto simplified_index = ir::Simplify(index);
+            index_visitor.Visit(simplified_index);
+          }
           ret &= assign_or_check_(&thread_tile_.k, tile_size[0]);
           ret &= assign_or_check_(&thread_tile_.m, tile_size[1]);
         }
         if (it->second == "matrix_b" && it2->second == "col_major") {
+          tile_size.push_back(thread_tile_.k);
+          tile_size.push_back(thread_tile_.n);
+          for (auto i = op->args.size() - 1; i + 2 >= op->args.size(); --i) {
+            index_visitor.scaling_factor_ = 16;
+            if (const IntImm* shape = bi.shape[i].as<IntImm>()) {
+              if (i == (op->args.size() - 1)) {
+                tile_size[op->args.size() - 1 - i] = shape->value;
+                index_visitor.scaling_factor_ = shape->value;
+              } else {
+                index_visitor.scaling_factor_ = tile_size[op->args.size() - 1 - i];
+              }
+            } else {
+              invalid_ = true;
+              return;
+            }
+            auto index = rel_index[i];
+            auto simplified_index = ir::Simplify(index);
+            index_visitor.Visit(simplified_index);
+          }
           ret &= assign_or_check_(&thread_tile_.k, tile_size[0]);
           ret &= assign_or_check_(&thread_tile_.n, tile_size[1]);
         }
         if (it->second == "matrix_b" && it2->second == "row_major") {
+          tile_size.push_back(thread_tile_.n);
+          tile_size.push_back(thread_tile_.k);
+          for (auto i = op->args.size() - 1; i + 2 >= op->args.size(); --i) {
+            index_visitor.scaling_factor_ = 16;
+            if (const IntImm* shape = bi.shape[i].as<IntImm>()) {
+              if (i == (op->args.size() - 2)) {
+                tile_size[op->args.size() - 1 - i] = shape->value;
+                index_visitor.scaling_factor_ = shape->value;
+              } else {
+                index_visitor.scaling_factor_ = tile_size[op->args.size() - 1 - i];
+              }
+            } else {
+              invalid_ = true;
+              return;
+            }
+            auto index = rel_index[i];
+            auto simplified_index = ir::Simplify(index);
+            index_visitor.Visit(simplified_index);
+          }
           ret &= assign_or_check_(&thread_tile_.n, tile_size[0]);
           ret &= assign_or_check_(&thread_tile_.k, tile_size[1]);
         }
         if (it->second == "accumulator") {
-          ret &= assign_or_check_(&thread_tile_.m, tile_size[0]);
-          ret &= assign_or_check_(&thread_tile_.n, tile_size[1]);
+          tile_size.push_back(thread_tile_.n);
+          tile_size.push_back(thread_tile_.m);
+          for (auto i = op->args.size() - 1; i + 2 >= op->args.size(); --i) {
+            index_visitor.scaling_factor_ = 16;
+            if (bi.shape[i].as<IntImm>()) {
+              index_visitor.scaling_factor_ = tile_size[op->args.size() - 1 - i];
+            } else {
+              invalid_ = true;
+              return;
+            }
+            auto index = rel_index[i];
+            auto simplified_index = ir::Simplify(index);
+            index_visitor.Visit(simplified_index);
+          }
+          ret &= assign_or_check_(&thread_tile_.n, tile_size[0]);
+          ret &= assign_or_check_(&thread_tile_.m, tile_size[1]);
         }
         if (!ret) {
           invalid_ = true;
           return;
         }
       }
+      Array<Expr> strides;
+      if (bi.strides.size() > 0) {
+        strides = bi.strides;
+      } else {
+        for (size_t i = 1; i < bi.shape.size(); ++i) {
+          Expr stride = IntImm::make(Int(32), 1);
+          for (size_t j = bi.shape.size() - 1; j >= i; --j) {
+            stride = Mul::make(stride, tile_size[2 - j]);
+          }
+          strides.push_back(stride);
+        }
+        strides.push_back(make_const(Int(32), 1));
+      }
+      strides_.insert(std::make_pair(key.GetName(), strides));
     }
 
     const Call* value = op->value.as<Call>();
+
+    auto pos_shared = bi.name.find("_shared");
+    auto pos_local = bi.name.find("_local");
+    if (pos_local == std::string::npos && pos_shared == std::string::npos && value != nullptr) {
+      auto it_store = matrix_abc_.find(simplify_name(value->name));
+      if (it_store != matrix_abc_.end() && it_store->second == "accumulator") {
+        Array<Expr> strides;
+        if (bi.strides.size() > 0) {
+          strides = bi.strides;
+        } else {
+          for (size_t i = 1; i < bi.shape.size(); ++i) {
+            Expr stride = IntImm::make(Int(32), 1);
+            for (size_t j = bi.shape.size() - 1; j >= i; --j) {
+              stride = Mul::make(stride, bi.shape[j]);
+            }
+            strides.push_back(stride);
+          }
+          strides.push_back(make_const(Int(32), 1));
+        }
+        strides_.insert(std::make_pair(key.GetName(), strides));
+      }
+    }
     if (value != nullptr && frag_reg_.count(value->name)) {
       Expr dst = Call::make(bi.dtype,
                             bi.name,
@@ -602,7 +789,18 @@ class BufferAnalyser : public IRVisitor {
       for (auto i = op->args.size() - 1; i + 2 >= op->args.size(); --i) {
         index_visitor.scaling_factor_ = 16;
         if (const IntImm* shape = bi.shape[i].as<IntImm>()) {
-          index_visitor.scaling_factor_ = shape->value;
+          auto it_matrix = matrix_abc_.find(simplify_name(op->name));
+          if ((it_matrix != matrix_abc_.end()) && (it_matrix->second == "accumulator")) {
+            if (i == op->args.size() - 1) {
+              index_visitor.scaling_factor_ = thread_tile_.n;
+            } else if (i == op->args.size() - 2) {
+              index_visitor.scaling_factor_ = thread_tile_.m;
+            } else {
+              index_visitor.scaling_factor_ = shape->value;
+            }
+          } else{
+            index_visitor.scaling_factor_ = shape->value;
+          }
         }
         auto index = rel_index[i];
         auto simplified_index = ir::Simplify(index);
@@ -664,22 +862,6 @@ class BufferAnalyser : public IRVisitor {
     if (invalid_) {
       return false;
     }
-    auto itx = thread_extent_.find("threadIdx.x");
-    if (itx == thread_extent_.end()) {
-      return false;
-    }
-    int warp_threads_x = itx->second;
-    warp_tile_.m = warp_threads_x * thread_tile_.m;
-    warp_threads_y_ = 32 / warp_threads_x;
-    auto ity = thread_extent_.find("threadIdx.y");
-    if (ity == thread_extent_.end()) {
-      return false;
-    }
-    if (ity->second < warp_threads_y_ || ity->second % warp_threads_y_ != 0) {
-      return false;
-    }
-    warp_tile_.n = warp_threads_y_ * thread_tile_.n;
-    warp_tile_.k = thread_tile_.k;
     return supported_warp_tile_();
   }
 
@@ -727,17 +909,26 @@ class BufferAnalyser : public IRVisitor {
   bool supported_warp_tile_() {
     if (warp_tile_.m == 16 &&
         warp_tile_.n == 16 &&
+        warp_tile_.k == 4) {
+      wmma_scope_ = "akg";
+      return true;
+    }
+    if (warp_tile_.m == 16 &&
+        warp_tile_.n == 16 &&
         warp_tile_.k == 16) {
+      wmma_scope_ = "nvcuda";
       return true;
     }
     if (warp_tile_.m == 8 &&
         warp_tile_.n == 32 &&
         warp_tile_.k == 16) {
+      wmma_scope_ = "nvcuda";
       return true;
     }
     if (warp_tile_.m == 32 &&
         warp_tile_.n == 8 &&
         warp_tile_.k == 16) {
+      wmma_scope_ = "nvcuda";
       return true;
     }
     return false;
@@ -757,26 +948,42 @@ class BufferAnalyser : public IRVisitor {
   Tile warp_tile_;
   Tile thread_tile_;
   int warp_threads_y_{-1};
+  int bind_thread_x_{-1};
   bool invalid_{false};
+  bool vectorization_{false};
+  std::string wmma_scope_;
 };
 
-// ThreadIdxMutator does the thread index unification inside a warp
-class ThreadIdxMutator : public IRMutator {
+// ThreadIdxMutatorForVectorize does the thread index unification inside a warp when do vectorization
+class ThreadIdxMutatorForVectorize : public IRMutator {
  public:
-  explicit ThreadIdxMutator(Expr warp_y): warp_y_(warp_y) {}
+  explicit ThreadIdxMutatorForVectorize(Expr warp_y, Expr warp_tile_m, Expr warp_tile_n, int bind_thread_x)
+      : warp_y_(warp_y), warp_tile_m_(warp_tile_m), warp_tile_n_(warp_tile_n), bind_thread_x_(bind_thread_x) {}
 
-  Expr Mutate_(const Variable* op, const Expr& olde) final {
+  Expr Mutate_(const Div* op, const Expr& olde) final {
     Expr expr = IRMutator::Mutate_(op, olde);
-    op = expr.as<Variable>();
-    if (op != nullptr) {
-      if (op->name_hint == "threadIdx.x") {
-        Expr zero = IntImm::make(Int(32), 0);
-        return zero;
-      }
-      if (op->name_hint == "threadIdx.y") {
+    if (op->a.as<Variable>() && op->b.as<IntImm>()) {
+      auto div_a = op->a.as<Variable>();
+      auto div_b = op->b.as<IntImm>();
+      if (div_a->name_hint == "threadIdx.x" && div_b->value == bind_thread_x_) {
         Expr div = Div::make(expr, warp_y_);
-        Expr mul = Mul::make(div, warp_y_);
-        return mul;
+        return Mul::make(div, warp_tile_n_);
+      }
+    }
+    return expr;
+  }
+
+  Expr Mutate_(const Mod* op, const Expr& olde) final {
+    Expr expr = IRMutator::Mutate_(op, olde);
+    if (op->a.as<Variable>() && op->b.as<IntImm>()) {
+      auto mod_a = op->a.as<Variable>();
+      auto mod_b = op->b.as<IntImm>();
+      if (mod_a->name_hint == "threadIdx.x" && mod_b->value == bind_thread_x_) {
+        Expr warp = Mul::make(op->b, warp_y_);
+        Expr mod = Mod::make(op->a, warp);
+        Expr warp_thread = IntImm::make(Int(32), 32);
+        Expr div = Div::make(mod, warp_thread);
+        return Mul::make(div, warp_tile_m_);
       }
     }
     return expr;
@@ -784,6 +991,55 @@ class ThreadIdxMutator : public IRMutator {
 
  private:
   Expr warp_y_;
+  Expr warp_tile_m_;
+  Expr warp_tile_n_;
+  int bind_thread_x_;
+};
+
+// ThreadIdxMutator does the thread index unification inside a warp
+class ThreadIdxMutator : public IRMutator {
+ public:
+  explicit ThreadIdxMutator(Expr warp_y, Expr warp_tile_n): warp_y_(warp_y), warp_tile_n_(warp_tile_n) {}
+
+  Expr Mutate_(const Variable* op, const Expr& olde) final {
+    Expr expr = IRMutator::Mutate_(op, olde);
+    op = expr.as<Variable>();
+    if (op != nullptr) {
+      if (op->name_hint == "threadIdx.x") {
+        return IntImm::make(Int(32), 0);
+      }
+      if (op->name_hint == "threadIdx.y") {
+        Expr div = Div::make(expr, warp_y_);
+        return Mul::make(div, warp_tile_n_);
+      }
+    }
+    return expr;
+  }
+
+ private:
+  Expr warp_y_;
+  Expr warp_tile_n_;
+};
+
+// ThreadTileScaleMutator does the thread scale unification inside a warp
+class ThreadTileScaleMutator : public IRMutator {
+ public:
+  explicit ThreadTileScaleMutator(std::string name, Expr scale_value): name_(name), scale_value_(scale_value) {}
+
+  Expr Mutate_(const Variable* op, const Expr& olde) final {
+    Expr expr = IRMutator::Mutate_(op, olde);
+    op = expr.as<Variable>();
+    if (op != nullptr) {
+      if (op->name_hint == name_) {
+        return Mul::make(expr, scale_value_);
+      }
+    }
+    return expr;
+  }
+
+ private:
+  std::string name_;
+  Expr scale_value_;
 };
 
 // TensorCoreIRMutator mutates the AST for TensorCore CodeGen
@@ -800,8 +1056,12 @@ class TensorCoreIRMutator : public IRMutator {
       loop_scaling_(buffer_analyser.index_visitor.loop_scaling_),
       frag_load_(buffer_analyser.frag_load_),
       frag_store_(buffer_analyser.frag_store_),
+      thread_extent_(buffer_analyser.thread_extent_),
       warp_tile_(buffer_analyser.warp_tile_),
-      warp_threads_y_(buffer_analyser.warp_threads_y_) {}
+      thread_tile_(buffer_analyser.thread_tile_),
+      warp_threads_y_(buffer_analyser.warp_threads_y_),
+      vectorization_(buffer_analyser.vectorization_),
+      wmma_scope_(buffer_analyser.wmma_scope_) {}
 
   Stmt Mutate_(const Realize* op, const Stmt& s) final {
     TensorKey key{op->func, op->value_index};
@@ -813,7 +1073,7 @@ class TensorCoreIRMutator : public IRMutator {
         return stmt;
       }
 
-      auto new_extents = get_tile_size_(simplify_name(key.GetName()));
+      auto new_extents = get_extents_size_(op, simplify_name(key.GetName()));
 
       Region new_bounds;
       for (size_t i = 0; i < op->bounds.size() - 2; ++i) {
@@ -825,7 +1085,8 @@ class TensorCoreIRMutator : public IRMutator {
           op->bounds[op->bounds.size() - 2]->min, new_extents[0]));
       new_bounds.push_back(Range::make_by_min_extent(
           op->bounds[op->bounds.size() - 1]->min, new_extents[1]));
-
+      
+      bounds_[key] = new_bounds;
       return Realize::make(op->func, op->value_index,
                            op->type, new_bounds,
                            op->condition, op->body);
@@ -835,7 +1096,13 @@ class TensorCoreIRMutator : public IRMutator {
 
   Stmt Mutate_(const AttrStmt* op, const Stmt& s) final {
     Stmt stmt = IRMutator::Mutate_(op, s);
-    if (op->attr_key == attr::realize_scope) {
+    if (op->attr_key == attr::pragma_tensor_core) {
+      if (need_wmma_scope_) {
+        stmt = AttrStmt::make(op->node, "wmma_scope", wmma_scope_, stmt);
+        need_wmma_scope_ = false;
+      }
+      return stmt;
+    } else if (op->attr_key == attr::realize_scope) {
       auto node = op->node.as<OperationNode>();
       if (node != nullptr) {
         if (!frag_reg_.count(node->name)) {
@@ -889,6 +1156,9 @@ class TensorCoreIRMutator : public IRMutator {
 
       auto call_add_c =
         [this, &cc, &buffer_node_c, &mma_sync_call](const Buffer &buffer) {
+          TensorKey key{cc->func, cc->value_index};
+          auto it = bounds_.find(key);
+          CHECK(it != bounds_.end());
           return add_buffer_bind_scope_(cc, buffer_node_c,
             TensorKey{cc->func, cc->value_index}, mma_sync_call, cc->type);
         };
@@ -940,14 +1210,66 @@ class TensorCoreIRMutator : public IRMutator {
 
       // thread index unification inside a warp
       Expr warp_y = IntImm::make(Int(32), warp_threads_y_);
-      ThreadIdxMutator thread_idx_mutator(warp_y);
-      Expr mutated_value = thread_idx_mutator.Mutate(op->value);
-      Expr src = Call::make(value->type,
-                            "&",
-                            {mutated_value},
-                            Call::Extern);
-
+      Expr warp_tile_y = IntImm::make(Int(32), warp_tile_.n);
+      Expr warp_tile_x = IntImm::make(Int(32), warp_tile_.m);
+      Expr mutated_value;
+      if (vectorization_) {
+        auto itx = thread_extent_.find("threadIdx.x");
+        ThreadIdxMutatorForVectorize thread_idx_mutator(warp_y, warp_tile_x, warp_tile_y, itx->second);
+        mutated_value = thread_idx_mutator.Mutate(op->value);
+      } else {
+        ThreadIdxMutator thread_idx_mutator(warp_y, warp_tile_y);
+        mutated_value = thread_idx_mutator.Mutate(op->value);
+      }
+      std::string name_hint;
       auto call = dst.as<Call>();
+      auto it_major = matrix_major_.find(simplify_name(call->name));
+      Expr scale_value;
+      bool need_mutate = false;
+      auto it_matrix = matrix_abc_.find(simplify_name(value->name));
+      CHECK_GE(op->args.size(), 2);
+      if ((it_matrix != matrix_abc_.end()) && (it_matrix->second == "matrix_a")) {
+        if (it_major->second == "row_major") {
+          if (op->args[op->args.size() - 2].as<Variable>()) {
+            auto var = op->args[op->args.size() - 2].as<Variable>();
+            name_hint = var->name_hint;
+            need_mutate = true;
+          }
+        } else {
+          if (op->args[op->args.size() - 1].as<Variable>()) {
+            auto var = op->args[op->args.size() - 1].as<Variable>();
+            name_hint = var->name_hint;
+            need_mutate = true;
+          }
+        }
+        scale_value = make_const(Int(32), thread_tile_.m);
+      } else if ((it_matrix != matrix_abc_.end()) && (it_matrix->second == "matrix_b")) {
+        if (it_major->second == "col_major") {
+          if (op->args[op->args.size() - 2].as<Variable>()) {
+            auto var = op->args[op->args.size() - 2].as<Variable>();
+            name_hint = var->name_hint;
+            need_mutate = true;
+          }
+        } else {
+          if (op->args[op->args.size() - 1].as<Variable>()) {
+            auto var = op->args[op->args.size() - 1].as<Variable>();
+            name_hint = var->name_hint;
+            need_mutate = true;
+          }
+        }
+        scale_value = make_const(Int(32), thread_tile_.n);
+      } else {
+        scale_value = make_const(Int(32), 1);
+      }
+      Expr src;
+      if (need_mutate) {
+        ThreadTileScaleMutator thread_tile_scale_mutator(name_hint, scale_value);
+        Expr mutated_scale_value = thread_tile_scale_mutator.Mutate(mutated_value);
+        src = Call::make(value->type, "&", {mutated_scale_value}, Call::Extern);
+      } else {
+        src = Call::make(value->type, "&", {mutated_value}, Call::Extern);
+      }
+
       Expr matrix_major;
       auto iter2 = matrix_major_.find(simplify_name(call->name));
       CHECK(iter2 != matrix_major_.end())
@@ -990,11 +1312,50 @@ class TensorCoreIRMutator : public IRMutator {
       Expr dst = it3->second;
       // thread index unification inside a warp
       Expr warp_y = IntImm::make(Int(32), warp_threads_y_);
-      ThreadIdxMutator thread_idx_mutator(warp_y);
-      dst = thread_idx_mutator.Mutate(dst);
+      Expr warp_tile_x = IntImm::make(Int(32), warp_tile_.m);
+      Expr warp_tile_y = IntImm::make(Int(32), warp_tile_.n);
+      Expr mutated_value;
+      if (vectorization_) {
+        auto itx = thread_extent_.find("threadIdx.x");
+        ThreadIdxMutatorForVectorize thread_idx_mutator(warp_y, warp_tile_x, warp_tile_y, itx->second);
+        mutated_value = thread_idx_mutator.Mutate(dst);
+      } else {
+        ThreadIdxMutator thread_idx_mutator(warp_y, warp_tile_y);
+        mutated_value = thread_idx_mutator.Mutate(dst);
+      }
+      const Call* value = op->value.as<Call>();
+      std::string name_hint_m;
+      std::string name_hint_n;
+      bool need_mutate_m = false;
+      bool need_mutate_n = false;
+      const Variable* var_m;
+      const Variable* var_n;
+      if (value->args[value->args.size() - 2].as<Variable>()) {
+        var_m = value->args[value->args.size() - 2].as<Variable>();
+        name_hint_m = var_m->name_hint;
+        need_mutate_m = true;
+      }
+      if (value->args[value->args.size() - 1].as<Variable>()) {
+        var_n = value->args[value->args.size() - 1].as<Variable>();
+        name_hint_n = var_n->name_hint;
+        need_mutate_n = true;
+      }
+      Expr scale_value_m = make_const(Int(32), thread_tile_.m);
+      Expr scale_value_n = make_const(Int(32), thread_tile_.n);
+      Expr mutated_scale_value_m;
+      Expr mutated_scale_value;
+      if (need_mutate_m) {
+        ThreadTileScaleMutator thread_tile_scale_mutator_m(name_hint_m, scale_value_m);
+        mutated_value = thread_tile_scale_mutator_m.Mutate(mutated_value);
+      }
+      if (need_mutate_n) {
+        ThreadTileScaleMutator thread_tile_scale_mutator_n(name_hint_n, scale_value_n);
+        mutated_value = thread_tile_scale_mutator_n.Mutate(mutated_value);
+      }
+
       dst = Call::make(Handle(),
                        "&",
-                       {dst},
+                       {mutated_value},
                        Call::Extern);
 
       auto call = op->value.as<Call>();
@@ -1007,7 +1368,7 @@ class TensorCoreIRMutator : public IRMutator {
                             {buffer->data,
                             warp_tile_.m, warp_tile_.n, warp_tile_.k,
                             buffer->elem_offset, dst, stride,
-                            StringImm::make("col_major")},
+                            StringImm::make("row_major")},
                             Call::Intrinsic));
         };
 
@@ -1041,6 +1402,37 @@ class TensorCoreIRMutator : public IRMutator {
   }
 
  private:
+   Array<Expr> get_extents_size_(const Realize* op, const std::string &name) {
+      auto it = matrix_abc_.find(name);
+      auto it2 = matrix_major_.find(name);
+      CHECK(it != matrix_abc_.end() && it2 != matrix_major_.end())
+          << "Cannot find matrix info for " << name;
+      Expr size0 = make_const(Int(32), 16);
+      Expr size1 = make_const(Int(32), 16);
+      if (it->second == "matrix_a" && it2->second == "col_major") {
+        size0 = make_const(Int(32), warp_tile_.k);
+        size1 = div(op->bounds[op->bounds.size() - 1]->extent * warp_tile_.m, thread_tile_.m);
+      }
+      if (it->second == "matrix_a" && it2->second == "row_major") {
+        size0 = div(op->bounds[op->bounds.size() - 2]->extent * warp_tile_.m, thread_tile_.m);
+        size1 = make_const(Int(32), warp_tile_.k);
+      }
+      if (it->second == "matrix_b" && it2->second == "row_major") {
+        size0 = make_const(Int(32), warp_tile_.k);
+        size1 = div(op->bounds[op->bounds.size() - 1]->extent * warp_tile_.n, thread_tile_.n);
+      }
+      if (it->second == "matrix_b" && it2->second == "col_major") {
+        size0 = div(op->bounds[op->bounds.size() - 2]->extent * warp_tile_.n, thread_tile_.n);
+        size1 = make_const(Int(32), warp_tile_.k);
+      }
+      if (it->second == "accumulator") {
+        size0 = div(op->bounds[op->bounds.size() - 2]->extent * warp_tile_.m, thread_tile_.m);
+        size1 = div(op->bounds[op->bounds.size() - 1]->extent * warp_tile_.n, thread_tile_.n);
+      }
+      Array<Expr> extents_size = {size0, size1};
+      return extents_size;
+  }
+
   Array<Expr> get_tile_size_(const std::string &name) {
       auto it = matrix_abc_.find(name);
       auto it2 = matrix_major_.find(name);
@@ -1064,9 +1456,9 @@ class TensorCoreIRMutator : public IRMutator {
         size0 = make_const(Int(32), warp_tile_.n);
         size1 = make_const(Int(32), warp_tile_.k);
       }
-      if (it->second == "matrix_c") {
-        size0 = make_const(Int(32), warp_tile_.n);
-        size1 = make_const(Int(32), warp_tile_.m);
+      if (it->second == "accumulator") {
+        size0 = make_const(Int(32), warp_tile_.m);
+        size1 = make_const(Int(32), warp_tile_.n);
       }
       Array<Expr> tile_size = {size0, size1};
       return tile_size;
@@ -1089,8 +1481,32 @@ class TensorCoreIRMutator : public IRMutator {
       shape.push_back(it->second[i]->extent);
     }
     auto tile_size = get_tile_size_(simplify_name(call->name));
-    shape.push_back(tile_size[0]);
-    shape.push_back(tile_size[1]);
+    Expr thread_tile_x = IntImm::make(Int(32), thread_tile_.m);
+    Expr thread_tile_y = IntImm::make(Int(32), thread_tile_.n);
+    auto matrix_it = matrix_abc_.find(simplify_name(call->name));
+    auto major_it = matrix_major_.find(simplify_name(call->name));
+    CHECK(matrix_it != matrix_abc_.end() && major_it != matrix_major_.end()) 
+                    << "Cannot find matrix info for " << call->name;
+    if (matrix_it->second == "matrix_a" && major_it->second == "col_major") {
+      shape.push_back(tile_size[0]);
+      shape.push_back(it->second[it->second.size() - 1]->extent * tile_size[1] / thread_tile_x);
+    }
+    if (matrix_it->second == "matrix_a" && major_it->second == "row_major") {
+      shape.push_back(it->second[it->second.size() - 2]->extent * tile_size[0] / thread_tile_x);
+      shape.push_back(tile_size[1]);
+    }
+    if (matrix_it->second == "matrix_b" && major_it->second == "row_major") {
+      shape.push_back(tile_size[0]);
+      shape.push_back(it->second[it->second.size() - 1]->extent * tile_size[1] / thread_tile_y);
+    }
+    if (matrix_it->second == "matrix_b" && major_it->second == "col_major") {
+      shape.push_back(it->second[it->second.size() - 2]->extent * tile_size[0] / thread_tile_y);
+      shape.push_back(tile_size[1]);
+    }
+    if (matrix_it->second == "accumulator") {
+      shape.push_back(it->second[it->second.size() - 2]->extent * tile_size[0] / thread_tile_x);
+      shape.push_back(it->second[it->second.size() - 1]->extent * tile_size[1] / thread_tile_y);
+    }
 
     Array<Expr> strides;
     for (size_t i = 1; i < shape.size(); ++i) {
@@ -1156,8 +1572,14 @@ class TensorCoreIRMutator : public IRMutator {
   std::unordered_map<const Provide*, Expr> frag_load_;
   std::unordered_map<const Provide*, Expr> frag_store_;
   std::unordered_map<TensorKey, Region> bounds_;
+  std::unordered_map<std::string, Expr> scale_thread_tile_;
+  std::unordered_map<std::string, int> thread_extent_;
   Tile warp_tile_;
+  Tile thread_tile_;
   int warp_threads_y_{-1};
+  bool vectorization_{false};
+  bool need_wmma_scope_{true};
+  std::string wmma_scope_;
 };
 
 Stmt RewriteForTensorCore(Stmt stmt,
@@ -1165,7 +1587,7 @@ Stmt RewriteForTensorCore(Stmt stmt,
                           Map<Tensor, Buffer> extern_buffer) {
   // Check if current lower target is CUDA
   auto target = air::Target::Current(true);
-  if (target.defined() && target->target_name != "cuda") {
+  if (!target.defined()) {
     return stmt;
   }
 

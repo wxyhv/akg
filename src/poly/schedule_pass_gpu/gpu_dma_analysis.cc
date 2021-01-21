@@ -57,13 +57,23 @@ void GpuDmaAnalysis::ResetMemFlows(isl::schedule_node root, isl::schedule_node n
   std::map<std::string, MemFlow> tensor_mem_flows = scop_info_.analysis_result_.GetTensorMemFlows();
   std::map<std::string, std::vector<std::string>> tensor_name_flows = scop_info_.analysis_result_.GetTensorNameFlows();
 
+  /* Record the tensor union_map info, such as,
+   mapping statements, injective and bijective properties for auto tiling */
+  TensorScheduleRepo tensor_repo;
+
   std::map<std::string, isl::union_map> tensors_map;
+  std::map<std::string, std::vector<isl::id>> tensor_state_map;
   for (auto access : original_access.get_map_list()) {
     std::string tensor = access.get_tuple_id(isl_dim_out).to_str();
     if (tensors_map.find(tensor) == tensors_map.end()) {
       tensors_map[tensor] = isl::union_map(access);
     } else {
       tensors_map[tensor] = tensors_map[tensor].unite(isl::union_map(access));
+    }
+    if (tensor_state_map.find(tensor) == tensor_state_map.end()) {
+      tensor_state_map.insert({tensor, {access.get_tuple_id(isl_dim_in)}});
+    } else {
+      tensor_state_map[tensor].push_back(access.get_tuple_id(isl_dim_in));
     }
   }
 
@@ -78,10 +88,20 @@ void GpuDmaAnalysis::ResetMemFlows(isl::schedule_node root, isl::schedule_node n
       orig_name_flow.push_back(it->first);
       tensor_name_flows[it->first] = orig_name_flow;
     }
+    if (tensor_repo.find(it->first) == tensor_repo.end()) {
+      StatementUnionMappingInfo info;
+      if (tensor_state_map.find(it->first) != tensor_state_map.end()) {
+        info.stmt_vec = tensor_state_map[it->first];
+      }
+      info.inject_mapping = tmp_out_schedules.is_injective();
+      info.biject_mapping = tmp_out_schedules.is_bijective();
+      tensor_repo.insert({it->first, info});
+    }
   }
 
   scop_info_.analysis_result_.SetTensorMemFlows(tensor_mem_flows);
   scop_info_.analysis_result_.SetTensorNameFlows(tensor_name_flows);
+  scop_info_.analysis_result_.SetTensorScheduleRepo(tensor_repo);
 }
 
 isl::schedule_node GpuDmaAnalysis::GetTiledNode(isl::schedule schedule, isl::schedule_node node) {

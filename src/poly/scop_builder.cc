@@ -1,5 +1,5 @@
 /**
- * Copyright 2019 Huawei Technologies Co., Ltd
+ * Copyright 2019-2021 Huawei Technologies Co., Ltd
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -18,6 +18,7 @@
 
 #include <tvm/ir_visitor.h>
 #include <tvm/operation.h>
+#include <tvm/schedule.h>
 
 #include "pass/utils.h"
 #include "construct_poly_accesses.h"
@@ -693,7 +694,14 @@ isl::schedule MakeScheduleTreeHelper(const NodeRef &s, ScopInfo &scop_info, cons
       scop_info_.analysis_result_.RecordOperatorDomain(id, op_domain);
       auto domain = set.unbind_params(op_domain.tuple);
       sch = isl::schedule::from_domain(domain);
-      if (scop_info_.user_config_.GetTarget() == TARGET_CUDA && scop_info_.user_config_.GetEnableAkgReduceLib()) {
+
+      if ((scop_info_.user_config_.GetTarget() == TARGET_CUDA) && (scop_info_.user_config_.GetEnableMatmul())) {
+        scop_info_.user_config_.SetEnableAkgReduceLib(false);
+        CheckMatmul(op);
+        RecordReduceInfo(op, op_domain, id);
+      }
+
+      if (scop_info_.user_config_.GetTarget() == TARGET_CUDA && (scop_info_.user_config_.GetEnableAkgReduceLib())) {
         RecordReduceInfo(op, op_domain, id);
       }
 
@@ -814,9 +822,10 @@ isl::schedule MakeScheduleTreeHelper(const NodeRef &s, ScopInfo &scop_info, cons
       space = op_domain_space.product(space).unwrap();
       scop_info_.analysis_result_.RecordReduceStatement(red_id, op);
       auto type = scop_info_.analysis_result_.GetReduceOpType(red_id);
-      if (AkgSupportedReduceOp.count(type) == 0) {
+      if (scop_info_.user_config_.GetEnableAkgReduceLib() && AkgSupportedReduceOp.count(type) == 0) {
         return;
       }
+
       scop_info_.analysis_result_.RecordReductionsMap(red_id,
                                                       isl::union_map(isl::map(isl::multi_aff(space, aff_list))));
       scop_info_.analysis_result_.RecordReduceStatementWriteTensor(red_id, op->func->func_name());
@@ -824,7 +833,7 @@ isl::schedule MakeScheduleTreeHelper(const NodeRef &s, ScopInfo &scop_info, cons
       scop_info_.analysis_result_.RecordReduceWriteDataType(red_id);
       std::string reduce_direction;
       PostOrderVisit(op->value, [&reduce_direction, &reduce_attrs, op](const NodeRef &node) -> void {
-        if (reduce_direction == X_DIRECTION) {
+        if (reduce_direction == Y_DIRECTION) {
           return;
         }
         auto call = node.as<Call>();
@@ -832,7 +841,7 @@ isl::schedule MakeScheduleTreeHelper(const NodeRef &s, ScopInfo &scop_info, cons
             call->func->func_name() == op->func->func_name() || call->args.empty()) {
           return;
         }
-        for (int i = static_cast<int>(call->args.size() - 1); i >= 0; --i){
+        for (int i = static_cast<int>(call->args.size() - 1); i >= 0; --i) {
           auto last_axis = call->args[i];
           auto mod = last_axis.as<FloorMod>();
           if (mod != nullptr) {
@@ -851,7 +860,221 @@ isl::schedule MakeScheduleTreeHelper(const NodeRef &s, ScopInfo &scop_info, cons
       if (reduce_direction.empty()) {
         LOG(WARNING) << "Cannot identify reduce direction for stmt " << red_id;
       }
+      if (scop_info_.user_config_.GetEnableMatmul()) {
+        reduce_direction = X_DIRECTION;
+      }
       scop_info_.analysis_result_.RecordReduceDirection(reduce_direction);
+    }
+
+    void GetRowColInfo() {
+      auto sch = scop_info_.user_config_.GetScheduleInfo();
+      if (sch.defined()) {
+        for (air::Stage s : sch->stages) {
+          const ComputeOpNode *com = s->op.as<ComputeOpNode>();
+          if (com == nullptr) continue;
+
+          auto axis = com->axis;
+          auto reduce_axis = com->reduce_axis;
+          if (axis.size() < 2 || reduce_axis.size() != 1) continue;
+
+          const Variable *axis_var[2];
+          const Variable *reduce_axis_var;
+          axis_var[0] = axis[axis.size() - 2]->var.as<Variable>();
+          axis_var[1] = axis[axis.size() - 1]->var.as<Variable>();
+          reduce_axis_var = reduce_axis[0]->var.as<Variable>();
+
+          class CollectInfoOfBody : public IRVisitor {
+           public:
+            CollectInfoOfBody() {}
+            using IRVisitor::Visit_;
+
+            void Visit_(const Reduce *op) final {
+              auto SplitCast = [](const Type &tensor_type, const Expr &tensor) -> Expr {
+                if (tensor.as<Cast>() == nullptr) {
+                  return tensor;
+                } else if (tensor.as<Cast>()->type == tensor_type) {
+                  return tensor.as<Cast>()->value;
+                } else {
+                  return Expr();
+                }
+              };
+
+              auto *comm_add = op->combiner->result[0].as<Add>();
+              if (comm_add == nullptr || op->combiner->result.size() > 1) {
+                return;
+              }
+              for (Expr source : op->source) {
+                auto mul_0 = SplitCast(Float(32), source).as<Mul>();
+                auto mul_1 = SplitCast(Int(32), source).as<Mul>();
+                if (mul_0 == nullptr && mul_1 == nullptr) {
+                  continue;
+                }
+
+                is_candidate_ = true;
+                IRVisitor::Visit(source);
+              }
+            }
+
+            void Visit_(const Call *op) final {
+              IRVisitor::Visit_(op);
+              args_.insert(std::make_pair(op->name, op->args));
+            }
+
+            bool GetCandidate() { return is_candidate_; }
+            std::unordered_map<std::string, Array<Expr>> GetArgs() { return args_; }
+
+           private:
+            std::unordered_map<std::string, Array<Expr>> args_;
+            bool is_candidate_{false};
+          } collect_info_of_body;
+
+          for (Expr expr : com->body) {
+            collect_info_of_body.Visit(expr);
+          }
+          if (!collect_info_of_body.GetCandidate()) {
+            continue;
+          }
+          for (auto iter : collect_info_of_body.GetArgs()) {
+            auto name = iter.first;
+            auto args = iter.second;
+            if (args.size() < 2) continue;
+
+            const Variable *var0 = args[args.size() - 2].as<Variable>();
+            const Variable *var1 = args[args.size() - 1].as<Variable>();
+            if (var0 == nullptr || var1 == nullptr) continue;
+
+            std::string major;
+            if ((var0 == reduce_axis_var) && (var1 == axis_var[0])) {
+              major = COL_MAJOR;
+            } else if ((var0 == reduce_axis_var) && (var1 == axis_var[1])) {
+              major = ROW_MAJOR;
+            } else if ((var0 == axis_var[0]) && (var1 == reduce_axis_var)) {
+              major = ROW_MAJOR;
+            } else if ((var0 == axis_var[1]) && (var1 == reduce_axis_var)) {
+              major = COL_MAJOR;
+            }
+            scop_info_.analysis_result_.RecoreMatrixMatmulMajor(name, major);
+          }
+          scop_info_.analysis_result_.RecoreMatrixMatmulMajor(com->name, ROW_MAJOR);
+        }
+      }
+    }
+
+    bool CheckMatmul(const Provide *op) {
+      if (!scop_info_.user_config_.GetEnableMatmul()) {
+        return false;
+      }
+      bool get_tensor_type = false;
+      auto GetTensorType = [this, &get_tensor_type](const std::string tensor_name) -> Type {
+        auto all_tensors = scop_info_.user_config_.GetRealizeTensors();
+        for (auto it : all_tensors) {
+          if (it->op->name == tensor_name) {
+            get_tensor_type = true;
+            return it->dtype;
+          }
+        }
+        auto orig_binds = scop_info_.user_config_.GetOriginBind();
+        for (auto it : orig_binds) {
+          if (it.first->op->name == tensor_name) {
+            get_tensor_type = true;
+            return it.first->dtype;
+          }
+        }
+        get_tensor_type = false;
+        return Type();
+      };
+
+      auto SplitCast = [](const Type &tensor_type, const Expr &tensor) -> Expr {
+        if (tensor.as<Cast>() == nullptr) {
+          return tensor;
+        } else if (tensor.as<Cast>()->type == tensor_type) {
+          return tensor.as<Cast>()->value;
+        } else {
+          return Expr();
+        }
+      };
+
+      // C + A * B
+      bool enable_tensor_core = scop_info_.user_config_.GetEnableTensorCore();
+      auto add_op = op->value.as<Add>();
+      if (add_op == nullptr) {
+        return false;
+      }
+
+      auto tensor_c = add_op->a.as<Call>();
+      if (tensor_c == nullptr) {
+        return false;
+      }
+      auto tensor_c_type = GetTensorType(tensor_c->name);
+      if (!get_tensor_type) {
+        return false;
+      }
+      if (tensor_c_type != Float(16) && tensor_c_type != Float(32) && tensor_c_type != Int(32)) {
+        enable_tensor_core = false;
+      }
+
+      auto mul_op = SplitCast(tensor_c_type, add_op->b).as<Mul>();
+      if (mul_op == nullptr) {
+        return false;
+      }
+
+      std::string tensor_a_name = "";
+      std::string tensor_b_name = "";
+
+      auto tensor_a = SplitCast(tensor_c_type, mul_op->a);
+
+      if (tensor_a.as<Call>()) {
+        auto tensor_a_p = tensor_a.as<Call>();
+        auto tensor_a_type = GetTensorType(tensor_a_p->name);
+        if (!get_tensor_type) {
+          return false;
+        }
+        if ((tensor_a_type != Float(16)) && (tensor_a_type != Int(8))) {
+          enable_tensor_core = false;
+        }
+        tensor_a_name = tensor_a_p->name;
+      } else if (tensor_a.as<Cast>() &&
+                 ((tensor_a.as<Cast>()->type == Float(16)) || (tensor_a.as<Cast>()->type == Int(8)))) {
+        auto tensor_a_p = tensor_a.as<Cast>();
+        auto value = tensor_a_p->value;
+        tensor_a_name = value.as<Call>()->name;
+        scop_info_.analysis_result_.RecordCastTensors(tensor_a_name);
+      } else {
+        return false;
+      }
+
+      auto tensor_b = SplitCast(tensor_c_type, mul_op->b);
+
+      if (tensor_b.as<Call>()) {
+        auto tensor_b_p = tensor_b.as<Call>();
+        auto tensor_b_type = GetTensorType(tensor_b_p->name);
+        if (!get_tensor_type) {
+          return false;
+        }
+        if ((tensor_b_type != Float(16)) && (tensor_b_type != Int(8))) {
+          enable_tensor_core = false;
+        }
+        tensor_b_name = tensor_b_p->name;
+
+      } else if (tensor_b.as<Cast>() &&
+                 ((tensor_b.as<Cast>()->type == Float(16)) || (tensor_b.as<Cast>()->type == Int(8)))) {
+        auto tensor_b_p = tensor_b.as<Cast>();
+        auto value = tensor_b_p->value;
+        tensor_b_name = value.as<Call>()->name;
+        scop_info_.analysis_result_.RecordCastTensors(tensor_b_name);
+      } else {
+        return false;
+      }
+
+      scop_info_.analysis_result_.RecoreMatrixMatmulMap(tensor_a_name, MATRIX_A);
+      scop_info_.analysis_result_.RecoreMatrixMatmulMap(tensor_b_name, MATRIX_B);
+      scop_info_.analysis_result_.RecoreMatrixMatmulMap(tensor_c->name, MATRIX_C);
+
+      GetRowColInfo();
+      scop_info_.user_config_.SetEnableTensorCore(enable_tensor_core);
+      scop_info_.user_config_.SetEnableMatmul(true);
+
+      return true;
     }
 
     void Visit_(const Block *op) final {
@@ -1003,10 +1226,19 @@ isl::schedule MakeScheduleTreeHelper(const NodeRef &s, ScopInfo &scop_info, cons
     }
 
     void Visit_(const Realize *op) final {
-      IRVisitor::Visit_(op);
       auto name = op->func->func_name();
       CHECK_EQ(op->func->num_outputs(), 1);
       auto type = op->type;
+
+      Array<Expr> shapes;
+      for (auto i : op->bounds) {
+        shapes.push_back(i->extent);
+      }
+      Tensor tensor = placeholder(shapes, type, name);
+      const Buffer buffer = decl_buffer(shapes, type, name);
+
+      scop_info_.user_config_.RecordRealizeTensors(tensor);
+      IRVisitor::Visit_(op);
 
       /// add old realize
       scop_info_.user_config_.InsertRealizeFromInput(isl::id(scop_info_.GetCtx(), name));
@@ -1017,12 +1249,6 @@ isl::schedule MakeScheduleTreeHelper(const NodeRef &s, ScopInfo &scop_info, cons
       }
 
       // add Realize's buf into binds
-      Array<Expr> shapes;
-      for (auto i : op->bounds) {
-        shapes.push_back(i->extent);
-      }
-      Tensor tensor = placeholder(shapes, type, name);
-      const Buffer buffer = decl_buffer(shapes, type, name);
       scop_info_.user_config_.SetBind(tensor, buffer);
     }
 
@@ -1082,7 +1308,9 @@ isl::schedule MakeScheduleTreeHelper(const NodeRef &s, ScopInfo &scop_info, cons
             }
           }
         }
-        if (scop_info_.user_config_.GetTarget() == TARGET_CUDA && scop_info_.user_config_.GetEnableAkgReduceLib()) {
+        if (scop_info_.user_config_.GetTarget() == TARGET_CUDA &&
+            (scop_info_.user_config_.GetEnableAkgReduceLib() || scop_info_.user_config_.GetEnableTensorCore() ||
+             scop_info_.user_config_.GetEnableMatmul())) {
           class ExtractReductionAttrs final : public IRVisitor {
            public:
             ExtractReductionAttrs(const Stmt stmt, std::unordered_set<std::string> left_args)
@@ -1169,3 +1397,4 @@ isl::schedule MakeScheduleTree(const isl::space &param_space, isl::set param_set
 }  // namespace poly
 }  // namespace ir
 }  // namespace akg
+

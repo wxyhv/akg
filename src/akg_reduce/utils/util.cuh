@@ -1,5 +1,5 @@
 /**
- * Copyright 2020 Huawei Technologies Co., Ltd
+ * Copyright 2020-2021 Huawei Technologies Co., Ltd
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -53,7 +53,7 @@ struct Select<false, TrueType, FalseType> {
 
 /**
  * @brief the type transform function for test cases
- * 
+ *
  * @tparam T target type
  * @tparam Y original type
  * @param y  original value
@@ -69,8 +69,18 @@ __host__ __device__ T TypeTransform(Y y) {
     return (T)y;
 }
 
-__host__ __device__ bool IsPowOfTwo(unsigned int num) { return !(num & (num - 1));}
+__host__ __device__ constexpr bool IsPowOfTwo(const unsigned int num) { 
+  return !(num & (num - 1)); 
+}
+
+__host__ __device__ constexpr int GetUpperBound(const int length) {
+  int upper_bound = 1;
+  while (upper_bound * 2 <= length) {
+    upper_bound *= 2;
+  }
+  return upper_bound;
+}
 
 }  // namespace akg_reduce
 
-#endif // AKG_REDUCE_UTIL_H
+#endif  // AKG_REDUCE_UTIL_H

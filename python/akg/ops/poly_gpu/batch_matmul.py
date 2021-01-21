@@ -1,4 +1,4 @@
-# Copyright 2020 Huawei Technologies Co., Ltd
+# Copyright 2020-2021 Huawei Technologies Co., Ltd
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -15,13 +15,20 @@
 """batch matmul"""
 import akg
 from akg.topi.cuda import schedule_batch_matmul
+from akg.ops.math_gpu import tensorcore_batch_matmul
 from akg.ops.math_gpu import batch_matmul
+
 
 @akg.schedule(schedule_batch_matmul)
 def batch_matmul_manual(x, y, bias, layout1="NHDT", layout2="NHDT", layout_out="NHDT"):
     """BatchMatmul with manual schedule."""
     return batch_matmul.batch_matmul(x, y, bias, layout1, layout2, layout_out)
 
-def batch_matmul_auto(x, y, bias, layout1="NHDT", layout2="NHDT", layout_out="NHDT"):
+def batch_matmul_auto(x, y, bias, out_dtype="float32", layout1="NHDT", layout2="NHDT", layout_out="NHDT", tensor_core=True, add_bias=False):
     """BatchMatmul with auto poly."""
-    return batch_matmul.batch_matmul(x, y, bias, layout1, layout2, layout_out)
+    if add_bias == False:
+        bias = None
+    if tensor_core == True:
+        return tensorcore_batch_matmul.batch_matmul(x, y, bias, out_dtype, layout1, layout2, layout_out)
+    else:
+        return batch_matmul.batch_matmul(x, y, bias, out_dtype, layout1, layout2, layout_out)

@@ -75,6 +75,10 @@ class Tuner:
         return self._best_iter
 
     @property
+    def tuning_time(self):
+        return self._tuning_time
+
+    @property
     def original_time(self):
         return self._original_time
 
@@ -151,6 +155,27 @@ class Tuner:
             s = json.dumps(data, sort_keys=True)
             s = re.sub(r',\s*"', ',\n"', s)
             s = '{\n' + s[1:-1] + '\n}'
+            f.write(s)
+
+    def export_dim_configs_for_keys(self, configs, output_file: str, append: bool = True, keys=[]):
+        """export dim configs"""
+        mode = "a" if append else "w"
+        data = {}
+        try:
+            if os.path.isfile(output_file):
+                with open(output_file, 'r') as f:
+                    data = json.load(f)
+        except IOError as e:
+            logger.debug("get dim info from [%s] failed: %s", output_file, str(e))
+        with open(output_file, mode) as f:
+            import copy
+            tmp = copy.deepcopy(configs)
+            for key in reversed(keys):
+                info = {key: tmp}
+                tmp = copy.deepcopy(info)
+            data.update(info)
+            s = json.dumps(data, sort_keys=True, indent=4)
+            print(s)
             f.write(s)
 
     def load_configs(self, input_file: str):
@@ -277,7 +302,7 @@ class ModelBasedTuner(Tuner):
             for idx, conf in enumerate(configs):
                 results.append((conf.input_id, run_times[idx]))
                 # keep best config
-                if self._best_time > run_times[idx]:
+                if self._best_time - 600 > run_times[idx]:
                     self._best_time = run_times[idx]
                     self._best_iter = i + idx
                     self._best_config = conf
@@ -312,6 +337,15 @@ class ModelBasedTuner(Tuner):
 
             if self._best_iter > 0 and i >= self.best_iter + early_stopping:
                 logger.debug('Early stopped. Best iter: %d', self._best_iter)
+                return
+
+            if self._best_time < 1000:
+                logger.debug('Early stopped for this is a small shape. Best iter: %d', self._best_iter)
+                return
+
+            print("tuning time already, ", time.time() - tuning_start)
+            if time.time() - tuning_start > 7200:
+                logger.debug('Early stopped because of too long time. Best iter: %d', self._best_iter)
                 return
 
             if error_ct > 150:

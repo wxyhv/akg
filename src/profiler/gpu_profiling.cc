@@ -206,15 +206,19 @@ float OpsParser() {
   if (events.size() == 0) {
     return 0;
   }
-  repeat_times = 0;
-  profiling_time = 0l;
+  int repeat_times = 0;
+  std::unordered_map<std::string, uint64_t> op_time;
   for (Event &event : events) {
     if (event.op_name.empty()) {
       FixOpNameByCorrelationId(&event);
     }
     if (event.kernel_type == "cuLaunchKernel" && static_cast<int>(event.api_type) == 1) {
       ++repeat_times;
-      profiling_time += event.end_time_stamp - event.start_time_stamp;
+      if (!op_time.count(event.kernel_name)) {
+        op_time[event.kernel_name] = event.end_time_stamp - event.start_time_stamp;
+      } else {
+        op_time[event.kernel_name] += event.end_time_stamp - event.start_time_stamp;
+      }
     }
     EventLog(event);
 
@@ -222,7 +226,11 @@ float OpsParser() {
       continue;
     }
   }
-  return profiling_time / (repeat_times * 10);
+  uint64_t profiling_time = 0l;
+  for (const auto& op_single_time : op_time) {
+    profiling_time += op_single_time.second;
+  }
+  return profiling_time / (repeat_times * 10) * op_time.size();
 }
 
 void EventHandleProcess(CUpti_CallbackId cbid, const CUpti_CallbackData *cbdata,

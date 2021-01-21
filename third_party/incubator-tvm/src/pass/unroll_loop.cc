@@ -21,6 +21,13 @@
  *  Loop unrolling as in Halide pipeline.
  * \file unroll_loop.cc
  */
+
+/*!
+ * 2021.01.11
+ *     Modify the pass to enable loop unroll for TensorCore in AKG.
+ *     Modify the pass to enable data access vectorization.
+ */
+
 // Unrolls the loop as in Halide pipeline.
 #include <tvm/ir.h>
 #include <tvm/ir_pass.h>
@@ -46,7 +53,16 @@ class LoopUnroller : public IRMutator {
   }
 
   Stmt Mutate_(const AttrStmt* op, const Stmt& stmt) final {
-    if (op->attr_key == "pragma_auto_unroll_max_step") {
+    if (op->attr_key == attr::pragma_tensor_core) {
+      auto_max_step_ = 3;
+      auto_max_depth_ = 8;
+      auto_max_extent_ = 16;
+      explicit_unroll_ = false;
+      return IRMutator::Mutate_(op, stmt);
+    } else if (op->attr_key == attr::promote_vectorization) {
+      enable_vectorize_ = true;
+      return IRMutator::Mutate_(op, stmt);
+    } else if (op->attr_key == "pragma_auto_unroll_max_step") {
       int value = 0;
       CHECK(arith::GetConstInt(op->value, &value));
       std::swap(value, auto_max_step_);
@@ -67,6 +83,12 @@ class LoopUnroller : public IRMutator {
   }
 
   Stmt Mutate_(const For* op, const Stmt& s) {
+    if (enable_vectorize_ == true) {
+      enable_vectorize_ = false;
+      Stmt stmt = IRMutator::Mutate_(op, s);
+      op = stmt.as<For>();
+      return For::make(op->loop_var, op->min, op->extent, ForType::Vectorized, op->device_api, op->body);
+    }
     Stmt stmt = IRMutator::Mutate_(op, s);
     op = stmt.as<For>();
     int value = GetExtent(op);
@@ -77,8 +99,7 @@ class LoopUnroller : public IRMutator {
         normal_loop_depth_ == 0 &&
         unroll_depth_ <= auto_max_depth_);
 
-    auto_unroll = auto_unroll && (
-        value * step_count_ <= auto_max_step_||
+    auto_unroll = auto_unroll && (value * step_count_ <= auto_max_step_||
         value <= auto_max_extent_);
 
     if (op->for_type == ForType::Unrolled) {
@@ -192,6 +213,8 @@ class LoopUnroller : public IRMutator {
   int unroll_depth_{0};
   // Number of total steps unrolled
   int step_count_{0};
+  // Flag for enable vectorization
+  bool enable_vectorize_{false};
 };
 
 

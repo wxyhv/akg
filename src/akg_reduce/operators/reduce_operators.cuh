@@ -1,5 +1,5 @@
 /**
- * Copyright 2020 Huawei Technologies Co., Ltd
+ * Copyright 2020-2021 Huawei Technologies Co., Ltd
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -31,8 +31,9 @@ struct SumOp {
     return a + b;
   }
 
+  // NOTE: operator "+" doesn't support const volatile half + const volatile half, we cast them.
   __device__ __forceinline__ volatile half operator()(const volatile half &a, const volatile half &b) const {
-    return __hadd(static_cast<half>(a), static_cast<half>(b));
+    return __hadd(((const half)a), ((const half)b));
   }
   const static int identifier = 0;
 };
@@ -44,7 +45,7 @@ struct MaxOp {
     return (b > a) ? (b) : (a);
   }
   __device__ __forceinline__ volatile half operator()(const volatile half &a, const volatile half &b) const {
-    return (__hgt(static_cast<half>(a), static_cast<half>(b))) ? (a) : (b);
+    return (__hgt(((const half)a), ((const half)b))) ? (a) : (b);
   }
   const static int identifier = 1;
 };
@@ -56,28 +57,40 @@ struct MinOp {
     return (b > a) ? (a) : (b);
   }
   __device__ __forceinline__ volatile half operator()(const volatile half &a, const volatile half &b) const {
-    return (__hgt(static_cast<half>(a), static_cast<half>(b))) ? (b) : (a);
+    return (__hgt(((const half)a), ((const half)b))) ? (b) : (a);
   }
   const static int identifier = 2;
 };
 
 struct AndOp {
   // "and" operator(logical), only supports dtype bool or signed char
-  template <typename T>
-  __device__ __forceinline__ T operator()(const T &a, const T &b) const {
+  template <typename T, typename Y>
+  __device__ __forceinline__ T operator()(const T &a, const Y &b) const {
     // in logical "and" operator, the dtype must be bool, please check it.
     return a && b;
   }
+
+  template <typename T, typename Y>
+  __device__ __forceinline__ T operator()(const volatile T &a, const volatile Y &b) const {
+    return a && b;
+  }
+
   const static int identifier = 3;
 };
 
 struct OrOp {
   // "or" operator(logical), only supports dtype bool or signed char
-  template <typename T>
-  __device__ __forceinline__ T operator()(const T &a, const T &b) const {
+  template <typename T, typename Y>
+  __device__ __forceinline__ T operator()(const T &a, const Y &b) const {
     // in logical "or" operator, the dtype must be bool, please check it.
     return a || b;
   }
+
+  template <typename T, typename Y>
+  __device__ __forceinline__ T operator()(const volatile T &a, const volatile Y &b) const {
+    return a || b;
+  }
+
   const static int identifier = 4;
 };
 
@@ -97,7 +110,7 @@ __device__ void AtomicMax(T *const addr, const T val) {
 
 /**
  * @brief atomic return function for MaxOp
- * 
+ *
  * @param addr return address in global memory
  * @param val  the value in shared memory
  */
@@ -203,4 +216,4 @@ struct AtomicOp<T, 2> {
 
 }  // namespace akg_reduce
 
-#endif // AKG_REDUCE_REDUCE_OPERATORS_H
+#endif  // AKG_REDUCE_REDUCE_OPERATORS_H

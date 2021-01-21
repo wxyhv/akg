@@ -282,7 +282,6 @@ class TilingAnalyzer {
     auto it = tile_axis_.find(loop);
     return it != tile_axis_.end() ? it->second : nullptr;
   }
-  int GetDataType(const std::string &name) const;
   int GetNumOfAxisInBand(int band_idx) const;
 
   void DumpLinearSeq();
@@ -301,7 +300,6 @@ class TilingAnalyzer {
   // Axis space get from schedule tree.
   std::unordered_map<const For *, TileAxis *> tile_axis_;
 
-  bool is_dynamic_{false};
   std::unordered_map<TilingAnalyzer::BufferEntry *, std::pair<int, int>> buffer_usage_timetable_;
   std::unordered_map<std::string, std::shared_ptr<BufferEntry>> buf_info_;
 
@@ -314,12 +312,16 @@ class TilingAnalyzer {
 class TileCandidate {
  public:
   explicit TileCandidate(TilingAnalyzer *analyzer) : analyzer_(analyzer) {
+    if (analyzer_->RootAxis() == nullptr || analyzer_->scop_info_.user_config_.GetTarget() != TARGET_CCE) {
+      return;
+    }
     for (const auto &attr : analyzer_->RootAxis()->attrs) {
       std::string ub_name = attr.attr_value + "_local_UB";
-      if (attr.attr_key == "ELEMWISE")
+      if (attr.attr_key == "ELEMWISE") {
         this->elem_align_buf.insert(ub_name);
-      else if (attr.attr_key == "BROADCAST")
+      } else if (attr.attr_key == "BROADCAST") {
         this->broadcast_align_buf.insert(ub_name);
+      }
     }
   }
   ~TileCandidate() = default;

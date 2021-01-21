@@ -1,5 +1,5 @@
 /**
- * Copyright 2019 Huawei Technologies Co., Ltd
+ * Copyright 2019-2021 Huawei Technologies Co., Ltd
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -80,6 +80,16 @@ std::unordered_set<std::string> AnalysisResult::ExtractWithStmtId() const {
     res.insert(i.first.get_name());
   }
   return res;
+}
+
+int UserConfig::GetDataType(const std::string &name) const {
+  for (auto i : GetBind()) {
+    if (i.first->op->name == name) {
+      int size = i.first->dtype.bytes();
+      return size;
+    }
+  }
+  return 1;
 }
 
 std::string CubeInfo::ExtractStringFromAttrs(const std::string &name) const {
@@ -717,6 +727,39 @@ void UserConfig::RegisterParam(const Expr &expr) {
   params_rev_map_.emplace(name, expr);
 }
 
+MappingCfg *UserConfig::GetThreadConfig() {
+  bool enable_replace_cfg =
+    (this->enable_one_dim_thread_ || this->vector_load_type_ || this->enable_tensor_core_use_poly_);
+  if (!enable_replace_cfg) {
+    return &thread_cfg_;
+  }
+  if (!this->GetReplaceConfig().count(COMPUTE)) {
+    std::string new_cfg = "";
+    for (size_t i = 0; i < this->thread_cfg_.bound; ++i) {
+      int dim_size = this->thread_cfg_.GetAt(i).second;
+      new_cfg += (std::to_string(dim_size) + " ");
+    }
+    this->SetThreadConfig(new_cfg);
+  }
+  return this->GetReplaceConfig()[COMPUTE];
+}
+
+void UserConfig::SetThreadConfig(const std::string &thread_cfg) {
+  this->thread_cfg_.type = THREADS;
+  if (this->enable_one_dim_thread_ || this->vector_load_type_ || this->enable_tensor_core_use_poly_) {
+    std::vector<std::string> res = common::Split(thread_cfg, " ");
+    int size = 1;
+    for (size_t i = 0; i < res.size(); ++i) {
+      CHECK(!res[i].empty());
+      size *= std::stoi(res[i]);
+    }
+    this->thread_cfg_.BindFromStr(std::to_string(size));
+    this->RecordReplaceConfig(COMPUTE, thread_cfg, MappingType::REPLACE_THREADS);
+    return;
+  }
+  this->thread_cfg_.BindFromStr(thread_cfg);
+}
+
 void CubeInfo::CreateConvModel() {
   if (model_) return;
   if (!attr_info_.empty()) {
@@ -1332,6 +1375,15 @@ bool AnalysisResult::IsPureReduceSum(const Add *add, const std::string &prov_fun
     }
   }
   return true;
+}
+
+bool AnalysisResult::IsReduceInitStmt(const isl::id id) const {
+  for (const auto &init_id : GetReduceInitIds()) {
+    if (init_id.get_name() == id.get_name()) {
+      return true;
+    }
+  }
+  return false;
 }
 
 void AnalysisResult::RecordReduceWriteDataType(isl::id reduce_stmt) {

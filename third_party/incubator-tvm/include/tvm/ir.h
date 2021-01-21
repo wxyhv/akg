@@ -26,6 +26,10 @@
  * 2019.12.30 - Add mark of vector operation scope, reduce update, and string print.
  */
 
+/*
+ * 2021.01.13 - Add mark of TensorCore, data access vectorization.
+ */
+
 #ifndef TVM_IR_H_
 #define TVM_IR_H_
 
@@ -1260,6 +1264,13 @@ constexpr const char* pragma_scope_prefix = "pragma_";
 constexpr const char* pragma_import_llvm = "pragma_import_llvm";
 /*! \brief Try to modify the AST to support Tensor Core */
 constexpr const char* pragma_tensor_core = "pragma_tensor_core";
+/*! \brief Try to modify the AST to support vectorization */
+constexpr const char* promote_vectorization = "promote_vectorization";
+/*! \brief Adapt to one_dim mapping */
+constexpr const char* bind_thread_x = "bind_thread_x";
+/*! \brief Mark for tensorcore interface*/
+constexpr const char* wmma_scope = "wmma_scope";
+
 /*!
  * \brief Mark of prefetch scope, value=offset,
  *  run prefetch of Tensor on the current loop scope

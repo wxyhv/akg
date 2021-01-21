@@ -136,7 +136,7 @@ class SpaceVisitor : public IRVisitor {
     dst_tensor = MatchLoopByName(dst_tensor);
     dst_tensor.args = op->args;
     dst_tensor.band_index = band_count_;
-    dst_tensor.type_byte = analyzer_->GetDataType(dst_tensor.name);
+    dst_tensor.type_byte = analyzer_->scop_info_.user_config_.GetDataType(dst_tensor.name);
     prov.basic_op_type = basic_op_type.empty() ? GetBasicOpType(dst_tensor, src_tensor) : basic_op_type;
     prov.pipe = GetPipeFromBasicOpType(prov.basic_op_type);
     prov.band_index = band_count_;
@@ -531,7 +531,7 @@ void SpaceAnalyzer::IdentifyDmaUnderCondition() {
 }
 
 void SpaceAnalyzer::IdentifyAlignAxes() {
-  if (provides_ana_.empty()) {
+  if (provides_ana_.empty() || analyzer_->scop_info_.user_config_.GetTarget() != TARGET_CCE) {
     return;
   }
 
