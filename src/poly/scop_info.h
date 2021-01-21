@@ -540,7 +540,7 @@ class UserConfig {
   bool enable_tensor_core_{false};
   bool enable_tensor_core_use_poly_{false};
   // lib config
-  bool enable_akg_reduce_lib_{false};
+  bool enable_akg_reduce_lib_{true};
   // memory config
   bool use_register_memory_{true};
   bool use_shared_memory_{true};
