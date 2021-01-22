@@ -1,4 +1,4 @@
-# Copyright 2020 Huawei Technologies Co., Ltd
+# Copyright 2020-2021 Huawei Technologies Co., Ltd
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -313,14 +313,8 @@ def gen_json_data(op_desc):
     input_for_mod = []
     input_dict = {}
     input_order = {}
-    inplace_assign_dict = {}
     output_indexes = []
     expect = []
-    with_inplace_assign = False
-    if isinstance(desc["op"], str) and desc["op"].startswith("Fused_LambUpdateWithLR"):
-        with_inplace_assign = True
-    elif isinstance(desc["process"], str) and desc["process"] == "cuda":
-        with_inplace_assign = True
 
     p = CodePrinter('json_data.py')
     idx = 0
@@ -363,12 +357,11 @@ def gen_json_data(op_desc):
     elemwise_op_list = ["TensorAdd", "RealDiv", "Mul", "Minimum", "Maximum", "Sub"]
     for op in desc["op_desc"]:
         dsl_fun = op_dsl.get(op["name"], None)
-        if op["name"] == "InplaceAssign" and with_inplace_assign:
+        if op["name"] == "InplaceAssign":
             fake_output = False
             for attr in op["attr"]:
                 if attr["name"] == "fake_output":
                     fake_output = attr["value"]
-            out_name = op["output_desc"][0]["tensor_name"]
             inplace_assign_write.append(op["input_desc"][0][0]["tensor_name"])
             if fake_output:
                 fake_output_tensors.append(op["output_desc"][0]["tensor_name"])
