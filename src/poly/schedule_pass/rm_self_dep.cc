@@ -695,7 +695,66 @@ isl::union_map RemoveSelfDependence(PassInfo &pass_info) {
   return preserved;
 }
 
-isl::union_map RemoveInvariantDependence(const isl::schedule &schedule, PassInfo &pass_info) {
+bool NeedRemoveInvariantDependence(ScopInfo &scop_info) {
+  std::unordered_map<const Node *, isl::id> state_node_map;
+  for (const auto &i : scop_info.analysis_result_.GetStatementMap()) {
+    if (i.second != nullptr && state_node_map.count(i.second) == 0) {
+      state_node_map.emplace(i.second, i.first);
+    }
+  }
+  // key is the isl id of reduce statment
+  // value is the reduce axis number of reduce statment
+  std::unordered_map<isl::id, size_t, isl::IslIdIslHash> reduce_repo;
+  // reduce statement
+  for (const auto &item : scop_info.analysis_result_.GetReduceMap()) {
+    if (item.first != nullptr && state_node_map.count(item.first) > 0) {
+      reduce_repo.emplace(state_node_map[item.first], item.second.size());
+    }
+  }
+  // disable this feature for dynamic shape
+  if (scop_info.user_config_.GetIsDynamic()) {
+    return false;
+  }
+  // disbale this feature for cube related scenes in Ascend
+  if (scop_info.cube_info_.IsGemm() || scop_info.cube_info_.IsSpecGemm() || scop_info.cube_info_.IsConv() ||
+      scop_info.cube_info_.IsConvBackpropFilter() || scop_info.cube_info_.IsConvBackpropInput()) {
+    return false;
+  }
+  // disbale this feature for load3d related scenes in Ascend
+  if (scop_info.cube_info_.IsIm2col() || scop_info.cube_info_.IsLoad3dL1Ub()) {
+    return false;
+  }
+
+  auto domain = scop_info.analysis_result_.GetOperatorDomainMap();
+  std::unordered_map<unsigned int, std::vector<isl::id>> parallel_map;
+  for (auto item : scop_info.analysis_result_.GetOperatorDomainMap()) {
+    auto dim = item.second.param_space.dim(isl_dim_param);
+    if (reduce_repo.count(item.first) > 0) {
+      dim -= reduce_repo[item.first];
+    }
+    if (parallel_map.count(dim) == 0) {
+      parallel_map[dim] = {item.first};
+    } else {
+      parallel_map[dim].push_back(item.first);
+    }
+  }
+
+  if (parallel_map.size() == 1 || parallel_map.size() > 2) {
+    return false;
+  }
+
+  if (parallel_map.find(0) == parallel_map.end()) {
+    return false;
+  }
+
+  // enable this feature for scalar and same parallel computation fusion scenes in Ascend
+  return true;
+}
+
+isl::union_map RemoveInvariantDependence(const isl::schedule &schedule, PassInfo &pass_info, ScopInfo &scop_info) {
+  if (!NeedRemoveInvariantDependence(scop_info)) {
+    return pass_info.dependences_;
+  }
   isl::schedule_node root = schedule.get_root();
   isl::schedule_node outer_band = GetOuterBand(root);
   if (outer_band.as<isl::schedule_node_sequence>() || outer_band.as<isl::schedule_node_set>()) {

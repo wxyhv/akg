@@ -49,7 +49,7 @@ void InitSchedule::ModDependencesBeforeGroup(const isl::schedule &schedule) {
   }
 
   if (scop_info_.user_config_.GetRemoveInvariantDependence()) {
-    pass_info_.dependences_ = RemoveInvariantDependence(schedule, pass_info_);
+    pass_info_.dependences_ = RemoveInvariantDependence(schedule, pass_info_, scop_info_);
   }
 }
 

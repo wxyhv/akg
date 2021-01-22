@@ -62,7 +62,7 @@ isl::union_map RemoveReduceOpSelfDependence(ScopInfo &scop_info, PassInfo &pass_
 
 isl::union_map RemoveSelfDependence(PassInfo &pass_info);
 
-isl::union_map RemoveInvariantDependence(const isl::schedule &schedule, PassInfo &pass_info);
+isl::union_map RemoveInvariantDependence(const isl::schedule &schedule, PassInfo &pass_info, ScopInfo &scop_info);
 
 /*
  * Compute copyin for each filter and return the union of such copyins.
