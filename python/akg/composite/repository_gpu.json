@@ -55,5 +55,19 @@
                 }
             }
         }
+    },
+    "12.GreaterEqual6.Cast1.LessEqual7.Cast1.AddN8.Reshape1.Cast1.Mul14.Mul17.Mul1.Mul117.Mul121.Sub2021.Mul1.Mul225.Mul14.Mul1.ReduceSum1.Mul730.Mul731.Mul110.22232425293032": {
+        "metadata": {
+            "attrs": {
+                "enable_atomic_add": true
+            }
+        },
+        "64_128_1-.768.64_128_768.64_128_1.64_128_768--.8192_768---.64_128_768-.64_128_1.64_128_768---": {
+            "float32-------.float16---.float32------": {
+                "dim": "0 0 8 1 0 1 768 1",
+                "bind_block": "1 1024",
+                "bind_thread": "128 8"
+            }
+        }
     }
 }

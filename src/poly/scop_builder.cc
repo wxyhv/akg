@@ -841,20 +841,28 @@ isl::schedule MakeScheduleTreeHelper(const NodeRef &s, ScopInfo &scop_info, cons
             call->func->func_name() == op->func->func_name() || call->args.empty()) {
           return;
         }
-        for (int i = static_cast<int>(call->args.size() - 1); i >= 0; --i) {
+        int call_size = static_cast<int>(call->args.size());
+        int reduce_position = -1;
+        int non_variable_count = 0;
+        bool is_continuous = true;
+        for (int i = call_size - 1; i >= 0; --i) {
           auto last_axis = call->args[i];
           auto mod = last_axis.as<FloorMod>();
-          if (mod != nullptr) {
-            if (auto v = mod->a.as<Variable>()) {
-              reduce_direction = reduce_attrs.count(v->name_hint) ? X_DIRECTION : Y_DIRECTION;
-              break;
-            }
-          } else {
-            if (auto v = last_axis.as<Variable>()) {
-              reduce_direction = reduce_attrs.count(v->name_hint) == 1 ? X_DIRECTION : Y_DIRECTION;
-              break;
-            }
+          auto var = mod != nullptr ? mod->a.as<Variable>() : last_axis.as<Variable>();
+          if (var != nullptr) {
+            reduce_position = reduce_attrs.count(var->name_hint) ? i : reduce_position;
+            is_continuous = false;
+          } else if (var == nullptr && is_continuous) {
+            ++non_variable_count;
           }
+        }
+        if (reduce_position == -1) {
+          return;
+        }
+        if (reduce_position == call_size - non_variable_count - 1) {
+          reduce_direction = X_DIRECTION;
+        } else {
+          reduce_direction = Y_DIRECTION;
         }
       });
       if (reduce_direction.empty()) {
@@ -1397,4 +1405,3 @@ isl::schedule MakeScheduleTree(const isl::space &param_space, isl::set param_set
 }  // namespace poly
 }  // namespace ir
 }  // namespace akg
-
