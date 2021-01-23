@@ -247,7 +247,7 @@ class DoAnalysis : public IRMutator {
             // if input shape changed, input need reshape
             // b = reduce(a) -> t = trans(a); b = reduce(t)
             auto tensor = NewTensor(nr.origin_shape);
-            auto reshape = AddReshape(input->func, tensor->op, input->args, tensor->shape);
+            auto reshape = AddReshape(input->func, tensor->op, input->args, tensor->shape, input->type);
             stmts.emplace_back(reshape);
             tmp_arg =
               Call::make(input->type, tensor->op->func_name(), tensor->shape, new_call_p->call_type, tensor->op);
@@ -266,7 +266,7 @@ class DoAnalysis : public IRMutator {
         // if output shape changed, output need reshape
         // b = reduce(a) -> t = reduce(a); b = trans(t)
         auto tensor = NewTensor(nr.origin_shape);
-        auto reshape = AddReshape(tensor->op, provide->func, tensor->shape, provide->args);
+        auto reshape = AddReshape(tensor->op, provide->func, tensor->shape, provide->args, Int(32));
         auto stmt = Provide::make(tensor->op, provide->value_index, provide->value, tensor->shape);
         if (!op_attrs_.empty()) {
           stmt = AttrStmt::make(op_attrs_, "attrs", Expr(1), stmt);
@@ -301,9 +301,9 @@ class DoAnalysis : public IRMutator {
   }
 
   static Stmt AddReshape(const FunctionRef &input_func, const FunctionRef &output_func, const Array<Expr> &input_shape,
-                         const Array<Expr> &output_shape) {
+                         const Array<Expr> &output_shape, const air::DataType &type) {
     Array<Expr> input;
-    input.push_back(Call::make(Int(32), input_func->func_name(), input_shape, Call::CallType::Halide, input_func));
+    input.push_back(Call::make(type, input_func->func_name(), input_shape, Call::CallType::Halide, input_func));
     auto stmt =
       Provide::make(output_func, 0, Call::make(Int(32), "Reshape", input, Call::CallType::PureIntrinsic), output_shape);
     Map<std::string, NodeRef> attrs;
