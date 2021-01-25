@@ -1,5 +1,5 @@
 /**
- * Copyright 2020 Huawei Technologies Co., Ltd
+ * Copyright 2020-2021 Huawei Technologies Co., Ltd
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -280,6 +280,8 @@ TVM_REGISTER_GLOBAL("Tanh").set_body([](TVMArgs args, TVMRetValue *rv) {
 TVM_REGISTER_GLOBAL("TensorAdd").set_body([](TVMArgs args, TVMRetValue *rv) {
   TOPI_TWO_INPUTS_CALL(args, rv, topi::add);
 });
+
+TVM_REGISTER_GLOBAL("Add").set_body([](TVMArgs args, TVMRetValue *rv) { TOPI_TWO_INPUTS_CALL(args, rv, topi::add); });
 
 TVM_REGISTER_GLOBAL("RealDiv").set_body([](TVMArgs args, TVMRetValue *rv) {
   TOPI_TWO_INPUTS_CALL(args, rv, topi::divide);
