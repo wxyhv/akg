@@ -1,5 +1,5 @@
 /**
- * Copyright 2020 Huawei Technologies Co., Ltd
+ * Copyright 2020-2021 Huawei Technologies Co., Ltd
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -85,7 +85,7 @@ class ReshapeTensorMutator : public IRMutator {
   }
 
   Stmt Mutate_(const Provide *op, const Stmt &s) final {
-    static std::unordered_set<std::string> check_list = {"TensorAdd", "RealDiv", "Mul", "Minimum", "Maximum", "Sub"};
+    static std::unordered_set<std::string> check_list = {"TensorAdd", "Add", "RealDiv", "Mul", "Minimum", "Maximum", "Sub"};
     auto call = op->value.as<Call>();
     if (call == nullptr || check_list.find(call->name) == check_list.end()) {
       return IRMutator::Mutate_(op, s);
