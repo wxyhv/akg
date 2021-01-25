@@ -1,5 +1,5 @@
 /**
- * Copyright 2019 Huawei Technologies Co., Ltd
+ * Copyright 2019-2021 Huawei Technologies Co., Ltd
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -192,6 +192,7 @@ REGISTER_PASS(SplitTail);
 REGISTER_PASS(RemoveFakeOp);
 // GPU PASS
 REGISTER_PASS(InjectDoubleBufferScopeOnGpu);
+REGISTER_PASS(InjectTransferBufferScope);
 
 }  // namespace ir
 }  // namespace akg

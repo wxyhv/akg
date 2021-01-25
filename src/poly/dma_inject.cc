@@ -1,5 +1,5 @@
 /**
- * Copyright 2019 Huawei Technologies Co., Ltd
+ * Copyright 2019-2021 Huawei Technologies Co., Ltd
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -1340,6 +1340,46 @@ isl::schedule_node InsertExtensionBeforeOrAfter(ScopInfo &scop_info, isl::schedu
   }
 
   if (scop_info.user_config_.GetTarget() == TARGET_CUDA && USE_SIMPLE_EXTENSION) {
+    if (auto graft_band = graft.child(0).as<isl::schedule_node_band>()) {
+      auto graft_domain = graft_band.get_partial_schedule().domain();
+      bool is_compute_shared = false;
+      graft_domain.foreach_set([&is_compute_shared](isl::set s) {
+        if (s.get_tuple_name() == SHARED_WRITE_ID_NAME) {
+          is_compute_shared = true;
+        }
+      });
+
+      if (!is_compute_shared) {
+        return InsertExtensionSimple(tree, graft, before, index);
+      }
+
+      auto IsComputePromotion = [](const isl::schedule_node &node) -> bool {
+        if (!node.isa<isl::schedule_node_filter>()) {
+          return false;
+        }
+        auto filter_node = node.as<isl::schedule_node_filter>();
+        isl::union_set uset = filter_node.get_filter();
+        bool is_compute_gm = false;
+        uset.foreach_set([&is_compute_gm](isl::set s) {
+          if (s.get_tuple_name() == WRITE_ID_NAME) {
+            is_compute_gm = true;
+          }
+        });
+        return is_compute_gm;
+      };
+
+      if (!tree.has_parent()) {
+        return InsertExtensionSimple(tree, graft, before, index);
+      }
+      auto gm_node = tree.parent();
+      bool is_wrong_order = gm_node.has_previous_sibling() && gm_node.previous_sibling().has_previous_sibling() &&
+                            IsComputePromotion(gm_node.previous_sibling());
+      if (!is_wrong_order) {
+        return InsertExtensionSimple(tree, graft, before, index);
+      }
+      gm_node = gm_node.previous_sibling().previous_sibling().child(0);
+      tree = gm_node;
+    }
     return InsertExtensionSimple(tree, graft, before, index);
   }
 

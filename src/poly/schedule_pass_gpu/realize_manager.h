@@ -23,8 +23,6 @@ namespace akg {
 namespace ir {
 namespace poly {
 
-constexpr auto REALIZE_PREFIX = "REALIZE_";
-
 class RealizeManager : public SchedulePass {
  public:
   explicit RealizeManager() { pass_name_ = __FUNCTION__; }
@@ -48,7 +46,6 @@ class RealizeManager : public SchedulePass {
   std::string GetTensorName(const isl::schedule_node_filter &filter_node);
 
   isl::schedule_node BreadthFirstTopDown(const isl::schedule_node &node, bool &end);
-
 };
 
 }  // namespace poly

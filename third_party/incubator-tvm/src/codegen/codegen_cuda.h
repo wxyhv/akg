@@ -27,6 +27,21 @@
  *   Add function PrintReduce.
  */
 
+/*
+ * 2021.01.12
+ * Add const for reduce
+ */
+
+/*
+ * 2021.01.13
+ * Add function Simplify_name.  
+ * Add variables for TensorCore:
+ *     warp_tile_m, warp_tile_n, warp_tile_k,
+ *     matrix_a_major, matrix_b_major,
+ *     matrix_abc,
+ *     wmma_scope.
+ */
+
 #ifndef TVM_CODEGEN_CODEGEN_CUDA_H_
 #define TVM_CODEGEN_CODEGEN_CUDA_H_
 
@@ -39,9 +54,18 @@
 namespace air {
 namespace codegen {
 
+constexpr auto REDUCE_LIB_TYPE = "reduceLibType";
+constexpr auto AKG_REDUCE = "akg_reduce::AkgReduce";
+constexpr auto AKG_ATOMIC_RETURN = "akg_reduce::AkgAtomicReturn";
+constexpr auto PARIS_REDUCE = "paris_reduce::ParisReduce";
+constexpr auto PARIS_ATOMIC_RETURN = "paris_reduce::ParisReturn";
+constexpr auto ORIGIN_REDUCE_LIB = "origin";
+constexpr auto PARIS_REDUCE_LIB = "paris";
+
 class CodeGenCUDA final : public CodeGenC {
  public:
   CodeGenCUDA();
+  std::string Simplify_name(std::string input);
   void Init(bool output_ssa);
   void AddFunction(LoweredFunc f);
   std::string Finish();
@@ -51,7 +75,6 @@ class CodeGenCUDA final : public CodeGenC {
   // override behavior
   void VisitStmt_(const ir::For* op) final;
   void PrintStorageSync(const Call* op) final;
-  void PrintReduce(const Call* op) final;
   void PrintStorageScope(const std::string& scope, std::ostream& os) final;  // NOLINT(*)
   void PrintVecBinaryOp(
       const std::string&op, Type t,
@@ -97,6 +120,19 @@ class CodeGenCUDA final : public CodeGenC {
   // whether need mma.h
   bool need_mma_h_{false};
 
+  // add for TensorCore
+  // warp tile size for TensorCore interface
+  Expr warp_tile_m = IntImm::make(Int(32), 1);
+  Expr warp_tile_n = IntImm::make(Int(32), 1);
+  Expr warp_tile_k = IntImm::make(Int(32), 1);
+  // layout mode for TensorCore fragment
+  Expr matrix_a_major = StringImm::make("row_major");
+  Expr matrix_b_major = StringImm::make("col_major");
+  std::unordered_map<std::string, std::string> matrix_abc;
+  // indicate which TensorCore interface
+  std::string wmma_scope;
+
+  std::unordered_map<const Variable*, int> sm_offsets;
   std::unordered_map<const Variable*, std::string> fragment_shapes;
   std::unordered_map<const Variable*, std::string> fragment_layouts;
   friend void PrintConst(const FloatImm* op, std::ostream& os, CodeGenCUDA* p);

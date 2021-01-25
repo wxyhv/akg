@@ -1,5 +1,5 @@
 /**
- * Copyright 2019 Huawei Technologies Co., Ltd
+ * Copyright 2019-2021 Huawei Technologies Co., Ltd
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -25,17 +25,19 @@ class Poly {
   Poly() : isl_ctx_(isl::ctx(isl_ctx_alloc())) {}
 
   ~Poly() noexcept {
+    scop_->info_.user_config_.FreeReplaceConfig();
     scop_.reset();
     // scop must be deconstructed before isl_ctx is deconstructed
     isl_ctx_free(isl_ctx_.get());
   }
 
   void Run(const Stmt &stmt, const Map<Tensor, Buffer> &extern_buffer, std::string target,
-           const Map<std::string, NodeRef> &attrs, const bool is_spec_gemm, bool is_tuning, bool is_dynamic) {
+           const Map<std::string, NodeRef> &attrs, const bool is_spec_gemm, bool is_tuning, bool is_dynamic,
+           const Schedule &origin_sch) {
     stmt_ = stmt;
     scop_.reset(new poly::Scop(Simplify_cce(stmt_), isl_ctx_));
     CHECK(scop_ != nullptr);
-    scop_->ParseUserConfig(target, attrs, extern_buffer, is_spec_gemm, is_tuning, is_dynamic);
+    scop_->ParseUserConfig(target, attrs, extern_buffer, is_spec_gemm, is_tuning, is_dynamic, origin_sch);
 
     std::chrono::high_resolution_clock::time_point timer_start;
     // generate isl schedule from Halide
@@ -104,16 +106,17 @@ class Poly {
 
 /// Interface for lower pass
 Array<NodeRef> AutoPoly(const Stmt &stmt, const Map<Tensor, Buffer> &extern_buffer, std::string target,
-                        const Map<std::string, NodeRef> &attrs, const bool is_specgemm, const bool is_dynamic) {
+                        const Map<std::string, NodeRef> &attrs, const bool is_specgemm, const bool is_dynamic,
+                        Schedule sch) {
   Poly poly;
-  poly.Run(stmt, extern_buffer, target, attrs, is_specgemm, false, is_dynamic);
+  poly.Run(stmt, extern_buffer, target, attrs, is_specgemm, false, is_dynamic, sch);
   return Array<NodeRef>({poly.GetStmt(), poly.GetTilingParams()});
 }
 
 NodeRef GenTuningSpace(const Stmt &stmt, std::string target, const Map<Tensor, Buffer> &extern_buffer,
-                       const Map<std::string, NodeRef> &attrs, const bool is_specgemm) {
+                       const Map<std::string, NodeRef> &attrs, const bool is_specgemm, Schedule sch) {
   Poly poly;
-  poly.Run(stmt, extern_buffer, target, attrs, is_specgemm, true, false);
+  poly.Run(stmt, extern_buffer, target, attrs, is_specgemm, true, false, sch);
   return poly.GetSpaces();
 }
 }  // namespace ir

@@ -43,6 +43,7 @@ class InitSchedule : public SchedulePass {
   void ModDependencesBeforeGroup(const isl::schedule &schedule);
 
   void ForceDepBetweenLiveouts(const isl::union_set liveouts);
+  isl::union_map RemoveLeafSelfDependence(const isl::union_map &dependences);
 
  private:
   PassInfo &pass_info_;

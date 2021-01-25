@@ -73,7 +73,7 @@ class TilingStrategyManager {
     this->strategies_.assign(strategies.begin(), strategies.end());
   }
 
-  void Execute() {
+  void ExecuteCce() {
     for (auto strategy : this->strategies_) {
       strategy->AddDavinciConstraint();
     }
@@ -310,7 +310,7 @@ class GpuStrategy : public TilingStrategy {
  private:
   void DetermineTemplate();
   void AdjustThreadMappingLimit();
-  
+
   void InjectiveSpeedup();
 
   void BroadcastSpeedup();

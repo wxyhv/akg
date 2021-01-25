@@ -1,4 +1,4 @@
-# Copyright 2020 Huawei Technologies Co., Ltd
+# Copyright 2020-2021 Huawei Technologies Co., Ltd
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -51,7 +51,6 @@ def print_usage():
 
 
 def get_result(desc, poly, attrs=None):
-    input_for_mod, expect, output_indexes = gen_json_data(desc)
     if poly:
         reduce_lib_key = "enable_akg_reduce_lib"
         if reduce_lib_key not in attrs.keys():
@@ -60,6 +59,7 @@ def get_result(desc, poly, attrs=None):
         mod = composite.build(desc, poly=poly)
     else:
         mod = composite.build(desc, attrs, poly=poly)
+    input_for_mod, expect, output_indexes = gen_json_data(desc)
     output = utils.mod_launch(mod, input_for_mod, output_indexes)
 
     rtol, atol = get_rtol_atol("FUSED", "float32")

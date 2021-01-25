@@ -1,5 +1,5 @@
 /**
- * Copyright 2020 Huawei Technologies Co., Ltd
+ * Copyright 2020-2021 Huawei Technologies Co., Ltd
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -60,7 +60,7 @@ bool ReduceManager::AreSequentialStatements(isl::union_set first_statements, isl
 }
 
 isl::schedule_node ReduceManager::ReorderStatements(const isl::schedule_node &node, isl::union_set before,
-                                                    isl::union_set after) {
+                                                    isl::union_set after, const bool split_reduce_dependent) {
   isl::union_set middle = CollectDomain(node);
   isl::schedule_node order_node = node;
   isl::union_set_list filter_list;
@@ -90,6 +90,11 @@ isl::schedule_node ReduceManager::ReorderStatements(const isl::schedule_node &no
     return order_node;
   }
   order_node = order_node.insert_sequence(filter_list);
+
+  if (!split_reduce_dependent) {
+    order_node = order_node.child(0);
+    return order_node;
+  }
   order_node = order_node.insert_mark(INSERT_SYNC);
   order_node = order_node.child(0).child(depth);
 
@@ -98,7 +103,7 @@ isl::schedule_node ReduceManager::ReorderStatements(const isl::schedule_node &no
 
 // Separate the reduce statement from other statements
 bool ReduceManager::SplitReduceStatements(isl::schedule_node &node, isl::union_set reduce_statements,
-                                          isl::union_map dependences) {
+                                          isl::union_map dependences, const bool split_reduce_dependent) {
   auto domain = CollectDomain(node);
   auto injective_statements = domain.subtract(reduce_statements);
   if (injective_statements.is_empty()) {
@@ -112,7 +117,8 @@ bool ReduceManager::SplitReduceStatements(isl::schedule_node &node, isl::union_s
     active_dependences.intersect_domain(reduce_statements).intersect_range(injective_statements).range();
   auto transitive_dependent_stmt =
     active_dependences.intersect_domain(reduction_dependent_stmt).intersect_range(injective_statements).range();
-  while (!transitive_dependent_stmt.is_empty() && !transitive_dependent_stmt.subtract(reduction_dependent_stmt).is_empty()) {
+  while (!transitive_dependent_stmt.is_empty() &&
+         !transitive_dependent_stmt.subtract(reduction_dependent_stmt).is_empty()) {
     reduction_dependent_stmt = reduction_dependent_stmt.unite(transitive_dependent_stmt);
     transitive_dependent_stmt =
       active_dependences.intersect_domain(reduction_dependent_stmt).intersect_range(injective_statements).range();
@@ -121,6 +127,16 @@ bool ReduceManager::SplitReduceStatements(isl::schedule_node &node, isl::union_s
   isl::union_set reduction_indenpendent_stmt = injective_statements.subtract(reduction_dependent_stmt);
 
   if (reduction_indenpendent_stmt.is_empty() && reduction_dependent_stmt.is_empty()) {
+    return false;
+  }
+
+  if (!split_reduce_dependent) {
+    if (AreSequentialStatements(domain.subtract(reduction_dependent_stmt), reduction_dependent_stmt, dependences) &&
+        !reduction_dependent_stmt.is_empty()) {
+      node = ReorderStatements(node, domain.subtract(reduction_dependent_stmt), reduction_dependent_stmt,
+                               split_reduce_dependent);
+      return true;
+    }
     return false;
   }
 
@@ -133,7 +149,7 @@ bool ReduceManager::SplitReduceStatements(isl::schedule_node &node, isl::union_s
   }
 
   // Reorder statements in "reduction-independent-stmt -> reduction-stmt -> reduction-dependent-stmt" order
-  node = ReorderStatements(node, reduction_indenpendent_stmt, reduction_dependent_stmt);
+  node = ReorderStatements(node, reduction_indenpendent_stmt, reduction_dependent_stmt, split_reduce_dependent);
 
   return true;
 }

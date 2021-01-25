@@ -1,5 +1,5 @@
 /**
- * Copyright 2020 Huawei Technologies Co., Ltd
+ * Copyright 2020-2021 Huawei Technologies Co., Ltd
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -93,15 +93,16 @@ isl::schedule_node BandSplitAtDepth(isl::schedule_node &band, size_t depth);
 
 std::vector<isl::schedule_node> BandsSplitAfterDepth(const std::vector<isl::schedule_node> &bands,
                                                      isl::schedule_node &root, size_t depth);
-
+isl::union_pw_aff_list GetUPAList(const isl::schedule_node &node, isl::multi_union_pw_aff &partial_schedule,
+                                  const bool is_promotion, bool need_coalesce);
 std::pair<isl::schedule_node, isl::schedule_node> MapInnerDimToThreads(const isl::schedule_node &node,
                                                                        const bool is_promotion, MappingCfg *mapping_cfg,
-                                                                       Mapping &mapping, bool is_y_reduce);
+                                                                       Mapping &mapping, bool need_coalesce);
 isl::schedule_node CreateAndInsertMapFilter(const isl::schedule_node &node, const bool is_promotion,
                                             isl::union_pw_aff_list upa_list, MappingCfg *mapping_cfg, Mapping &mapping);
 isl::schedule_node CheckMapSizeAndApplyTile(const isl::schedule_node &thread_root,
                                             const isl::union_pw_aff_list &aff_list, MappingCfg *mapping_cfg,
-                                            bool is_y_reduce);
+                                            bool need_coalesce);
 
 bool IsEqualNode(const isl::schedule_node node1, const isl::schedule_node node2);
 isl::multi_union_pw_aff MapDomainToThread(const isl::schedule_node &node, MappingCfg *mapping_cfg,

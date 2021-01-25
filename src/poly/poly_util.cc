@@ -215,7 +215,14 @@ isl::multi_union_pw_aff ShortScheduleMupa(const isl::schedule_node &root, const 
            ? prefix.flat_range_product(tree.as<isl::schedule_node_band>().get_partial_schedule())
            : prefix;
 }
-
+/* Compute the mapping relation between instances statement
+ * and outer schedule points and tensor elements pair */
+isl::union_map ScheduleTensorMapping(const isl::multi_union_pw_aff &outer_schedule,
+                                     const isl::union_map &tensor_access) {
+  isl::union_map statement_sch_map = isl::union_map::from(outer_schedule);
+  statement_sch_map = statement_sch_map.range_product(tensor_access);
+  return statement_sch_map;
+}
 }  // namespace poly
 }  // namespace ir
 }  // namespace akg

@@ -455,7 +455,6 @@ void ScheduleTreeAnalyzer::AnalyzeHalide(const Stmt &stmt) {
   // Step 3: Calculate loop's possible range (considering shift).
   AddLoopRangeFromBand();
   AddLoopRangeFromIfs();
-  analyzer_->is_dynamic_ = !loop_dynamic_range_map_.empty();
 
   // Step 4: Mark loop with data size by tensor which use the index of loop.
   AddLoopDataSize();
@@ -573,7 +572,7 @@ void ScheduleTreeAnalyzer::AddLoopDataSize() {
     if (it.first == nullptr) continue;
     std::vector<const Provide *> pros = it.second;
     for (const Provide *p : pros) {
-      int data_size = analyzer_->GetDataType(p->func->func_name());
+      int data_size = analyzer_->scop_info_.user_config_.GetDataType(p->func->func_name());
       VarNames related_name;
       auto ExtractName = [this, &related_name](const NodeRef &op) {
         if (const Call *call = op.as<Call>()) {

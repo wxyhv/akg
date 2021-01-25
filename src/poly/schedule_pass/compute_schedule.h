@@ -40,6 +40,12 @@ class ComputeSchedule : public SchedulePass {
   void SetIslOptions();
 
   isl::union_map ModDependences(const isl::union_map &dependences);
+  
+  isl::schedule PermuteOuterBand(const isl::schedule sch);
+  long CollectReductionExtent(const isl::union_pw_aff &aff);
+  std::unordered_set<std::string> CollectSwapIds(const isl::union_pw_aff &aff, const long reduce_extent);
+  isl::union_pw_aff GenerateNewAffine(const isl::union_pw_aff &swap_out, const isl::union_pw_aff &swap_in, std::unordered_set<std::string> swap_ids);
+
 
  private:
   PassInfo &pass_info_;

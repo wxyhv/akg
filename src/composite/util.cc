@@ -1,5 +1,5 @@
 /**
- * Copyright 2020 Huawei Technologies Co., Ltd
+ * Copyright 2020-2021 Huawei Technologies Co., Ltd
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -16,6 +16,37 @@
 #include "util.h"
 
 namespace akg {
+bool IsBlockIdx(const std::string &name) { return name.find("blockIdx") != std::string::npos; }
+bool IsBlockIdxX(const std::string &name) { return name == BLOCK_IDX_X; }
+bool IsBlockIdxY(const std::string &name) { return name == BLOCK_IDX_Y; }
+bool IsBlockIdxZ(const std::string &name) { return name == BLOCK_IDX_Z; }
+bool IsThreadIdxX(const std::string &name) { return name == THREAD_IDX_X; }
+bool IsThreadIdxY(const std::string &name) { return name == THREAD_IDX_Y; }
+bool IsThreadIdxZ(const std::string &name) { return name == THREAD_IDX_Z; }
+
+std::string GetProcess(const std::string &json_str) {
+  size_t pos = json_str.find("\"process\"");
+  if (pos != std::string::npos && json_str.find("cuda", pos) != std::string::npos) {
+    return "cuda";
+  }
+  return "aicore";
+}
+
+std::string GetSchedule(Array<Tensor> &outputs) {
+  for (const Tensor &t : outputs) {
+    if (t->op->tag == "comm_reduce" || t->op->tag == "comm_reduce_idx") {
+      return "reduce";
+    }
+  }
+  return "injective";
+}
+
+picojson::value String2Json(const std::string &json_str) {
+  picojson::value v;
+  std::string err = picojson::parse(v, json_str);
+  CHECK(err.empty()) << "json parse error, error message: " << err;
+  return v;
+}
 bool IsReduce(const std::string &op_name) {
   // if topi support more, add to this list
   std::unordered_set<std::string> elems = {"ReduceSum", "ReduceMax", "ReduceMin"};

@@ -1,5 +1,5 @@
 /**
- * Copyright 2020 Huawei Technologies Co., Ltd
+ * Copyright 2020-2021 Huawei Technologies Co., Ltd
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -15,9 +15,11 @@
  */
 
 #include "mapping_outer_band.h"
+
+#include <numeric>
+
 #include "poly/schedule_tree_util.h"
 #include "poly/sync_manager.h"
-
 #include "poly/scop.h"
 
 namespace akg {
@@ -195,6 +197,11 @@ isl::schedule MappingOuterBand::DoThreadMapping(const isl::schedule &sch) {
       is_reduce_stmt = true;
     }
 
+    if (scop_info_.user_config_.GetEnableTensorCoreUsePoly() && node.get_tree_depth() >= 2 &&
+        !GetMarkerName(node.ancestor(2), PROMOTE_SHARED_TO_REGISTER).empty()) {
+      return node;
+    }
+
     size_t num_mapped_desc = NumMappedDescendant(thread_record, node);
 
     if (CanBeMappedToThread(node, thread_record)) {
@@ -261,6 +268,17 @@ isl::schedule_node MappingOuterBand::DoThreadSynchronization(const isl::schedule
   // Step 1. prepare info
   bool is_outer = IsOuterBandWithNoCoincident(node);
   auto domain_thread = MapDomainToThread(node, thread_cfg, scop_info_.upa_node_mapping_);
+
+  if (scop_info_.user_config_.GetEnableTensorCoreUsePoly()) {
+    auto warp_cfg = scop_info_.user_config_.GetReplaceConfig()[WARP_COMPUTE];
+    CHECK(warp_cfg != nullptr) << "warp config is null";
+    auto domain_thread_warp = MapDomainToThread(node, warp_cfg, scop_info_.upa_node_mapping_);
+    domain_thread = domain_thread.union_add(domain_thread_warp);
+  }
+  auto domain_node = CollectDomain(node);
+  bool sub_set = domain_node.is_subset(domain_thread.domain());
+  CHECK(sub_set) << "There are remaining domains that have not been mapped to threadID";
+
   auto domain_warp = MapDomainToWarp(node, thread_cfg, domain_thread);
 
   // Step 2. construct a linked list for all nodes in the input sequence node
@@ -446,6 +464,15 @@ size_t MappingOuterBand::MapThreadHelper(isl::schedule_node &thread_root) {
   // Step 1. Determine max num dimension of threads that can be mapped.
   auto n_thread_map = CountConsecutiveCoincident(band_node);
 
+  bool is_bmm_statement = false;
+  if (scop_info_.user_config_.GetEnableTensorCoreUsePoly() && thread_root.has_parent() &&
+      !GetMarkerName(thread_root.parent(), PROMOTE_SHARED_TO_REGISTER).empty()) {
+    auto warp_cfg = scop_info_.user_config_.GetReplaceConfig()[WARP_COMPUTE];
+    CHECK(warp_cfg != nullptr) << "warp config is null";
+    thread_cfg = warp_cfg;
+    is_bmm_statement = true;
+  }
+
   bool is_reduce_stmt = false;
   std::string reduce_marker_name = "";
   if (band_node.has_parent()) {
@@ -489,9 +516,13 @@ size_t MappingOuterBand::MapThreadHelper(isl::schedule_node &thread_root) {
 
   // Step 3. Map band under thread_root from inner dim to outer dim.
   Mapping mapping;
-  auto after_map_pair = MapInnerDimToThreads(band_node, false, thread_cfg, mapping,
-                                             scop_info_.analysis_result_.GetReduceDirection() == Y_DIRECTION);
+  bool is_y_reduce =
+    scop_info_.analysis_result_.GetReduceDirection() == Y_DIRECTION || scop_info_.user_config_.GetEnableTensorCore();
+  auto after_map_pair = MapInnerDimToThreads(band_node, false, thread_cfg, mapping, is_y_reduce);
   thread_root = after_map_pair.first;
+  if (is_bmm_statement && !GetMarkerName(thread_root, THREAD_MARKER).empty()) {
+    thread_root = thread_root.del().insert_mark(isl::id(thread_root.ctx(), WARP_MARKER));
+  }
   scop_info_.upa_node_mapping_.emplace_back(std::make_pair(thread_root, mapping));
   int end_node_depth = thread_root.get_tree_depth() - start_node_depth;
 
@@ -564,9 +595,9 @@ isl::schedule MappingOuterBand::DetectAndMarkReduce(const isl::schedule &sch) {
       return node;
     }
 
-    isl::union_map dependences = pass_info_.dependences_;
+    isl::union_map dependences = pass_info_.dependences_.subtract(pass_info_.force_dependences_);
     auto node_bak = node;
-    if (!reduce_manager.SplitReduceStatements(node, reduce_statements, dependences)) {
+    if (!reduce_manager.SplitReduceStatements(node, reduce_statements, dependences, true)) {
       return node_bak;
     }
     done_separate = all_reduce_map.empty();
@@ -615,6 +646,81 @@ isl::schedule MappingOuterBand::InsertReduceMarker(const isl::schedule &sch, con
   return final_schedule;
 }
 
+std::pair<std::string, std::string> MappingOuterBand::GetL1L0BlockConfig(size_t n_block_map, int member_size) {
+  auto block_cfg = scop_info_.user_config_.GetBlockConfig();
+  CHECK(block_cfg != nullptr) << "block config is null";
+  auto title_size = static_cast<int>(pass_info_.tile_sizes_.size());
+  auto dim_num = (member_size <= title_size) ? member_size : title_size;
+  std::vector<int> l1_tile_size = GetTileSizeOfLevel(member_size, dim_num, L1, pass_info_.tile_sizes_);
+  std::vector<int> l0_tile_size = GetTileSizeOfLevel(member_size, dim_num, L0, pass_info_.tile_sizes_);
+  CHECK_EQ(l1_tile_size.size(), l0_tile_size.size());
+
+  for (size_t i = 0; i < l1_tile_size.size(); ++i) {
+    auto l0 = l0_tile_size[i] <= 0 ? 1 : l0_tile_size[i];
+    l0_tile_size[i] = std::max(1, l1_tile_size[i] / l0);
+  }
+  std::string l1_cfg = "";
+  std::string l0_cfg = "";
+  std::vector<int> l1_cfg_list;
+  std::vector<int> l0_cfg_list;
+  if (std::accumulate(l0_tile_size.begin(), l0_tile_size.end(), 1, std::multiplies<int>()) > 1) {
+    for (size_t i = 0; i < n_block_map; ++i) {
+      auto l0 = i < l0_tile_size.size() ? l0_tile_size[i] : 1;
+      l0_cfg_list.emplace_back(l0);
+      auto block_idx = scop_info_.analysis_result_.GetReduceDirection() == Y_DIRECTION ? i : n_block_map - 1 - i;
+      auto l1 = block_cfg->GetAt(block_idx).second / l0;
+      l1_cfg_list.emplace_back(l1);
+    }
+    if (scop_info_.analysis_result_.GetReduceDirection() != Y_DIRECTION) {
+      std::reverse(l1_cfg_list.begin(), l1_cfg_list.end());
+      std::reverse(l0_cfg_list.begin(), l0_cfg_list.end());
+    }
+    scop_info_.user_config_.SetL0BlockSize(l0_cfg_list);
+    for (size_t i = 0; i < n_block_map; ++i) {
+      l1_cfg += (std::to_string(l1_cfg_list[i]) + " ");
+      l0_cfg += (std::to_string(l0_cfg_list[i]) + " ");
+    }
+  }
+  return std::make_pair(l1_cfg, l0_cfg);
+}
+
+isl::schedule_node MappingOuterBand::MapBlockHelper(const isl::schedule_node &orig_node, MappingCfg *block_cfg,
+                                                    size_t n_block_map, bool check_extent) {
+  auto node = orig_node;
+  auto band_node = node.as<isl::schedule_node_band>();
+  if (!band_node || !band_node.permutable()) {
+    LOG(WARNING) << "No permutable outer band node to map block.";
+    return node;
+  }
+
+  auto partial_schedule = band_node.get_partial_schedule();
+  auto upa_list = partial_schedule.get_union_pw_aff_list();
+
+  if (check_extent) {
+    auto domain = band_node.get_schedule().get_domain();
+    isl::union_pw_aff_list range_aff_list(band_node.ctx(), static_cast<int>(upa_list.size()));
+    for (int i = upa_list.size() - 1; i >= 0; --i) {
+      auto idx = scop_info_.analysis_result_.GetReduceDirection() == Y_DIRECTION ? upa_list.size() - 1 - i : i;
+      auto range = upa_list.get_at(idx).intersect_domain(domain);
+      range_aff_list = range_aff_list.add(range);
+    }
+    node = CheckMapSizeAndApplyTile(node, range_aff_list, block_cfg, false);
+  }
+
+  upa_list = upa_list.drop(n_block_map, upa_list.size() - n_block_map).reverse();
+  if (scop_info_.analysis_result_.GetReduceDirection() == Y_DIRECTION) {
+    upa_list = upa_list.reverse();
+  }
+  node = node.insert_mark(isl::id(node.ctx(), BLOCK_MARKER));
+  node = node.child(0);
+
+  Mapping mapping;
+  node = CreateAndInsertMapFilter(node, false, upa_list, block_cfg, mapping);
+  scop_info_.upa_node_mapping_.emplace_back(std::make_pair(node.parent(), mapping));
+
+  return node;
+}
+
 isl::schedule MappingOuterBand::DoBlockMapping(const isl::schedule &sch) {
   isl::schedule_node root = sch.get_root();
   isl::schedule_node node = GetOuterBand(root);
@@ -634,37 +740,48 @@ isl::schedule MappingOuterBand::DoBlockMapping(const isl::schedule &sch) {
   if (n_block_map < 1) {
     return sch;
   }
+  // For scalar case that do not consider coincidence (reset during restart in pass mgr), there is usually only one
+  // member in outer band and we can map the maximal block size to that member.
+  if (n_block_map == 1 && n_block_map < block_cfg->bound && !scop_info_.user_config_.GetConsiderCoincidence()) {
+    auto new_idx = 0;
+    for (size_t i = 0; i < block_cfg->bound; ++i) {
+      if (block_cfg->GetAt(i).second > block_cfg->GetAt(new_idx).second) {
+        new_idx = i;
+      }
+    }
+    block_cfg->SwapConfig(0, new_idx);
+  }
+
   if (scop_info_.user_config_.GetEnableAtomicAdd() && NeedAtomicAdd(band_node, n_block_map)) {
     MarkAtomicAddTensor(band_node);
   }
 
-  // Step 2. Map outerband from outer dim to inner dim.
-  auto partial_schedule = band_node.get_partial_schedule();
-  auto upa_list = partial_schedule.get_union_pw_aff_list();
-
-  // Step 3. Checking extent range for mapping.
-  auto domain = band_node.get_schedule().get_domain();
-  isl::union_pw_aff_list range_aff_list(band_node.ctx(), static_cast<int>(upa_list.size()));
-  for (int i = upa_list.size() - 1; i >= 0; --i) {
-    auto idx = scop_info_.analysis_result_.GetReduceDirection() == Y_DIRECTION ? upa_list.size() - 1 - i : i;
-    auto range = upa_list.get_at(idx).intersect_domain(domain);
-    range_aff_list = range_aff_list.add(range);
+  // Step 2. Separate original block config according to tile levels.
+  auto l1_block_cfg = block_cfg;
+  MappingCfg *l0_block_cfg = nullptr;
+  if (scop_info_.user_config_.GetEnableTileL0()) {
+    auto l1_l0_block_cfg = GetL1L0BlockConfig(n_block_map, band_node.n_member());
+    if (!l1_l0_block_cfg.first.empty() && !l1_l0_block_cfg.second.empty()) {
+      scop_info_.user_config_.RecordReplaceConfig(L1, l1_l0_block_cfg.first, MappingType::REPLACE_BLOCKS);
+      scop_info_.user_config_.RecordReplaceConfig(L0, l1_l0_block_cfg.second, MappingType::REPLACE_BLOCKS);
+      auto rep_cfg = scop_info_.user_config_.GetReplaceConfig();
+      l1_block_cfg = rep_cfg[L1];
+      l0_block_cfg = rep_cfg[L0];
+    }
   }
-  node = CheckMapSizeAndApplyTile(node, range_aff_list, block_cfg, false);
 
-  // Step 4. Create and insert mapping filter.
-  upa_list = upa_list.drop(n_block_map, upa_list.size() - n_block_map).reverse();
-  if (scop_info_.analysis_result_.GetReduceDirection() == Y_DIRECTION) {
-    upa_list = upa_list.reverse();
-  }
-  node = node.insert_mark(isl::id(node.ctx(), BLOCK_MARKER));
-  node = node.child(0);
-
-  Mapping mapping;
-  node = CreateAndInsertMapFilter(node, false, upa_list, block_cfg, mapping);
-  scop_info_.upa_node_mapping_.emplace_back(std::make_pair(node.parent(), mapping));
-
+  // Step 3. Map outer-most band for l1 tile as usual (and do not check extent when l0 tile is applied manually).
+  auto map_l0_block = l0_block_cfg != nullptr;
+  node = MapBlockHelper(node, l1_block_cfg, n_block_map, !map_l0_block);
   auto final_schedule = node.get_schedule();
+
+  // Step 4. Map middle-level band (i.e. l0 tile band).
+  if (map_l0_block) {
+    isl::schedule_node middle_node = GetOuterBand(final_schedule.get_root()).child(0);
+    middle_node = MapBlockHelper(middle_node, l0_block_cfg, n_block_map, false);
+    final_schedule = middle_node.get_schedule();
+  }
+
   return final_schedule;
 }
 
@@ -674,7 +791,8 @@ bool MappingOuterBand::NeedAtomicAdd(const isl::schedule_node_band &band, size_t
   }
 
   auto non_coin_start_idx = CountConsecutiveCoincident(band);
-  bool is_all_reduce = band.n_member() == 1 && scop_info_.analysis_result_.GetReduceDirection() == X_DIRECTION && non_coin_start_idx == 1;
+  bool is_all_reduce =
+    band.n_member() == 1 && scop_info_.analysis_result_.GetReduceDirection() == X_DIRECTION && non_coin_start_idx == 1;
   if (is_all_reduce) {
     non_coin_start_idx = 0;  // Compare block size of position 0 to enable atomic add for all reduce ops
   }

@@ -82,8 +82,6 @@ struct Event {
 };
 
 const float kTimeUnit = 1000;
-int repeat_times = 0;
-uint64_t profiling_time = 0l;
 
 std::unordered_map<uint32_t, std::string> op_name_map;
 std::vector<Event> events;
