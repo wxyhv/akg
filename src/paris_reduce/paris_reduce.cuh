@@ -166,7 +166,7 @@ __inline__ __device__ void ParisReduceY(ReduceOp op, T *output, T *shared_array,
   }
 }
 
-template <typename T, typename ReduceOp, size_t BlockSizeReduce, int ReduceType>
+template <typename T, typename ReduceOp, size_t BlockDimX, size_t BlockDimY, int ReduceType>
 __inline__ __device__ void ParisReduce(
   ReduceOp op,         // the operator
   T *output_array,     // the addr of output in global/shared memory, single value
@@ -175,16 +175,16 @@ __inline__ __device__ void ParisReduce(
   int unused = 0       // unused valiable only for aligning with akg_reduce lib
 ) {
   if (ReduceType == akg_reduce::ALL_REDUCE) {
-    ParisAllReduce<T, ReduceOp, BlockSizeReduce>(op, output_array, shared_array, acc);
+    ParisAllReduce<T, ReduceOp, BlockDimX>(op, output_array, shared_array, acc);
     return;
   }
 
   if (ReduceType == akg_reduce::REDUCE2D_X) {
-    ParisReduceX<T, ReduceOp, BlockSizeReduce>(op, output_array, shared_array, acc);
+    ParisReduceX<T, ReduceOp, BlockDimX>(op, output_array, shared_array, acc);
   }
 
   if (ReduceType == akg_reduce::REDUCE2D_Y) {
-    ParisReduceY<T, ReduceOp, BlockSizeReduce>(op, output_array, shared_array, acc);
+    ParisReduceY<T, ReduceOp, BlockDimY>(op, output_array, shared_array, acc);
   }
 }
 
