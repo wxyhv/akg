@@ -114,7 +114,6 @@ class ReduceEmitInfo {
   Type reduce_data_type_info_;
 
   std::set<std::string> added_tensors_;
-  Stmt reduce_compute_stmt_;
   Stmt reduce_area_stmt_;
   Stmt origin_reduce_stmt_;
   Tensor scalar_tensor_;
@@ -181,6 +180,7 @@ class GpuIslEmitter : public IslEmitter {
   Stmt EmitFor(const isl::ast_node_for &node) final;
   Stmt EmitMark(const isl::ast_node_mark &node_id) override;
   Stmt EmitIf(const isl::ast_node_if &node) final;
+  Stmt EmitUserStmt(const isl::ast_node_user &node) final;
 
   // DMA emitters for GPU
   Expr EmitLoad(const isl::ast_expr &lhs, Type type);
