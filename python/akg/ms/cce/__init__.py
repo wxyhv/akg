@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # coding: utf-8
-# Copyright 2019 Huawei Technologies Co., Ltd
+# Copyright 2019-2021 Huawei Technologies Co., Ltd
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -17,7 +17,7 @@
 """__init__"""
 from __future__ import absolute_import as _abs
 
-from .add import TensorAdd
+from .add import TensorAdd, Add
 from .addn import AddN
 from .apply_momentum import ApplyMomentum
 from .bias_add_grad import BiasAddGrad

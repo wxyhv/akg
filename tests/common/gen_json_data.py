@@ -1,4 +1,4 @@
-# Copyright 2020 Huawei Technologies Co., Ltd
+# Copyright 2020-2021 Huawei Technologies Co., Ltd
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -234,6 +234,9 @@ op_dsl = {
     "TensorAdd": lambda inputs, output, attr: "%s = np.add(%s, %s)" %
     (output[0]['tensor_name'], get_input(
         inputs[0][0]), get_input(inputs[1][0])),
+    "Add": lambda inputs, output, attr: "%s = np.add(%s, %s)" %
+    (output[0]['tensor_name'], get_input(
+        inputs[0][0]), get_input(inputs[1][0])),
     "Rsqrt": lambda inputs, output, attr: "%s = 1.0/np.sqrt(%s)" %
     (output[0]['tensor_name'], get_input(inputs[0][0])),
     "Neg": lambda inputs, output, attr: "%s = np.negative(%s)" %
@@ -360,7 +363,7 @@ def gen_json_data(op_desc):
 
     inplace_assign_write = []
     fake_output_tensors = []
-    elemwise_op_list = ["TensorAdd", "RealDiv", "Mul", "Minimum", "Maximum", "Sub"]
+    elemwise_op_list = ["TensorAdd", "Add", "RealDiv", "Mul", "Minimum", "Maximum", "Sub"]
     for op in desc["op_desc"]:
         dsl_fun = op_dsl.get(op["name"], None)
         if op["name"] == "InplaceAssign" and with_inplace_assign:
