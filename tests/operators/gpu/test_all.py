@@ -298,9 +298,9 @@ def reduce_sum(poly_sch, fuzz_shape=None):
                        keepdims=False, poly_sch=poly_sch)
     test_ms_reduce_sum((9, 1024, 1024), 'float32', axis=2,
                        keepdims=True, poly_sch=poly_sch)
-    test_ms_reduce_sum((9, 1024, 1024), 'float16', axis=None,
+    test_ms_reduce_sum((9, 1024), 'float16', axis=None,
                        keepdims=False, poly_sch=poly_sch)
-    test_ms_reduce_sum((9, 1024, 1024), 'float16', axis=2,
+    test_ms_reduce_sum((9, 1024), 'float16', axis=1,
                        keepdims=True, poly_sch=poly_sch)
 
 
