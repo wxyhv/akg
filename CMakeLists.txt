@@ -245,7 +245,7 @@ endif(USE_CUDA)
 add_library(akg SHARED ${COMPILER_SRCS} ${RUNTIME_SRCS} ${TOPI_SRCS} ${RUNTIME_SRCS})
 
 add_dependencies(akg akg::isl_fixed)
-target_link_libraries(akg ${TVM_LINKER_LIBS} ${TVM_RUNTIME_LINKER_LIBS} akg::isl_fixed ${GMP_LIBRARY})
+target_link_libraries(akg ${TVM_LINKER_LIBS} ${TVM_RUNTIME_LINKER_LIBS} akg::isl_fixed ${GMP_LIBRARY} pthread)
 
 # Related headers
 target_include_directories(akg PRIVATE "${TVM_DIR}/topi/include")
