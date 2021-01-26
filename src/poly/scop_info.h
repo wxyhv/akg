@@ -919,8 +919,8 @@ class CubeInfo {
   std::string GetBName() const;
   std::string GetCName() const;
   bool IsIm2col() const;
-  bool IsLoad3dL1Ub() const;
-  bool IsLoad3dL1UBStmt(const std::string &stmtName) const;
+  bool IsLoadIm2colCA1BUF() const;
+  bool IsLoadIm2colCA1BUFStmt(const std::string &stmtName) const;
   bool HasCube() const;
   bool IsConv() const;
   bool IsGemm() const;
