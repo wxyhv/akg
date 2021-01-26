@@ -373,7 +373,7 @@ bool CubeInfo::IsFilterCanByPass() {
   auto tensor_mem_flows = analysis_result_.GetTensorMemFlows();
   if (tensor_mem_flows.count(filter_name)) {
     auto filter_memflow = tensor_mem_flows[filter_name];
-    auto it = std::find(filter_memflow.begin(), filter_memflow.end(), UBL1_);
+    auto it = std::find(filter_memflow.begin(), filter_memflow.end(), BUF_C1_);
     if (it != filter_memflow.end()) can_bypass = false;
   }
   return can_bypass;
@@ -1467,19 +1467,19 @@ isl::union_map AnalysisResult::GetReduceWriteStmt(const isl::schedule_node_band 
 
 static std::string MemTypeToString(const MemType &memType) {
   switch (memType) {
-    case MemType::UB_:
+    case MemType::BUF_:
       return "UB";
-    case MemType::L1_:
+    case MemType::C1_:
       return "L1";
-    case MemType::UBL0_:
+    case MemType::BUF_C0_:
       return "UBL0";
-    case MemType::UBL1_:
+    case MemType::BUF_C1_:
       return "UBL1";
-    case MemType::L0A_:
+    case MemType::C0A_:
       return "L0A";
-    case MemType::L0B_:
+    case MemType::C0B_:
       return "L0B";
-    case MemType::L0C_:
+    case MemType::C0C_:
       return "L0C";
     case MemType::DDR:
       return "GM";
@@ -1515,27 +1515,27 @@ std::string TensorMarkTag(MemType mem_type, MemFlow mem_flow) {
    *  For mem_type is DDR, mark_tag is empty string "".
    * */
   switch (mem_type) {
-    case MemType::L1_:
-      if (mem_flow.size() == 3 && mem_flow[0] == MemType::DDR && mem_flow[1] == MemType::L1_ &&
-          mem_flow[2] == MemType::UBL1_)
+    case MemType::C1_:
+      if (mem_flow.size() == 3 && mem_flow[0] == MemType::DDR && mem_flow[1] == MemType::C1_ &&
+          mem_flow[2] == MemType::BUF_C1_)
         return REALIZE_L1UBL1;
       return REALIZE_L1;
-    case MemType::UB_:
+    case MemType::BUF_:
       // ordinary conv condition no fusion
       if (mem_flow.size() == 3 && mem_flow[0] == MemType::DDR && mem_flow[1] == mem_type &&
-          mem_flow[2] == MemType::L0C_)
+          mem_flow[2] == MemType::C0C_)
         return REALIZE_L0;
       return REALIZE_UB;
-    case MemType::L0A_:
+    case MemType::C0A_:
       return REALIZE_L0;
-    case MemType::L0B_:
+    case MemType::C0B_:
       return REALIZE_L0;
-    case MemType::L0C_:
+    case MemType::C0C_:
       return REALIZE_L0;
-    case MemType::UBL0_:
+    case MemType::BUF_C0_:
       return REALIZE_UBL0;
-    case MemType::UBL1_:
-      if (mem_flow.size() == 2 && mem_flow[0] == MemType::DDR && mem_flow[1] == MemType::UBL1_) return REALIZE_L1;
+    case MemType::BUF_C1_:
+      if (mem_flow.size() == 2 && mem_flow[0] == MemType::DDR && mem_flow[1] == MemType::BUF_C1_) return REALIZE_L1;
       return REALIZE_UBL1;
     case MemType::DDR:
       return "";

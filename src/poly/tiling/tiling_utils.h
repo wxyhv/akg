@@ -32,12 +32,12 @@ namespace poly {
 enum TilingMemScope {
   // global
   MEM_SCOPE_GM = 0,
-  // davinci
-  MEM_SCOPE_UB,
-  MEM_SCOPE_L1,
-  MEM_SCOPE_L0A,
-  MEM_SCOPE_L0B,
-  MEM_SCOPE_L0C,
+  // npu
+  MEM_SCOPE_BUFFER,
+  MEM_SCOPE_CACHE1,
+  MEM_SCOPE_CACHE0_A,
+  MEM_SCOPE_CACHE0_B,
+  MEM_SCOPE_CACHE0_C,
   // gpu
   MEM_SCOPE_SHARED,
   MEM_SCOPE_LOCAL,
@@ -45,35 +45,35 @@ enum TilingMemScope {
   MEM_SCOPE_BULK,
 };
 
-class DavinciInfo {
+class NpuInfo {
  public:
-  ~DavinciInfo() {}
-  static DavinciInfo &GetInstance() {
-    static DavinciInfo hardware_info;
+  ~NpuInfo() {}
+  static NpuInfo &GetInstance() {
+    static NpuInfo hardware_info;
     return hardware_info;
   }
 
   int64_t GetMemoryLimitInScope(int scope_idx) {
     CHECK_LT(scope_idx, MEM_SCOPE_BULK);
-    return davinci_mem_limit_[scope_idx];
+    return npu_mem_limit_[scope_idx];
   }
 
  private:
-  DavinciInfo() { InitDavinciMemoryLimit(); }
-  int64_t davinci_mem_limit_[MEM_SCOPE_BULK]{0};
+  NpuInfo() { InitNpuMemoryLimit(); }
+  int64_t npu_mem_limit_[MEM_SCOPE_BULK]{0};
 
-  void InitDavinciMemoryLimit() {
+  void InitNpuMemoryLimit() {
     auto CollectLimit = [this](const std::string &scope, TilingMemScope mem) {
       air::MemoryInfo info = air::GetMemoryInfo(scope);
       CHECK(info.defined());
-      davinci_mem_limit_[mem] = info->max_num_bits / 8;
+      npu_mem_limit_[mem] = info->max_num_bits / 8;
     };
-    CollectLimit("local.UB", MEM_SCOPE_UB);
-    CollectLimit("local.L1", MEM_SCOPE_L1);
-    CollectLimit("local.L0A", MEM_SCOPE_L0A);
-    CollectLimit("local.L0B", MEM_SCOPE_L0B);
-    CollectLimit("local.L0C", MEM_SCOPE_L0C);
-    davinci_mem_limit_[MEM_SCOPE_GM] = 0;
+    CollectLimit("local.UB", MEM_SCOPE_BUFFER);
+    CollectLimit("local.L1", MEM_SCOPE_CACHE1);
+    CollectLimit("local.L0A", MEM_SCOPE_CACHE0_A);
+    CollectLimit("local.L0B", MEM_SCOPE_CACHE0_B);
+    CollectLimit("local.L0C", MEM_SCOPE_CACHE0_C);
+    npu_mem_limit_[MEM_SCOPE_GM] = 0;
   }
 };
 

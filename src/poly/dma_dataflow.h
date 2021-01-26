@@ -36,7 +36,7 @@ class TensorFootprintCluster;
 struct TensorDataFlow;
 class StmtDataFlowInfo;
 
-enum MemType { DDR = 1, L1_, UB_, L0A_, L0B_, L0C_, UBL0_, UBL1_, SHARED_, LOCAL_ };
+enum MemType { DDR = 1, C1_, BUF_, C0A_, C0B_, C0C_, BUF_C0_, BUF_C1_, SHARED_, LOCAL_ };
 enum DataStreamIndex { DS_ZERO = 0, DS_FIRST, DS_SECOND, DS_THIRD };
 enum GpuMemType { SHARED = 0, LOCAL };
 
@@ -153,26 +153,26 @@ struct TensorDataFlow {
 };
 
 const DataFlowAttrs Cube_Conv_A = {{MemType::DDR, ""},
-                                   {MemType::L1_, "_local_L1"},
-                                   {MemType::L1_, "_fractal_L1"},
-                                   {MemType::L0A_, "_local_L1_local_L0A"}};
+                                   {MemType::C1_, "_local_L1"},
+                                   {MemType::C1_, "_fractal_L1"},
+                                   {MemType::C0A_, "_local_L1_local_L0A"}};
 const DataFlowAttrs Cube_Conv_B = {
-  {MemType::DDR, ""}, {MemType::L1_, "_local_L1"}, {MemType::L0B_, "_local_L1_local_L0B"}};
+  {MemType::DDR, ""}, {MemType::C1_, "_local_L1"}, {MemType::C0B_, "_local_L1_local_L0B"}};
 const DataFlowAttrs Cube_Conv_C = {
-  {MemType::DDR, ""}, {MemType::UB_, "_local_UB"}, {MemType::L0C_, "_local_UB_local_L0C"}};
-const DataFlowAttrs Cube_Spec_Gemm_A = {{MemType::L1_, "_fractal_L1"}, {MemType::L0A_, "_fractal_L1_local_L0A"}};
-const DataFlowAttrs Cube_Spec_Gemm_A_ = {{MemType::L1_, "_local_L1"}, {MemType::L0A_, "_local_L1_local_L0A"}};
+  {MemType::DDR, ""}, {MemType::BUF_, "_local_UB"}, {MemType::C0C_, "_local_UB_local_L0C"}};
+const DataFlowAttrs Cube_Spec_Gemm_A = {{MemType::C1_, "_fractal_L1"}, {MemType::C0A_, "_fractal_L1_local_L0A"}};
+const DataFlowAttrs Cube_Spec_Gemm_A_ = {{MemType::C1_, "_local_L1"}, {MemType::C0A_, "_local_L1_local_L0A"}};
 const DataFlowAttrs Cube_Gemm_A = {
-  {MemType::DDR, ""}, {MemType::L1_, "_local_L1"}, {MemType::L0A_, "_local_L1_local_L0A"}};
-const DataFlowAttrs Cube_Spec_Gemm_B = {{MemType::L1_, ""}, {MemType::L0B_, "_local_L0B"}};
-const DataFlowAttrs Cube_Spec_Gemm_B_ = {{MemType::L1_, ""}, {MemType::L0B_, "_local_L0B"}};
+  {MemType::DDR, ""}, {MemType::C1_, "_local_L1"}, {MemType::C0A_, "_local_L1_local_L0A"}};
+const DataFlowAttrs Cube_Spec_Gemm_B = {{MemType::C1_, ""}, {MemType::C0B_, "_local_L0B"}};
+const DataFlowAttrs Cube_Spec_Gemm_B_ = {{MemType::C1_, ""}, {MemType::C0B_, "_local_L0B"}};
 const DataFlowAttrs Cube_Gemm_B = {
-  {MemType::DDR, ""}, {MemType::L1_, "_local_L1"}, {MemType::L0B_, "_local_L1_local_L0B"}};
-const DataFlowAttrs Cube_Spec_Gemm_C = {{MemType::UBL0_, ""}, {MemType::L0C_, "_local_L0C"}};
+  {MemType::DDR, ""}, {MemType::C1_, "_local_L1"}, {MemType::C0B_, "_local_L1_local_L0B"}};
+const DataFlowAttrs Cube_Spec_Gemm_C = {{MemType::BUF_C0_, ""}, {MemType::C0C_, "_local_L0C"}};
 const DataFlowAttrs Cube_Gemm_C = {
-  {MemType::DDR, ""}, {MemType::UB_, "_local_UB"}, {MemType::L0C_, "_local_UB_local_L0C"}};
-const DataFlowAttrs Vector_UB = {{MemType::DDR, ""}, {MemType::UB_, "_local_UB"}};
-const DataFlowAttrs Im2Col_L1 = {{MemType::DDR, ""}, {MemType::L1_, "_local_L1"}};
+  {MemType::DDR, ""}, {MemType::BUF_, "_local_UB"}, {MemType::C0C_, "_local_UB_local_L0C"}};
+const DataFlowAttrs Vector_UB = {{MemType::DDR, ""}, {MemType::BUF_, "_local_UB"}};
+const DataFlowAttrs Im2Col_L1 = {{MemType::DDR, ""}, {MemType::C1_, "_local_L1"}};
 
 class StmtDataFlowInfo {
  public:

@@ -41,8 +41,8 @@ void CustomTilingStrategy::AddDavinciConstraint() {
       CHECK_GE(constraints.size(), 1U);
       std::vector<std::string> level = akg::common::Split(constraints[0], ":");
       CHECK(level.size() == 2U && level[0] == "LEVEL");
-      CHECK(level[1] == "L1" || level[1] == "L0");
-      TileLevel lv = level[1] == "L1" ? LEVEL1 : LEVEL0;
+      CHECK(level[1] == "C1" || level[1] == "C0");
+      TileLevel lv = level[1] == "C1" ? CACHE1 : CACHE0;
       constraints.erase(constraints.begin());
       for (const auto &con : constraints) {
         std::vector<std::string> items = akg::common::Split(con, ":");
@@ -51,33 +51,34 @@ void CustomTilingStrategy::AddDavinciConstraint() {
         CHECK_NE(items[1], "");
         if (items[0] == "MIN") {
           if (items[1] == "MIN") {
-            if (lv == LEVEL1) {
-              axis->l1_constraints.tile_extent_ = axis->l1_constraints.tile_min_;
-            } else if (lv == LEVEL0) {
-              axis->l0_constraints.tile_extent_ = axis->l0_constraints.tile_min_;
+            if (lv == CACHE1) {
+              axis->c1_constraints.tile_extent_ = axis->c1_constraints.tile_min_;
+            } else if (lv == CACHE0) {
+              axis->c0_constraints.tile_extent_ = axis->c0_constraints.tile_min_;
             }
           } else {
-            if (lv == LEVEL1) {
-              axis->l1_constraints.tile_min_ = CastToExpr(items[1]);
-            } else if (lv == LEVEL0) {
-              axis->l0_constraints.tile_min_ = CastToExpr(items[1]);
+            if (lv == CACHE1) {
+              axis->c1_constraints.tile_min_ = CastToExpr(items[1]);
+            } else if (lv == CACHE0) {
+              axis->c0_constraints.tile_min_ = CastToExpr(items[1]);
             }
           }
         } else if (items[0] == "FACTOR") {
           axis->TileRestrainToSingleValue(CastToExpr(items[1]), lv);
         } else if (items[0] == "CANDIDATE") {
-          if (lv == LEVEL1)
-            axis->InsertL1CandFactor(CastToExpr(items[1]));
-          else
-            axis->InsertL0CandFactor(CastToExpr(items[1]));
+          if (lv == CACHE1) {
+            axis->InsertC1CandFactor(CastToExpr(items[1]));
+          } else {
+            axis->InsertC0CandFactor(CastToExpr(items[1]));
+          }
         } else if (items[0] == "MAX") {
           if (items[1] == "FULL") {
             axis->TileRestrainEntire(lv);
           } else {
-            if (lv == LEVEL1) {
-              axis->l1_constraints.tile_extent_ = CastToExpr(items[1]);
-            } else if (lv == LEVEL0) {
-              axis->l0_constraints.tile_extent_ = CastToExpr(items[1]);
+            if (lv == CACHE1) {
+              axis->c1_constraints.tile_extent_ = CastToExpr(items[1]);
+            } else if (lv == CACHE0) {
+              axis->c0_constraints.tile_extent_ = CastToExpr(items[1]);
             }
           }
         } else if (items[0] == AT_MOD) {
@@ -108,7 +109,7 @@ void ConflictTreeRangeStrategy::AddDavinciConstraint() {
     // It is not safe to apply min tile(1) to padded-and-transformed axis
     // as poly may generate wrong index.
     if (!axis->HasAttr(AT_MOD)) {
-      axis->InsertL1CandFactor(CastIntToExpr(MIN_TILE));
+      axis->InsertC1CandFactor(CastIntToExpr(MIN_TILE));
     }
     if (axis->HasAttr(AT_MODSHIFT)) {
       const_extent = (const_extent - axis->range_min);
@@ -118,11 +119,11 @@ void ConflictTreeRangeStrategy::AddDavinciConstraint() {
       axis->RemoveAttr(AT_SHIFT);
     }
     axis->range_min = MIN_TILE;
-    axis->InsertL1CandFactor(CastInt64ToExpr(const_extent));
-    axis->l1_constraints.tile_min_ = CastIntToExpr(MIN_TILE);
-    axis->l1_constraints.tile_extent_ = CastInt64ToExpr(const_extent);
-    axis->l0_constraints.tile_min_ = CastIntToExpr(MIN_TILE);
-    axis->l0_constraints.tile_extent_ = CastInt64ToExpr(const_extent);
+    axis->InsertC1CandFactor(CastInt64ToExpr(const_extent));
+    axis->c1_constraints.tile_min_ = CastIntToExpr(MIN_TILE);
+    axis->c1_constraints.tile_extent_ = CastInt64ToExpr(const_extent);
+    axis->c0_constraints.tile_min_ = CastIntToExpr(MIN_TILE);
+    axis->c0_constraints.tile_extent_ = CastInt64ToExpr(const_extent);
   };
   auto CheckRange = [&ApplyConflictStrategy](TileAxis *axis) {
     std::unordered_set<int64_t> offset;
@@ -165,7 +166,7 @@ void ModStrategy::AddDavinciConstraint() {
     for (const auto &attr : it.second) {
       CHECK_NE(attr.attr_value, "");
       auto mod_value = static_cast<int>(std::strtol(attr.attr_value.c_str(), nullptr, 10));
-      axis->TileRestrainMod(mod_value, LEVEL1);
+      axis->TileRestrainMod(mod_value, CACHE1);
     }
   }
 }
@@ -181,7 +182,7 @@ void ReduceStrategy::AddDavinciConstraint() {
     if (axis->range_extent.as<IntImm>() == nullptr || axis->range_extent.as<IntImm>()->value < min_size_to_align) {
       continue;
     }
-    axis->l1_constraints.tile_min_ = CastInt64ToExpr(min_size_to_align);
+    axis->c1_constraints.tile_min_ = CastInt64ToExpr(min_size_to_align);
   }
 }
 
@@ -204,7 +205,7 @@ void VectorizedStrategy::AddDavinciConstraint() {
       }
     }
     min_byte = min_byte <= 0 ? 1 : min_byte;
-    axis->l1_constraints.tile_mod_ = CanonicalSimplify(CastIntToExpr(VECTORIZE_BYTE / min_byte));
+    axis->c1_constraints.tile_mod_ = CanonicalSimplify(CastIntToExpr(VECTORIZE_BYTE / min_byte));
   }
 }
 
@@ -223,8 +224,8 @@ void DmaAlignStrategy::AddDavinciConstraint() {
 
       // For dynamic shape or axes that has other candidates, simply add tile min constraint;
       // for static shape that has no other candidate, add aligned candidates.
-      if (const_extent == -1 || !axis->l1_constraints.cand_factor.empty()) {
-        axis->l1_constraints.tile_min_ = CastInt64ToExpr(align_size);
+      if (const_extent == -1 || !axis->c1_constraints.cand_factor.empty()) {
+        axis->c1_constraints.tile_min_ = CastInt64ToExpr(align_size);
       } else {
         std::vector<air::Expr> candidates;
         for (auto cand = const_extent; cand >= align_size; --cand) {
@@ -233,7 +234,7 @@ void DmaAlignStrategy::AddDavinciConstraint() {
             candidates.emplace_back(CastIntToExpr(cand));
           }
         }
-        axis->l1_constraints.cand_factor = candidates;
+        axis->c1_constraints.cand_factor = candidates;
       }
     }
   }
@@ -242,13 +243,13 @@ void DmaAlignStrategy::AddDavinciConstraint() {
 void TensorOfTensorStrategy::AddDavinciConstraint() {
   for (auto axis : analyzer_->GetAxesOfAttr(AT_TOT)) {
     if (!axis->HasAttr("ALIGN:DMA")) continue;
-    axis->TileRestrainToSingleValue(CastIntToExpr(MIN_TILE), LEVEL1);
+    axis->TileRestrainToSingleValue(CastIntToExpr(MIN_TILE), CACHE1);
   }
 }
 
 void PassDownAttrStrategy::AddDavinciConstraint() {
   for (auto axis : analyzer_->GetAxesOfAttr(AttrInfo{"ATTR", "pass_down"})) {
-    axis->TileRestrainEntire(LEVEL1);
+    axis->TileRestrainEntire(CACHE1);
   }
 }
 
@@ -270,7 +271,7 @@ void DynamicBoundStrategy::AddDavinciConstraint() {
     for (const auto &attr : it.second) {
       CHECK_NE(attr.attr_value, "");
       auto bound = static_cast<int>(std::strtol(attr.attr_value.c_str(), nullptr, 10));
-      axis->TileRestrainMod(bound, LEVEL1);
+      axis->TileRestrainMod(bound, CACHE1);
       axis->forbid_iso = true;
     }
   }
@@ -287,7 +288,7 @@ void ShiftAxisStrategy::AddDavinciConstraint() {
     for (const auto &attr : it.second) {
       CHECK_NE(attr.attr_value, "");
       auto share_time = static_cast<int>(std::strtol(attr.attr_value.c_str(), nullptr, 10));
-      axis->TileRestrainToSingleValue(const_extent * (share_time + 1), LEVEL1);
+      axis->TileRestrainToSingleValue(const_extent * (share_time + 1), CACHE1);
       break;
     }
   }
@@ -303,11 +304,11 @@ void ModShiftAxisStrategy::AddDavinciConstraint() {
     }
     for (const auto &attr : it.second) {
       axis->forbid_iso = true;
-      auto imm_min = axis->GetConstConstraint(LEVEL1).tile_min_.as<IntImm>()->value;
+      auto imm_min = axis->GetConstConstraint(CACHE1).tile_min_.as<IntImm>()->value;
       if (imm_min > const_extent) {
         CHECK_NE(attr.attr_value, "");
         auto share_time = static_cast<int>(std::strtol(attr.attr_value.c_str(), nullptr, 10));
-        axis->TileRestrainToSingleValue(const_extent * (share_time + 1), LEVEL1);
+        axis->TileRestrainToSingleValue(const_extent * (share_time + 1), CACHE1);
       } else {
         auto ForbidOthersIso = [](TileAxis *a) { a->forbid_iso = true; };
         analyzer_->ForEachAxisTopDown(ForbidOthersIso);
@@ -325,22 +326,22 @@ void ConvStrategy::AddDavinciConstraint() {
     for (const auto &attr : it.second) {
       axis->axis_type_ = attr.attr_value;
       if (attr.attr_value == "N" || attr.attr_value == "C1_in_out") {
-        axis->TileRestrainToSingleValue(CastIntToExpr(MIN_TILE), LEVEL1);
-        axis->TileRestrainToSingleValue(CastIntToExpr(MIN_TILE), LEVEL0);
+        axis->TileRestrainToSingleValue(CastIntToExpr(MIN_TILE), CACHE1);
+        axis->TileRestrainToSingleValue(CastIntToExpr(MIN_TILE), CACHE0);
       } else if (attr.attr_value == "H") {
         RestrainH(axis);
       } else if (attr.attr_value == "W") {
         if (analyzer_->scop_info_.cube_info_.IsConvBackpropFilter()) {
-          axis->TileRestrainEntire(LEVEL1);
+          axis->TileRestrainEntire(CACHE1);
         } else {
           RestrainW(axis);
         }
       } else if (attr.attr_value.find("C0") != std::string::npos || attr.attr_value == "kh" ||
                  attr.attr_value == "kw") {
-        axis->TileRestrainEntire(LEVEL1);
+        axis->TileRestrainEntire(CACHE1);
       } else if (attr.attr_value == "C1_in" && analyzer_->scop_info_.user_config_.GetIsDynamic()) {
         // dynamic case
-        axis->TileRestrainEntire(LEVEL1);
+        axis->TileRestrainEntire(CACHE1);
       }
     }
   }
@@ -368,7 +369,7 @@ void ConvStrategy::RestrainH(TileAxis *axis) {
     tile_out_h <= axis->range_extent)) {
     tile_out_h += 1;
   }
-  axis->l1_constraints.tile_min_ = CastIntToExpr(tile_out_h);
+  axis->c1_constraints.tile_min_ = CastIntToExpr(tile_out_h);
 }
 
 void ConvStrategy::RestrainW(TileAxis *axis) {
@@ -393,7 +394,7 @@ void ConvStrategy::RestrainW(TileAxis *axis) {
     tile_out_w <= axis->range_extent)) {
     tile_out_w += 1;
   }
-  axis->l1_constraints.tile_min_ = CastIntToExpr(tile_out_w);
+  axis->c1_constraints.tile_min_ = CastIntToExpr(tile_out_w);
 }
 
 void GemmStrategy::AddDavinciConstraint() {
@@ -403,13 +404,13 @@ void GemmStrategy::AddDavinciConstraint() {
     for (const auto &attr : it.second) {
       axis->axis_type_ = attr.attr_value;
       if (attr.attr_value == "mi" || attr.attr_value == "ni" || attr.attr_value == "ki") {
-        axis->TileRestrainMod(CastIntToExpr(CUBE_UNIT), LEVEL1);
-        axis->TileRestrainMod(CastIntToExpr(CUBE_UNIT), LEVEL0);
-        axis->TileRestrainToSingleValue(CastIntToExpr(CUBE_UNIT), LEVEL1);
-        axis->TileRestrainToSingleValue(CastIntToExpr(CUBE_UNIT), LEVEL0);
+        axis->TileRestrainMod(CastIntToExpr(MMA_UNIT), CACHE1);
+        axis->TileRestrainMod(CastIntToExpr(MMA_UNIT), CACHE0);
+        axis->TileRestrainToSingleValue(CastIntToExpr(MMA_UNIT), CACHE1);
+        axis->TileRestrainToSingleValue(CastIntToExpr(MMA_UNIT), CACHE0);
       } else if (attr.attr_value == "bo" || attr.attr_value == "bi") {
-        axis->TileRestrainToSingleValue(CastIntToExpr(MIN_TILE), LEVEL1);
-        axis->TileRestrainToSingleValue(CastIntToExpr(MIN_TILE), LEVEL0);
+        axis->TileRestrainToSingleValue(CastIntToExpr(MIN_TILE), CACHE1);
+        axis->TileRestrainToSingleValue(CastIntToExpr(MIN_TILE), CACHE0);
       }
     }
   }
@@ -460,10 +461,10 @@ std::pair<int, int> MulticoreStrategy::GetProposalRangeForFullMulticore(TileAxis
     std::tie(l1_val, std::ignore) = cand_.GetConstTileVal(other_axis);
     if (l1_val == TileVarId::VAR) return proposal_range;
     if (l1_val == TileVarId::UNDEFINE) {
-      CHECK(other_axis->l1_constraints.tile_min_.as<IntImm>())
+      CHECK(other_axis->c1_constraints.tile_min_.as<IntImm>())
         << "Static shape " << shape << " should have const tile min, while got "
-        << other_axis->l1_constraints.tile_min_;
-      l1_val = other_axis->l1_constraints.tile_min_.as<IntImm>()->value;
+        << other_axis->c1_constraints.tile_min_;
+      l1_val = other_axis->c1_constraints.tile_min_.as<IntImm>()->value;
     }
     auto block_extent = std::max(static_cast<int>(other_axis->range_extent.as<IntImm>()->value / l1_val), 1);
     ss << "range " << multicore_axis->range_extent << " l1 tile " << l1_val << " -> block extent " << block_extent
@@ -522,8 +523,8 @@ int64_t MulticoreStrategy::AdjustTilingAccordingToMulticoreConstraint(TileAxis *
     }
   };
   CheckConstConstraint(multicore_axis->range_extent);
-  CheckConstConstraint(multicore_axis->l1_constraints.tile_min_);
-  CheckConstConstraint(multicore_axis->l1_constraints.tile_mod_);
+  CheckConstConstraint(multicore_axis->c1_constraints.tile_min_);
+  CheckConstConstraint(multicore_axis->c1_constraints.tile_mod_);
 
   auto pending_blocks = cand_.GetMaximalPendingBlocks(multicore_axis);
   if (tiling_factor < max_factor_for_full_cores) {
@@ -552,11 +553,11 @@ int64_t MulticoreStrategy::AdjustTilingAccordingToMulticoreConstraint(TileAxis *
     logger_.AppendLog(DO_TILING, ss);
     efficient = false;
   }
-  bool valid = tiling_factor >= multicore_axis->l1_constraints.tile_min_.as<IntImm>()->value;
-  if (tiling_factor >= multicore_axis->l1_constraints.tile_mod_.as<IntImm>()->value) {
-    valid = valid && tiling_factor % multicore_axis->l1_constraints.tile_mod_.as<IntImm>()->value == 0;
+  bool valid = tiling_factor >= multicore_axis->c1_constraints.tile_min_.as<IntImm>()->value;
+  if (tiling_factor >= multicore_axis->c1_constraints.tile_mod_.as<IntImm>()->value) {
+    valid = valid && tiling_factor % multicore_axis->c1_constraints.tile_mod_.as<IntImm>()->value == 0;
   } else {
-    auto weak_constraint = multicore_axis->l1_constraints.tile_mod_.as<IntImm>()->value % tiling_factor == 0;
+    auto weak_constraint = multicore_axis->c1_constraints.tile_mod_.as<IntImm>()->value % tiling_factor == 0;
     valid = valid && multicore_axis->HasAttr(AT_VECTORIZED) && weak_constraint;
   }
   ss << "--> Adjust tiling factor " << origin_factor << " to " << tiling_factor << " if valid(" << valid
@@ -646,11 +647,11 @@ std::vector<double> TilingPriorityScorer::ComputeVectorization(std::vector<TileA
       if (buf->scope == TilingMemScope::MEM_SCOPE_GM) {
         // continuous dma copy is considered as the most important factor
         coef = 2;
-      } else if (buf->scope == TilingMemScope::MEM_SCOPE_UB) {
+      } else if (buf->scope == TilingMemScope::MEM_SCOPE_BUFFER) {
         // vectorization instruction is also important
         coef = 1;
       } else {
-        // does not consider impact of L1 and L0 dma copy
+        // does not consider impact of C1 and C0 dma copy
         coef = 0;
       }
       int dim_depth = 1;

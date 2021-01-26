@@ -1313,20 +1313,20 @@ std::string CCEIslEmitter::FindRealizeScopeToString(const isl::id &var) {
     MemType mem_type = tensor_info.DstMemType();
 
     switch (mem_type) {
-      case MemType::L1_:
+      case MemType::C1_:
         if (var.get_name().find("fractal_L1") != std::string::npos) return "local.L1_tmp";
         return "local.L1";
-      case MemType::L0A_:
+      case MemType::C0A_:
         return "local.L0A";
-      case MemType::L0B_:
+      case MemType::C0B_:
         return "local.L0B";
-      case MemType::L0C_:
+      case MemType::C0C_:
         return "local.L0C";
-      case MemType::UB_:
+      case MemType::BUF_:
         return "local.UB";
-      case MemType::UBL0_:
+      case MemType::BUF_C0_:
         return "local.UB";
-      case MemType::UBL1_:
+      case MemType::BUF_C1_:
         return "local.UB";
       default:
         LOG(FATAL) << "unexpected mem_type of var " << var;

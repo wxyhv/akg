@@ -655,10 +655,10 @@ def get_tiling_space(kernel_desc, level=1, attr=None):
     ret = func(kernel_desc, attr)
     spaces = {}
     spaces['index'] = ret.index_table.asnumpy().tolist()
-    spaces['l1_range'] = ret.l1_tile_range_table.asnumpy().tolist()
-    spaces['l0_range'] = ret.l0_tile_range_table.asnumpy().tolist()
-    spaces['l1_mod'] = ret.l1_tile_mod_table.asnumpy().tolist()
-    spaces['l0_mod'] = ret.l0_tile_mod_table.asnumpy().tolist()
+    spaces['c1_range'] = ret.c1_tile_range_table.asnumpy().tolist()
+    spaces['c0_range'] = ret.c0_tile_range_table.asnumpy().tolist()
+    spaces['c1_mod'] = ret.c1_tile_mod_table.asnumpy().tolist()
+    spaces['c0_mod'] = ret.c0_tile_mod_table.asnumpy().tolist()
     if level >= 2:
         spaces['tuning_space'] = ret.tiling_candidate.asnumpy().tolist()
     return spaces
