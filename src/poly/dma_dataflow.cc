@@ -134,8 +134,8 @@ bool BufferDefInfo::IsCubeCL1Write() {
   const int l1WriteDFLen = static_cast<int>(DataStreamIndex::DS_THIRD);
   if (data_stream.size() == l1WriteDFLen) {
     if (data_stream[static_cast<size_t>(DataStreamIndex::DS_ZERO)].second == MemType::DDR &&
-        data_stream[static_cast<size_t>(DataStreamIndex::DS_FIRST)].second == MemType::UB_ &&
-        data_stream[static_cast<size_t>(DataStreamIndex::DS_SECOND)].second == MemType::L0C_)
+        data_stream[static_cast<size_t>(DataStreamIndex::DS_FIRST)].second == MemType::BUF_ &&
+        data_stream[static_cast<size_t>(DataStreamIndex::DS_SECOND)].second == MemType::C0C_)
       return true;
   }
   return false;
@@ -145,8 +145,8 @@ bool BufferDefInfo::IsPreCubeL1Write() {
   const int preCubeL1WriteDFLen = static_cast<int>(DataStreamIndex::DS_THIRD);
   if (data_stream.size() == preCubeL1WriteDFLen) {
     if (data_stream[static_cast<size_t>(DataStreamIndex::DS_ZERO)].second == MemType::DDR &&
-        data_stream[static_cast<size_t>(DataStreamIndex::DS_FIRST)].second == MemType::L1_ &&
-        data_stream[static_cast<size_t>(DataStreamIndex::DS_SECOND)].second == MemType::UBL1_)
+        data_stream[static_cast<size_t>(DataStreamIndex::DS_FIRST)].second == MemType::C1_ &&
+        data_stream[static_cast<size_t>(DataStreamIndex::DS_SECOND)].second == MemType::BUF_C1_)
       return true;
   }
   return false;
@@ -155,18 +155,18 @@ bool BufferDefInfo::IsPreCubeL1Write() {
 bool BufferDefInfo::IsPreCubeTile2Write() {
   const int preCubeTile2WriteDFLen = static_cast<int>(DataStreamIndex::DS_SECOND);
   if (data_stream.size() == preCubeTile2WriteDFLen) {
-    if (data_stream[static_cast<size_t>(DataStreamIndex::DS_ZERO)].second == MemType::L1_ &&
-        data_stream[static_cast<size_t>(DataStreamIndex::DS_FIRST)].second == MemType::UBL1_)
+    if (data_stream[static_cast<size_t>(DataStreamIndex::DS_ZERO)].second == MemType::C1_ &&
+        data_stream[static_cast<size_t>(DataStreamIndex::DS_FIRST)].second == MemType::BUF_C1_)
       return true;
   }
   return false;
 }
 
-bool BufferDefInfo::IsGemmDataL12L0() { return (SrcMemType() == MemType::L1_ && DstMemType() == MemType::L0A_); }
+bool BufferDefInfo::IsGemmDataL12L0() { return (SrcMemType() == MemType::C1_ && DstMemType() == MemType::C0A_); }
 
-bool BufferDefInfo::IsGemmWeightL12L0() { return (SrcMemType() == MemType::L1_ && DstMemType() == MemType::L0B_); }
+bool BufferDefInfo::IsGemmWeightL12L0() { return (SrcMemType() == MemType::C1_ && DstMemType() == MemType::C0B_); }
 
-bool BufferDefInfo::IsIm2col() { return (SrcMemType() == MemType::L1_ && DstMemType() == MemType::L1_); }
+bool BufferDefInfo::IsIm2col() { return (SrcMemType() == MemType::C1_ && DstMemType() == MemType::C1_); }
 MemType BufferDefInfo::SrcMemType() {
   // tensor dataflow at least one data
   CHECK_GE(data_stream.size(), 1);
@@ -310,14 +310,14 @@ void StmtDataFlowInfo::Im2colL1(const std::string &name, TensorDataFlow &dataflo
 void StmtDataFlowInfo::UpdateTensorMemType(MemType update_type) {
   for (auto read = reads_.begin(); read != reads_.end(); ++read) {
     for (uint64_t index = 0; index < read->second.mem_type_flow_.size(); ++index) {
-      if (read->second.mem_type_flow_[index] == MemType::UB_) {
+      if (read->second.mem_type_flow_[index] == MemType::BUF_) {
         read->second.mem_type_flow_[index] = update_type;
       }
     }
   }
   for (auto write = writes_.begin(); write != writes_.end(); ++write) {
     for (uint64_t index = 0; index < write->second.mem_type_flow_.size(); ++index) {
-      if (write->second.mem_type_flow_[index] == MemType::UB_) {
+      if (write->second.mem_type_flow_[index] == MemType::BUF_) {
         write->second.mem_type_flow_[index] = update_type;
       }
     }
@@ -519,13 +519,11 @@ void DMADataFlow::FusionAnalysis() {
     }
 
     if (cube_pre_fusion && start_pre_fusion) {
-      // To Do UB -> UBL1
-      state->second.UpdateTensorMemType(MemType::UBL1_);
+      state->second.UpdateTensorMemType(MemType::BUF_C1_);
     }
 
     if (cube_post_fusion && start_post_fusion) {
-      // update all memtype UB -> UBL0
-      state->second.UpdateTensorMemType(MemType::UBL0_);
+      state->second.UpdateTensorMemType(MemType::BUF_C0_);
     }
   }
 }

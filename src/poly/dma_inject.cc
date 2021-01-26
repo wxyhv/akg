@@ -1541,7 +1541,7 @@ void PlaceDataCopyBelowImplReadWrite(ScopInfo &scop_info, isl::schedule_node &tr
   bool writes = (!cluster.RichWriteRelations().is_empty() && cluster.WriteNeedDma());
   if (writes) {
     auto tensor_info = scop_info.analysis_result_.GetBufferDefInfo(cluster_id);
-    if (MemType::UBL0_ == tensor_info.DstMemType() || MemType::UB_ == tensor_info.DstMemType() ||
+    if (MemType::BUF_C0_ == tensor_info.DstMemType() || MemType::BUF_ == tensor_info.DstMemType() ||
         tensor_info.IsPreCubeL1Write()) {
       if (!scop_info.IsInBinds(tensor_id)) writes = false;
     }

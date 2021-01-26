@@ -45,8 +45,8 @@ class TileTemplate(Enum):
 @unique
 class TileLevel(Enum):
     """class TileLevel."""
-    L1 = "L1"
-    L0 = "L0"
+    C1 = "C1"
+    C0 = "C0"
 
 
 @unique
@@ -73,7 +73,7 @@ class TileConstraint(Enum):
 
 
 @check_input_type((double, float, int), TileConstraint, TileLevel)
-def modify_common_constraints(value, constraint, level=TileLevel.L1):
+def modify_common_constraints(value, constraint, level=TileLevel.C1):
     """api for dsl to modify some default constraint used in auto tiling."""
     if constraint not in TileConstraint:
         raise ValueError("Tile constraints must be chosen from {0}".format(TileConstraint))
@@ -84,7 +84,7 @@ def modify_common_constraints(value, constraint, level=TileLevel.L1):
 
 
 @check_input_type((str, int), TileConstraint, int, (int, list, tuple, type(None)), TileLevel)
-def create_constraint_on_axis(values, constraints, band=0, axis=None, level=TileLevel.L1):
+def create_constraint_on_axis(values, constraints, band=0, axis=None, level=TileLevel.C1):
     """api for dsl to create tiling constraints on certain axis."""
     if constraints not in TileConstraint:
         raise ValueError("Tile constraints must be chosen from {0}".format(TileConstraint))
@@ -139,7 +139,7 @@ def create_constraint_on_axis(values, constraints, band=0, axis=None, level=Tile
 
 @check_input_type((akg.tvm.tensor.Tensor, list, tuple), (str, int, list, tuple), TileConstraint,
                   (int, list, tuple, type(None)), TileLevel)
-def create_constraint_on_tensor(tensor, values, constraints, tensor_pos=None, level=TileLevel.L1):
+def create_constraint_on_tensor(tensor, values, constraints, tensor_pos=None, level=TileLevel.C1):
     """api for dsl to create tiling constraints on certain tensor."""
     if constraints not in TileConstraint:
         raise ValueError("Tile constraint must be chosen from {0}".format(TileConstraint))
@@ -192,7 +192,7 @@ def create_constraint_on_tensor(tensor, values, constraints, tensor_pos=None, le
 
 
 @check_input_type(akg.tvm.tensor.Tensor, TileTemplate, TileLevel)
-def create_template(tensor, template, level=TileLevel.L1):
+def create_template(tensor, template, level=TileLevel.C1):
     """create template according to given template arg."""
     tensor_name = tensor.op.name
     if template not in TileTemplate:
@@ -219,7 +219,7 @@ def to_tvm_type(value, t_type):
 
 
 def create_custom_tiling_node(tile_mode,
-                              tile_level=TileLevel.L1,
+                              tile_level=TileLevel.C1,
                               tensor_name=DEFAULT_STRING,
                               tile_pos=DEFAULT_VALUE,
                               tile_band=DEFAULT_VALUE,
@@ -309,20 +309,20 @@ def set_dims(tiling):
     """Set dim for tiling."""
     info = dim.Dim()
     for d, tile_d in enumerate(tiling):
-        if len(tile_d) == 2:  # only l1 and l0 tile
+        if len(tile_d) == 2:  # only c1 and c0 tile
             index = 0
             axis = d
-            l1 = tile_d[0]
-            l0 = tile_d[1]
-        elif len(tile_d) == 4:  # index, axis, l1, l0
+            c1 = tile_d[0]
+            c0 = tile_d[1]
+        elif len(tile_d) == 4:  # index, axis, c1, c0
             index = tile_d[0]
             axis = tile_d[1]
-            l1 = tile_d[2]
-            l0 = tile_d[3]
+            c1 = tile_d[2]
+            c0 = tile_d[3]
         else:
-            raise RuntimeError("Each element in tiling should be length-2 (l1_tile, l0_tile) "
-                               "or length-4 (band_index, axis_index, l1_tile, l0_tile)")
-        info.setdim(index=index, axis=axis, tilel1=l1, tilel0=l0)
+            raise RuntimeError("Each element in tiling should be length-2 (c1_tile, c0_tile) "
+                               "or length-4 (band_index, axis_index, c1_tile, c0_tile)")
+        info.setdim(index=index, axis=axis, tilel1=c1, tilel0=c0)
     return str(info)
 
 

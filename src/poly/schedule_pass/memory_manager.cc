@@ -114,7 +114,7 @@ isl::schedule_node MemoryManager::HoistTensorClusterFootprint(isl::schedule_node
     all_read_only = all_read_only && buf_fp.second.cluster->UnWriteable();
   }
 
-  if (is_bind_tensor && tensor_info.mem_type != MemType::UBL0_) {
+  if (is_bind_tensor && tensor_info.mem_type != MemType::BUF_C0_) {
     if (!(scop_info_.cube_info_.IsGemm() && tensor_info.IsCubeCL1Write())) {
       bool insert_ub_to_l1 = false;
       if (!scop_info_.analysis_result_.GetFakeCopyin().is_empty()) {
@@ -453,8 +453,8 @@ void MemoryManager::AddStateTensorsDataFlow() {
   for (const auto &tensor : tensor_mem_flows) {
     std::string name = tensor.first;
     if (tensor_name_flows.find(name) == tensor_name_flows.end()) continue;
-    auto it = std::find(tensor_mem_flows[name].begin(), tensor_mem_flows[name].end(), UBL1_);
-    auto it2 = std::find(tensor_mem_flows[name].begin(), tensor_mem_flows[name].end(), L1_);
+    auto it = std::find(tensor_mem_flows[name].begin(), tensor_mem_flows[name].end(), BUF_C1_);
+    auto it2 = std::find(tensor_mem_flows[name].begin(), tensor_mem_flows[name].end(), C1_);
     if (it != tensor_mem_flows[name].end() && it2 != tensor_mem_flows[name].end()) {
       std::vector<std::string> name_flow1, name_flow2;
       MemFlow mem_flow1, mem_flow2;
@@ -581,7 +581,7 @@ void MemoryManager::AddTensorDataFlow(const std::vector<MemType> &memflow, const
   }
 
   bool isCopyin = scop_info_.IsCopyinTensor(tensor_id.get_name());
-  if (!isCopyin && dst_mem_type == MemType::UBL1_) {
+  if (!isCopyin && dst_mem_type == MemType::BUF_C1_) {
     mark_tag = REALIZE_L1UBL1;
   }
 

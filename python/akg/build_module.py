@@ -48,9 +48,9 @@ def dump_tiling_info(level):
             for i in range(len(indice)):
                 info = "index %d, axis %d, l1_tile_ranges [%d, %d](jump by %d),l0_tile_ranges [%d, %d](jump by %d)"
                 logging.info(info, tuning_spaces["index"][i][0], tuning_spaces["index"][i][1],
-                             tuning_spaces["l1_range"][i][0], tuning_spaces["l1_range"][i][1],
-                             tuning_spaces["l1_mod"][i][0], tuning_spaces["l0_range"][i][0],
-                             tuning_spaces["l0_range"][i][1], tuning_spaces["l0_mod"][i][0])
+                             tuning_spaces["c1_range"][i][0], tuning_spaces["c1_range"][i][1],
+                             tuning_spaces["c1_mod"][i][0], tuning_spaces["c0_range"][i][0],
+                             tuning_spaces["c0_range"][i][1], tuning_spaces["c0_mod"][i][0])
             logging.info("===============================================")
         elif isinstance(indice, int) and indice == EMPTY_CODE:
             logging.info("Empty tiling space.")
@@ -104,10 +104,10 @@ def lower(sch, args, shape_params=None, name="default_function", binds=None, att
         global tuning_spaces
         tuning_spaces = {}
         tuning_spaces["index"] = ret.index_table.asnumpy().tolist()
-        tuning_spaces["l1_range"] = ret.l1_tile_range_table.asnumpy().tolist()
-        tuning_spaces["l0_range"] = ret.l0_tile_range_table.asnumpy().tolist()
-        tuning_spaces["l1_mod"] = ret.l1_tile_mod_table.asnumpy().tolist()
-        tuning_spaces["l0_mod"] = ret.l0_tile_mod_table.asnumpy().tolist()
+        tuning_spaces["c1_range"] = ret.c1_tile_range_table.asnumpy().tolist()
+        tuning_spaces["c0_range"] = ret.c0_tile_range_table.asnumpy().tolist()
+        tuning_spaces["c1_mod"] = ret.c1_tile_mod_table.asnumpy().tolist()
+        tuning_spaces["c0_mod"] = ret.c0_tile_mod_table.asnumpy().tolist()
         if level >= help_tiling_level["Candidates"]:
             tuning_spaces["tuning_space"] = ret.tiling_candidate.asnumpy().tolist()
         if not tuning:

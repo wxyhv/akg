@@ -95,7 +95,7 @@ class ScheduleTreeAnalyzer {
   std::vector<const For *> loop_seq_;
   std::unordered_map<const For *, std::pair<std::string, int>> loop_data_size_map_;
   std::unordered_map<size_t, std::vector<TilePos>> candidates_;
-  std::unordered_map<std::string, std::string> cube_var_map_;
+  std::unordered_map<std::string, std::string> mmu_var_map_;
   std::vector<const For *> defined_static_loop_;
   std::vector<const For *> defined_dynamic_loop_;
 

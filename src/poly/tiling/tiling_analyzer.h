@@ -41,7 +41,7 @@ namespace ir {
 namespace poly {
 // common integers
 constexpr auto ALIGN_BYTES = 32;
-constexpr auto CUBE_UNIT = 16;
+constexpr auto MMA_UNIT = 16;
 constexpr auto MIN_TILE = 1;
 constexpr auto EXCEED_MEM_CODE = -2;
 constexpr auto BISEC_REDUCE_MEM_EXPANSION = 2;
@@ -94,7 +94,7 @@ inline Expr CastIntToExpr(const int value) { return air::ir::IntImm::make(Int(32
 
 enum TileOpType { VECTOR_OP, CONV_OP, GEMM_OP };
 
-enum TileLevel { LEVEL0 = 0, LEVEL1 };
+enum TileLevel { CACHE0 = 0, CACHE1 };
 
 enum TileVarId { UNDEFINE = -1, VAR };
 
@@ -161,8 +161,8 @@ class TileAxis {
   std::unordered_map<std::string, std::vector<int>> data_size;
   int64_t range_min;
   Expr range_extent;
-  Constraint l1_constraints;
-  Constraint l0_constraints;
+  Constraint c1_constraints;
+  Constraint c0_constraints;
   MappingConstraint block_constraints;
   MappingConstraint thread_constraints;
   std::vector<const For *> loops;
@@ -177,7 +177,7 @@ class TileAxis {
   std::string axis_type_{""};  // record the type of special axis type
   std::vector<AttrInfo> attrs;
   inline Constraint GetConstConstraint(TileLevel level) const {
-    Constraint cons = level == LEVEL1 ? this->l1_constraints : this->l0_constraints;
+    Constraint cons = level == CACHE1 ? this->c1_constraints : this->c0_constraints;
     const auto tile_min = cons.tile_min_.as<IntImm>();
     const auto tile_extent = cons.tile_extent_.as<IntImm>();
     const auto tile_mod = cons.tile_mod_.as<IntImm>();
@@ -217,8 +217,8 @@ class TileAxis {
   void RemoveAttr(const std::string &attr_key);
   void RemoveAttr(const AttrInfo &attr);
   std::vector<std::string> GetAttrValue(const std::string &attr_key) const;
-  void InsertL1CandFactor(const Expr &f);
-  void InsertL0CandFactor(const Expr &f);
+  void InsertC1CandFactor(const Expr &f);
+  void InsertC0CandFactor(const Expr &f);
   void DumpAxis(bool on_screen = false);
 
  private:
@@ -316,11 +316,11 @@ class TileCandidate {
       return;
     }
     for (const auto &attr : analyzer_->RootAxis()->attrs) {
-      std::string ub_name = attr.attr_value + "_local_UB";
-      if (attr.attr_key == "ELEMWISE") {
-        this->elem_align_buf.insert(ub_name);
-      } else if (attr.attr_key == "BROADCAST") {
-        this->broadcast_align_buf.insert(ub_name);
+      std::string buf_name = attr.attr_value + "_local_buffer";
+      if (attr.attr_key == AT_ELEMWISE) {
+        this->elem_align_buf_.insert(buf_name);
+      } else if (attr.attr_key == AT_BROADCAST) {
+        this->broadcast_align_buf_.insert(buf_name);
       }
     }
   }
@@ -348,8 +348,8 @@ class TileCandidate {
     bool is_bcast;
   };
   struct TileVal {
-    Expr tile_l1;
-    Expr tile_l0;
+    Expr tile_c1;
+    Expr tile_c0;
   };
   struct BufSizeInfo {
     int64_t buf_size;
@@ -381,7 +381,7 @@ class TileCandidate {
 
   void InsertAxisBack(TileAxis *a) {
     this->tile_axis_.emplace_back(a);
-    this->tile_val_.emplace(a, TileVal{a->l1_constraints.tile_extent_, a->l0_constraints.tile_extent_});
+    this->tile_val_.emplace(a, TileVal{a->c1_constraints.tile_extent_, a->c0_constraints.tile_extent_});
     is_update_ = false;
   }
   int TileAxisSize() const { return static_cast<int>(this->tile_axis_.size()); }
@@ -411,8 +411,8 @@ class TileCandidate {
   TilingAnalyzer *analyzer_;
   bool is_update_{false};
   int tiling_band_{0};
-  std::unordered_set<std::string> elem_align_buf;
-  std::unordered_set<std::string> broadcast_align_buf;
+  std::unordered_set<std::string> elem_align_buf_;
+  std::unordered_set<std::string> broadcast_align_buf_;
   int64_t mem_infer_[MEM_SCOPE_BULK]{0};
   int64_t align_mem_infer_[MEM_SCOPE_BULK]{0};
 };

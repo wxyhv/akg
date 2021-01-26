@@ -25,7 +25,7 @@ namespace poly {
 
 void GpuDmaAnalysisStrategy::AddGpuConstraint() {
   analyzer_->ForEachAxisTopDown(
-    [](TileAxis *axis) { axis->TileRestrainToSingleValue(CastIntToExpr(MIN_TILE), TileLevel::LEVEL1); });
+    [](TileAxis *axis) { axis->TileRestrainToSingleValue(CastIntToExpr(MIN_TILE), TileLevel::CACHE1); });
 }
 
 void CastStrategy::AddGpuConstraint() { MarkDataSize(); }
@@ -37,8 +37,8 @@ void GemmStrategy::AddGpuConstraint() {
   auto interested_info = GetInterestedInfo(interested_attr_key);
   for (auto it : interested_info) {
     TileAxis *axis = it.first;
-    axis->TileRestrainToSingleValue(CastIntToExpr(64), TileLevel::LEVEL1);
-    axis->TileRestrainToSingleValue(CastIntToExpr(16), TileLevel::LEVEL0);
+    axis->TileRestrainToSingleValue(CastIntToExpr(64), TileLevel::CACHE1);
+    axis->TileRestrainToSingleValue(CastIntToExpr(16), TileLevel::CACHE0);
     for (const auto &attr : it.second) {
       if (attr.attr_value == "mi") {
         axis->thread_constraints.map_min_ = warp_sizes_;
@@ -94,7 +94,7 @@ void ReduceStrategy::SimpleStrategyOnGpu() {
       axis->block_constraints.map_extent_ = MIN_TILE;
       axis->thread_constraints.map_extent_ = MIN_TILE;
       if (!is_tuning) {
-        axis->TileRestrainToSingleValue(CastIntToExpr(extent), TileLevel::LEVEL1);
+        axis->TileRestrainToSingleValue(CastIntToExpr(extent), TileLevel::CACHE1);
       }
     }
   }
@@ -123,7 +123,7 @@ void ReduceStrategy::AkgReduceLibStrategyOnGpu() {
 
   if (has_transpose_) {
     for (auto axis : reduce_axes_) {
-      axis->TileRestrainEntire(TileLevel::LEVEL1);
+      axis->TileRestrainEntire(TileLevel::CACHE1);
       axis->block_constraints.map_extent_ = MIN_TILE;
     }
   }
@@ -217,10 +217,10 @@ void ReduceStrategy::AkgReduceLibStrategyOnGpu() {
       }
       CHECK_NE(attr.attr_value, "");
       auto mod_value = static_cast<int>(std::strtol(attr.attr_value.c_str(), nullptr, 10));
-      axis->TileRestrainMod(CastInt64ToExpr(mod_value), TileLevel::LEVEL1);
+      axis->TileRestrainMod(CastInt64ToExpr(mod_value), TileLevel::CACHE1);
     }
     if (use_local) {
-      auto tile_mod = axis->l1_constraints.tile_mod_.as<IntImm>()->value;
+      auto tile_mod = axis->c1_constraints.tile_mod_.as<IntImm>()->value;
       while (tile_mod > reduce_threads && tile_mod % reduce_threads != 0) {
         --reduce_threads;
       }
@@ -321,7 +321,7 @@ void ReduceStrategy::DealWith4DFusedReduce() {
     if (num_mod_axis < 1) {
       continue;
     }
-    axis->TileRestrainToSingleValue(CastIntToExpr(last_mod_value), TileLevel::LEVEL1);
+    axis->TileRestrainToSingleValue(CastIntToExpr(last_mod_value), TileLevel::CACHE1);
     if (last_mod_value > max_num_threads_) {
       LOG(WARNING) << "Cannot bind axis to " << last_mod_value << " threads, maximal thread number is "
                    << max_num_threads_
@@ -504,7 +504,7 @@ void GpuStrategy::InnerThreadOuterBlock() {
       } else {
         tile = std::min(tile, shape);
       }
-      axis->TileRestrainLower(tile, TileLevel::LEVEL1);
+      axis->TileRestrainLower(tile, TileLevel::CACHE1);
       ss << ", tile = " << tile;
       analyzer_->logger_.AppendLog(GPU_MAPPING, ss);
     };
@@ -599,8 +599,8 @@ void GpuStrategy::InnerThreadOuterBlock() {
     }
     CHECK(axis->range_extent.as<IntImm>());
     auto extent = axis->range_extent.as<IntImm>()->value;
-    axis->TileRestrainUpper(std::max<int64_t>(ceil(static_cast<float>(extent) / use), 1), TileLevel::LEVEL1);
-    ss << ", tile range = [" << axis->l1_constraints.tile_min_ << ", " << axis->l1_constraints.tile_extent_ << "]";
+    axis->TileRestrainUpper(std::max<int64_t>(ceil(static_cast<float>(extent) / use), 1), TileLevel::CACHE1);
+    ss << ", tile range = [" << axis->c1_constraints.tile_min_ << ", " << axis->c1_constraints.tile_extent_ << "]";
     analyzer_->logger_.AppendLog(GPU_MAPPING, ss);
   }
 }
@@ -662,7 +662,7 @@ void GpuStrategy::SetMappingConfig() {
     if (axis == analyzer_->RootAxis()) {
       return;
     }
-    ss << axis->l1_constraints.tile_extent_ << ",";
+    ss << axis->c1_constraints.tile_extent_ << ",";
   });
   analyzer_->logger_.AppendLog(GPU_MAPPING, ss);
   if (template_ == Template::CUSTOM_CONFIG) {
@@ -690,9 +690,9 @@ int64_t GpuStrategy::GetThreadSize(const int64_t rest_threads, size_t inner_dim,
 int64_t GpuStrategy::TileAfterThreadMapping(TileAxis *axis, size_t inner_dim, int64_t thread_size, const int64_t item) {
   std::stringstream ss;
   auto shape = axis->range_extent.as<IntImm>()->value;
-  auto tile_min = axis->l1_constraints.tile_min_.as<IntImm>()->value;
-  auto tile_mod = axis->l1_constraints.tile_mod_.as<IntImm>()->value;
-  auto tile_extent = axis->l1_constraints.tile_extent_.as<IntImm>()->value;
+  auto tile_min = axis->c1_constraints.tile_min_.as<IntImm>()->value;
+  auto tile_mod = axis->c1_constraints.tile_mod_.as<IntImm>()->value;
+  auto tile_extent = axis->c1_constraints.tile_extent_.as<IntImm>()->value;
   if (tile_min == tile_extent && tile_extent != MIN_TILE) {
     ss << "tile extent is already determined = " << tile_extent;
     analyzer_->logger_.AppendLog(GPU_MAPPING, ss);
@@ -756,7 +756,7 @@ int64_t GpuStrategy::TileAfterThreadMapping(TileAxis *axis, size_t inner_dim, in
 
   ss << "axis " << axis->index << "_" << axis->dim_axis << " elem_per_thread = " << item << ", tile = " << tile;
   analyzer_->logger_.AppendLog(GPU_MAPPING, ss);
-  axis->TileRestrainLower(CastInt64ToExpr(tile), TileLevel::LEVEL1);
+  axis->TileRestrainLower(CastInt64ToExpr(tile), TileLevel::CACHE1);
   return tile;
 }
 
@@ -876,7 +876,7 @@ void GpuStrategy::InjectiveSpeedup() {
   for (size_t i = 0; i < injective_axes.size(); ++i) {
     auto axis = injective_axes[i];
     auto shape = axis->range_extent.as<IntImm>()->value;
-    auto tile_size = axis->l1_constraints.tile_extent_.as<IntImm>()->value;
+    auto tile_size = axis->c1_constraints.tile_extent_.as<IntImm>()->value;
     auto thread_size = axis->thread_constraints.map_extent_;
     if (shape % thread_size == 0) {
       continue;
@@ -895,7 +895,7 @@ void GpuStrategy::InjectiveSpeedup() {
 
       auto thread_loop = std::max<int>(1, tile_size / thread_size);
       tile_size = std::min(shape, thread_loop * lower);
-      axis->TileRestrainToSingleValue(tile_size, TileLevel::LEVEL1);
+      axis->TileRestrainToSingleValue(tile_size, TileLevel::CACHE1);
 
       axis->block_constraints.map_extent_ = shape / tile_size;
     }
@@ -931,12 +931,12 @@ void GpuStrategy::InjectiveSpeedup() {
       }
       auto thread_size = axis->thread_constraints.map_extent_;
       auto block_size = axis->block_constraints.map_extent_;
-      auto tile_size = axis->l1_constraints.tile_extent_.as<IntImm>()->value;
+      auto tile_size = axis->c1_constraints.tile_extent_.as<IntImm>()->value;
       auto coef = analyzer_->FindDivisibleTilingFactor(shrinked_threads, thread_size);
       shrinked_threads /= coef;
       axis->thread_constraints.map_extent_ = thread_size / coef;
       axis->block_constraints.map_extent_ = block_size * coef;
-      axis->TileRestrainToSingleValue(tile_size / coef, TileLevel::LEVEL1);
+      axis->TileRestrainToSingleValue(tile_size / coef, TileLevel::CACHE1);
       ss << "axis " << axis->dim_axis << " before shrink " << thread_size << " shrink size " << coef;
     }
   }
@@ -947,7 +947,7 @@ void GpuStrategy::InjectiveSpeedup() {
       if (shrink_limit <= 0) {
         break;
       }
-      auto tile_size = axis->l1_constraints.tile_extent_.as<IntImm>()->value;
+      auto tile_size = axis->c1_constraints.tile_extent_.as<IntImm>()->value;
       auto before_shrink = block_to_elem ? axis->block_constraints.map_extent_ : axis->thread_constraints.map_extent_;
       auto coef =
         std::min<int64_t>(proposal_elem_per_thread, analyzer_->FindDivisibleTilingFactor(shrink_limit, before_shrink));
@@ -966,7 +966,7 @@ void GpuStrategy::InjectiveSpeedup() {
         axis->thread_constraints.map_extent_ = before_shrink / coef;
       }
       ss << "axis " << axis->dim_axis << " before shrink " << before_shrink << " shrink size " << coef;
-      axis->TileRestrainToSingleValue(tile_size * coef, TileLevel::LEVEL1);
+      axis->TileRestrainToSingleValue(tile_size * coef, TileLevel::CACHE1);
     }
   }
   analyzer_->logger_.AppendLog(GPU_MAPPING, ss);
