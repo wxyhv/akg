@@ -333,7 +333,7 @@ class UserConfig {
   // getter for conv config
   int GetMatBDimH() const { return matB_dim_h_; }
   int GetMatBDimW() const { return matB_dim_w_; }
-  int GetByPathL1() const { return bypassL1_; }
+  int GetByPathC1() const { return bypassL1_; }
   int GetIsolatedIdx() const { return isolated_idx_; }
   std::string GetKernelName() { return kernel_name_; }
   int GetPragmaIsConv() const { return pragma_is_conv_; }

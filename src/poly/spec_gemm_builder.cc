@@ -49,7 +49,7 @@ Stmt SpecGemmBuilder::Build(const Expr &mad_init_cond) {
 
   Map<std::string, NodeRef> attrs;
   attrs.Set("conv_backprop_filter", makeIntImm(info_.cube_info_.IsConvBackpropFilter()));
-  attrs.Set("bypassL1", makeIntImm(info_.user_config_.GetByPathL1()));
+  attrs.Set("bypassL1", makeIntImm(info_.user_config_.GetByPathC1()));
   attrs.Set("dim", StringImm::make(gmm_dim));
   if (info_.cube_info_.IsConvBackpropInput()) {
     attrs.Set("kernel_h", makeIntImm(info_.user_config_.GetMatBDimH()));

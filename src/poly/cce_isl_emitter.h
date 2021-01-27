@@ -29,7 +29,7 @@ enum AtomicType { Equ = 0, Add };
 class CCEIslEmitter : public IslEmitter {
  public:
   CCEIslEmitter(ScopInfo &info, const NodeInfoRepo &n, const isl::id_list &i) : IslEmitter(info, n, i) {
-    ProcBypathL1(info);
+    ProcBypathC1(info);
   }
   ~CCEIslEmitter() override = default;
 
@@ -47,7 +47,7 @@ class CCEIslEmitter : public IslEmitter {
   Expr EmitLoad(const isl::ast_expr &lhs, Type type);
   Stmt EmitRead(const isl::ast_node_user &node);
   Stmt EmitWrite(const isl::ast_node_user &node, AtomicType atomic);
-  Stmt EmitSpecGemL1write(const isl::ast_node_mark &node, const Stmt &stmt);
+  Stmt EmitSpecGemC1write(const isl::ast_node_mark &node, const Stmt &stmt);
 
   // emit mark node
   Stmt EmitMarkMulticore(const isl::ast_node_mark &node);
@@ -57,18 +57,18 @@ class CCEIslEmitter : public IslEmitter {
   Stmt EmitMarkSpecGemm(const isl::ast_node_mark &node);
 
   // emit attrs
-  void EmitAttrStmt(const isl::ast_node_block &block_node, const Liveness &liveness, bool is_L1, bool is_L0,
+  void EmitAttrStmt(const isl::ast_node_block &block_node, const Liveness &liveness, bool is_C1, bool is_C0,
                     std::vector<Stmt> &stmts);
-  void EmitReadAttrAtL0(std::vector<Stmt> &stmts, int i, Tensor &t);
-  void EmitReadAttrAtL1(std::vector<Stmt> &stmts, int i, Tensor &t);
-  void EmitReadAttr(const std::vector<IslIdSet> &read, std::vector<Stmt> &stmts, int i, bool is_L1, bool is_L0);
-  void EmitWriteAttr(const std::vector<IslIdSet> &write, std::vector<Stmt> &stmts, int i, bool is_L1);
-  void EmitAttrStmtAfterRealize(bool is_L1, bool is_L0, std::vector<Stmt> &stmts);
+  void EmitReadAttrAtC0(std::vector<Stmt> &stmts, int i, Tensor &t);
+  void EmitReadAttrAtC1(std::vector<Stmt> &stmts, int i, Tensor &t);
+  void EmitReadAttr(const std::vector<IslIdSet> &read, std::vector<Stmt> &stmts, int i, bool is_C1, bool is_C0);
+  void EmitWriteAttr(const std::vector<IslIdSet> &write, std::vector<Stmt> &stmts, int i, bool is_C1);
+  void EmitAttrStmtAfterRealize(bool is_C1, bool is_C0, std::vector<Stmt> &stmts);
   Stmt EmitGemmRangeInfoBackPropFilter(const Stmt &stmt);
   Stmt EmitGemmRangeInfo(Stmt stmt);
 
   // emit realize
-  void EmitRealize(const isl::ast_node_block &block_node, const Liveness &liveness_info, bool is_L1, bool is_L0,
+  void EmitRealize(const isl::ast_node_block &block_node, const Liveness &liveness_info, bool is_C1, bool is_C0,
                    std::vector<Stmt> &stmts);
 
   // emit access
@@ -76,7 +76,7 @@ class CCEIslEmitter : public IslEmitter {
 
   // tool func
   bool InjectMulticore(const std::string &iter);
-  void CollectLiveness(const Liveness &liveness_info, bool is_L1, std::vector<IslIdSet> &real,
+  void CollectLiveness(const Liveness &liveness_info, bool is_C1, std::vector<IslIdSet> &real,
                        std::unordered_map<isl::id, std::set<int>, isl::IslIdIslHash> &liveness,
                        std::function<bool(const std::string &id)> const &CheckGoOut);
   void CollectGemmRangeInfoNewAxis(std::vector<Range> &range, std::vector<std::string> &prefix,
@@ -87,11 +87,11 @@ class CCEIslEmitter : public IslEmitter {
   void CollectGemmMWSizeDynamic(Map<std::string, Range> &range_map);
   Expr FindRealizeScope(const isl::id &var);
   std::string FindRealizeScopeToString(const isl::id &var);
-  Stmt InsertRealize(Stmt stmt, const isl::id &var, bool is_L0);
+  Stmt InsertRealize(Stmt stmt, const isl::id &var, bool is_C0);
   void RealizeOut();
 
   Stmt RemoveCond(const Stmt &stmt);
-  void ProcBypathL1(const ScopInfo &info);
+  void ProcBypathC1(const ScopInfo &info);
   void SetMMU(const isl::id &stmt_id);
   std::string ReplaceAxis(const std::string &oldAxis);
   static std::vector<std::string> ConstructPrefix();
@@ -111,7 +111,7 @@ class CCEIslEmitter : public IslEmitter {
   IslIdSet hoisted_read_;
   IslIdSet hoisted_write_;
 
-  int bypathL1_{0};
+  int bypathC1_{0};
   bool is_mmu_{false};
   StmtOpInfo opinfo_;
 
@@ -120,8 +120,8 @@ class CCEIslEmitter : public IslEmitter {
   int tile_idx_{0};
   int isolate_idx_{-1};
 
-  bool is_old_gemm_l1write_{false};
-  std::vector<Stmt> mmu_l0write_;
+  bool is_old_gemm_c1write_{false};
+  std::vector<Stmt> mmu_c0write_;
   int gemm_transpose_index_{0};
   std::set<const Variable *> rmif_;
 

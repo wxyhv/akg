@@ -116,14 +116,14 @@ class GatherVar : public air::ir::IRVisitor {
   bool visit_var_{false};
 };
 
-class HoistL0Write : public IRMutator {
+class HoistC0Write : public IRMutator {
  public:
-  HoistL0Write(const Map<Tensor, Buffer> &binds, const Stmt &write) : write_(write) {
+  HoistC0Write(const Map<Tensor, Buffer> &binds, const Stmt &write) : write_(write) {
     auto f = GatherVar(binds);
     f.Visit(write);
     vars_ = f.vars_;
   }
-  ~HoistL0Write() override = default;
+  ~HoistC0Write() override = default;
 
   Stmt Mutate_(const For *op, const Stmt &s) final {
     if (!mutate_) {
@@ -663,10 +663,10 @@ Stmt CCEIslEmitter::EmitRead(const isl::ast_node_user &node) {
   size_t pos = info_.cube_info_.GetBName().find("_local");
   std::string b_name =
     pos == std::string::npos ? info_.cube_info_.GetBName() : info_.cube_info_.GetBName().substr(0, pos);
-  auto b_l1_name = b_name + LOCAL_C1;
+  auto b_c1_name = b_name + LOCAL_C1;
 
   if (info_.user_config_.GetMatBDimH() > 0 && info_.user_config_.GetMatBDimW() > 0 &&
-      original.get_tuple_id(isl_dim_out).get_name() == b_l1_name) {
+      original.get_tuple_id(isl_dim_out).get_name() == b_c1_name) {
     auto h_size = info_.user_config_.GetMatBDimH();
     auto w_size = info_.user_config_.GetMatBDimW();
 
@@ -815,7 +815,7 @@ Stmt CCEIslEmitter::EmitWrite(const isl::ast_node_user &node, AtomicType atomic)
 }
 
 Stmt CCEIslEmitter::EmitUserStmt(const isl::ast_node_user &node) {
-  if (is_old_gemm_l1write_) {
+  if (is_old_gemm_c1write_) {
     LOG(INFO) << "don't emit conv origin user stmt.";
     return Evaluate::make(Expr(0));
   } else {
@@ -990,7 +990,7 @@ Stmt CCEIslEmitter::EmitGemmRangeInfoBackPropFilter(const Stmt &stmt) {
   PartitionSingle *single = PartitionSingle::getInstance();
   CHECK(single != nullptr);
   std::map<std::string, Expr> fractal_int_info = PartitionSingle::getFractalInfo();
-  int l0_range_idx = range_idx_++;
+  int c0_range_idx = range_idx_++;
 
   int K = fractal_int_info[ATTR_SPEC_GEMM_K].as<IntImm>()->value;
   int MO = fractal_int_info[ATTR_SPEC_GEMM_M_ALIGN].as<IntImm>()->value;
@@ -1034,18 +1034,18 @@ Stmt CCEIslEmitter::EmitGemmRangeInfoBackPropFilter(const Stmt &stmt) {
     range_idx_max *= 2;
   }
 
-  CHECK(l0_range_idx < range_idx_max) << l0_range_idx << ":" << range_idx_max;
+  CHECK(c0_range_idx < range_idx_max) << c0_range_idx << ":" << range_idx_max;
 
   Map<std::string, Range> range_map;
 
   if (KO * KI < tile_k) {
     tile_k = KO * KI;
   }
-  int ko_min = k_isolate ? ((l0_range_idx / k_base % 2) ? (KO * KI / tile_k) : (0)) : (0);
-  int ko_ext = k_isolate ? ((l0_range_idx / k_base % 2) ? (1) : (KO * KI / tile_k)) : (KO * KI / tile_k);
+  int ko_min = k_isolate ? ((c0_range_idx / k_base % 2) ? (KO * KI / tile_k) : (0)) : (0);
+  int ko_ext = k_isolate ? ((c0_range_idx / k_base % 2) ? (1) : (KO * KI / tile_k)) : (KO * KI / tile_k);
   range_map.Set("ko_", Range(Expr(ko_min), Expr(ko_ext)));
   if (k_isolate) {
-    if (l0_range_idx / k_base % 2) {
+    if (c0_range_idx / k_base % 2) {
       range_map.Set("k_size", Range(Expr(0), Expr(K - KO * KI / tile_k * tile_k)));
     } else {
       range_map.Set("k_size", Range(Expr(0), Expr(tile_k)));
@@ -1064,18 +1064,18 @@ Stmt CCEIslEmitter::EmitGemmRangeInfoBackPropFilter(const Stmt &stmt) {
   if (NO * NI < tile_n) {
     tile_n = NO * NI;
   }
-  int no_min = n_isolate ? ((l0_range_idx / n_base % 2) ? (NO * NI / tile_n) : (0)) : (0);
-  int no_ext = n_isolate ? ((l0_range_idx / n_base % 2) ? (1) : (NO * NI / tile_n)) : (NO * NI / tile_n);
+  int no_min = n_isolate ? ((c0_range_idx / n_base % 2) ? (NO * NI / tile_n) : (0)) : (0);
+  int no_ext = n_isolate ? ((c0_range_idx / n_base % 2) ? (1) : (NO * NI / tile_n)) : (NO * NI / tile_n);
   range_map.Set("no_", Range(Expr(no_min), Expr(no_ext)));
 
   if (MO * MI < tile_m) {
     tile_m = MO * MI;
   }
-  int mo_min = m_isolate ? ((l0_range_idx / m_base % 2) ? (MO * MI / tile_m) : (0)) : (0);
-  int mo_ext = m_isolate ? ((l0_range_idx / m_base % 2) ? (1) : (MO * MI / tile_m)) : (MO * MI / tile_m);
+  int mo_min = m_isolate ? ((c0_range_idx / m_base % 2) ? (MO * MI / tile_m) : (0)) : (0);
+  int mo_ext = m_isolate ? ((c0_range_idx / m_base % 2) ? (1) : (MO * MI / tile_m)) : (MO * MI / tile_m);
   range_map.Set("mo_", Range(Expr(mo_min), Expr(mo_ext)));
 
-  return AttrStmt::make(range_map, "pragma_gemm_l0", Expr(l0_range_idx), stmt);
+  return AttrStmt::make(range_map, "pragma_gemm_l0", Expr(c0_range_idx), stmt);
 }
 
 void CCEIslEmitter::CollectGemmRangeInfoNewAxis(std::vector<Range> &range, std::vector<std::string> &prefix,
@@ -1114,20 +1114,20 @@ void CCEIslEmitter::CollectGemmRangeInfoNewAxis(std::vector<Range> &range, std::
 
 Stmt CCEIslEmitter::EmitGemmRangeInfo(Stmt stmt) {
   /********************
-   * this function is to emit gemm rangeInfo with pragma_gemm_l0 attribute
+   * this function is to emit gemm rangeInfo with pragma_gemm_c0 attribute
    *
       // attr [{"m_size": range(min=0, ext=49), "": range(min=0, ext=1), "no_0": range(min=0, ext=16), "m_lager_size":
-  range(min=0, ext=64), "ko_4": range(min=0, ext=10), "mo_": range(min=0, ext=1)}] pragma_gemm_l0 = 0
-      // attr [placeholder(input1_local_L1_local_L0B, 0x5654b8abca60)] realize_scope = DOT_LOCAL_C0B
-      realize input1_local_L1_local_L0B([0, 6], [0, 8], [0, 16], [0, 16]) {
-        // attr [0] pragma_bypath_filter_l0 = 0
-        produce input1_local_L1_local_L0B {
+  range(min=0, ext=64), "ko_4": range(min=0, ext=10), "mo_": range(min=0, ext=1)}] pragma_gemm_c0 = 0
+      // attr [placeholder(input1_local_C1_local_C0B, 0x5654b8abca60)] realize_scope = DOT_LOCAL_C0B
+      realize input1_local_C1_local_C0B([0, 6], [0, 8], [0, 16], [0, 16]) {
+        // attr [0] pragma_bypath_filter_c0 = 0
+        produce input1_local_C1_local_C0B {
           // attr [0] pragma_emit_insn = "dma_copy"
           for (ee10, 0, 6) {
             for (ee11, 0, 8) {
               for (ee12, 0, 16) {
                 for (ee13, 0, 16) {
-                  input1_local_L1_local_L0B(ee10, ee11, ee12, ee13) =input1_local_L1(((6*ko_4) + ee10), ((8*no_0) +
+                  input1_local_C1_local_C0B(ee10, ee11, ee12, ee13) =input1_local_C1(((6*ko_4) + ee10), ((8*no_0) +
   ee11), ee12, ee13)
                 }
               }
@@ -1135,6 +1135,9 @@ Stmt CCEIslEmitter::EmitGemmRangeInfo(Stmt stmt) {
           }
         }
       }
+    }
+  }
+}
 
    * all the rangeInfo is outer outer axis in spec gemm
    *
@@ -1151,8 +1154,8 @@ Stmt CCEIslEmitter::EmitGemmRangeInfo(Stmt stmt) {
               output0_local_BUF(b, no, mo, mi, ni) =0.000000h
               for (ko, 0, 64) {
                 for (ki, 0, 16) {
-                  output0_local_BUF(b, no, mo, mi, ni) =(output0_local_BUF(b, no, mo, mi, ni) + (input0_fractal_L1(b,
-  mo, ko, mi, ki)*input1_local_L1(ko, no, ni, ki)))
+                  output0_local_BUF(b, no, mo, mi, ni) =(output0_local_BUF(b, no, mo, mi, ni) + (input0_fractal_C1(b,
+  mo, ko, mi, ki)*input1_local_C1(ko, no, ni, ki)))
                 }
               }
             }
@@ -1161,29 +1164,32 @@ Stmt CCEIslEmitter::EmitGemmRangeInfo(Stmt stmt) {
       }
     }
   }
-  set dim
-  No: 0
-  num_band_members: 5, tiling_flag: 1
-  index: 0, head: 0, body: 0, tail: 0, l1_size: 8, l1_flag: 1, l0_size: 65535, l0_flag: 0, seq: 0
-  index: 1, head: 0, body: 0, tail: 0, l1_size: 4, l1_flag: 1, l0_size: 65535, l0_flag: 0, seq: 1
-  index: 2, head: 0, body: 0, tail: 0, l1_size: 16, l1_flag: 1, l0_size: 65535, l0_flag: 0, seq: 2
-  index: 3, head: 0, body: 0, tail: 0, l1_size: 16, l1_flag: 1, l0_size: 65535, l0_flag: 0, seq: 3
-  index: 4, head: 0, body: 0, tail: 0, l1_size: 6, l1_flag: 1, l0_size: 65535, l0_flag: 0, seq: 4
+}
+}
+}
+set dim
+No: 0
+num_band_members: 5, tiling_flag: 1
+index: 0, head: 0, body: 0, tail: 0, c1_size: 8, c1_flag: 1, c0_size: 65535, c0_flag: 0, seq: 0
+index: 1, head: 0, body: 0, tail: 0, c1_size: 4, c1_flag: 1, c0_size: 65535, c0_flag: 0, seq: 1
+index: 2, head: 0, body: 0, tail: 0, c1_size: 16, c1_flag: 1, c0_size: 65535, c0_flag: 0, seq: 2
+index: 3, head: 0, body: 0, tail: 0, c1_size: 16, c1_flag: 1, c0_size: 65535, c0_flag: 0, seq: 3
+index: 4, head: 0, body: 0, tail: 0, c1_size: 6, c1_flag: 1, c0_size: 65535, c0_flag: 0, seq: 4
 
-  main
-  prefix : no_   range: Range(min=0, extent=16)
-  prefix : mo_   range: Range(min=0, extent=1)
-  prefix : mi    range: Range(min=0, extent=1)
-  prefix : ni    range: Range(min=0, extent=1)
-  prefix : ko_   range: Range(min=0, extent=10)
+main
+prefix : no_   range: Range(min=0, extent=16)
+prefix : mo_   range: Range(min=0, extent=1)
+prefix : mi    range: Range(min=0, extent=1)
+prefix : ni    range: Range(min=0, extent=1)
+prefix : ko_   range: Range(min=0, extent=10)
 
-  isolate
-  prefix : no_   range: Range(min=0, extent=16)
-  prefix : mo_   range: Range(min=0, extent=1)
-  prefix : mi    range: Range(min=0, extent=1)
-  prefix : ni    range: Range(min=0, extent=1)
-  prefix : ko_   range: Range(min=0, extent=4)
-   ***********************/
+isolate
+prefix : no_   range: Range(min=0, extent=16)
+prefix : mo_   range: Range(min=0, extent=1)
+prefix : mi    range: Range(min=0, extent=1)
+prefix : ni    range: Range(min=0, extent=1)
+prefix : ko_   range: Range(min=0, extent=4)
+***********************/
   // spec gemm set dim outer outer range
   std::vector<Range> range;
   if (info_.user_config_.GetTileSizeIsVar()) {
@@ -1344,7 +1350,7 @@ std::string CCEIslEmitter::FindRealizeScopeToString(const isl::id &var) {
 
 Expr CCEIslEmitter::FindRealizeScope(const isl::id &var) { return Expr(FindRealizeScopeToString(var)); }
 
-Stmt CCEIslEmitter::InsertRealize(Stmt stmt, const isl::id &var, bool is_L0) {
+Stmt CCEIslEmitter::InsertRealize(Stmt stmt, const isl::id &var, bool is_C0) {
   stmt = FindInnerRealize(var.get_name()).Mutate(stmt);
 
   // A tensor may be defined multiple times in BufferDefInfo due to nested realize.
@@ -1412,41 +1418,41 @@ Stmt CCEIslEmitter::InsertRealize(Stmt stmt, const isl::id &var, bool is_L0) {
   return stmt;
 }
 
-Stmt HoistL0write(ScopInfo &info, const Stmt &body, std::vector<Stmt> &l0write) {
+Stmt HoistC0write(ScopInfo &info, const Stmt &body, std::vector<Stmt> &c0write) {
   Stmt stmt = body;
-  if (!l0write.empty()) {
+  if (!c0write.empty()) {
     if (info.cube_info_.IsGemm()) {
-      auto f = HoistL0Write(info.user_config_.GetOriginBind(), l0write.back());
+      auto f = HoistC0Write(info.user_config_.GetOriginBind(), c0write.back());
       static_cast<void>(f.Mutate(body));
       f.mutate_ = true;
       stmt = f.Mutate(body);
-      if (!f.found_) stmt = Block::make(body, l0write.back());
+      if (!f.found_) stmt = Block::make(body, c0write.back());
     } else if (info.cube_info_.IsSpecGemm()) {
-      stmt = Block::make(body, l0write.back());
+      stmt = Block::make(body, c0write.back());
     }
   }
   return stmt;
 }
 
-void CCEIslEmitter::ProcBypathL1(const ScopInfo &info) {
-  if (0 == bypathL1_) {
-    bypathL1_ = info.user_config_.GetByPathL1();
+void CCEIslEmitter::ProcBypathC1(const ScopInfo &info) {
+  if (0 == bypathC1_) {
+    bypathC1_ = info.user_config_.GetByPathC1();
   }
 }
 
-Stmt CCEIslEmitter::EmitSpecGemL1write(const isl::ast_node_mark &node, const Stmt &stmt) {
-  is_old_gemm_l1write_ = true;
+Stmt CCEIslEmitter::EmitSpecGemC1write(const isl::ast_node_mark &node, const Stmt &stmt) {
+  is_old_gemm_c1write_ = true;
   static_cast<void>(EmitAst(node.get_node()));
-  is_old_gemm_l1write_ = false;
+  is_old_gemm_c1write_ = false;
   if (!info_.cube_info_.IsSpecGemm() && !info_.cube_info_.GetOldL1Write().empty()) {
     return Block::make(stmt, info_.cube_info_.GetOldL1Write().back());
   }
   return stmt;
 }
 
-void CCEIslEmitter::EmitAttrStmtAfterRealize(bool is_L1, bool is_L0, std::vector<Stmt> &stmts) {
+void CCEIslEmitter::EmitAttrStmtAfterRealize(bool is_C1, bool is_C0, std::vector<Stmt> &stmts) {
   // Emit attrs of provide
-  if (is_L1) {
+  if (is_C1) {
     for (const auto &i : info_.analysis_result_.GetStmtOpInfoMap()) {
       if (!i.second.isCube) continue;
       const Node *stmt_node = info_.analysis_result_.GetStatementMap().at(i.first);
@@ -1462,7 +1468,7 @@ void CCEIslEmitter::EmitAttrStmtAfterRealize(bool is_L1, bool is_L0, std::vector
     }
   }
 
-  if (info_.cube_info_.IsSpecGemm() && is_L0) {
+  if (info_.cube_info_.IsSpecGemm() && is_C0) {
     if (info_.user_config_.GetConvBackPropFilter()) {
       stmts[0] = EmitGemmRangeInfoBackPropFilter(stmts[0]);
     } else {
@@ -1484,9 +1490,9 @@ void CCEIslEmitter::GemmTranspose(std::vector<Stmt> &stmts) {
   }
 }
 
-void CCEIslEmitter::EmitReadAttrAtL0(std::vector<Stmt> &stmts, int i, Tensor &t) {
+void CCEIslEmitter::EmitReadAttrAtC0(std::vector<Stmt> &stmts, int i, Tensor &t) {
   bool is_im2col = false;
-  bool is_filter_l0 = false;
+  bool is_filter_c0 = false;
   bool is_gemm_data_trans = false;
   bool is_gemm_weight_trans = false;
   if (info_.cube_info_.IsSpecGemm()) {
@@ -1498,7 +1504,7 @@ void CCEIslEmitter::EmitReadAttrAtL0(std::vector<Stmt> &stmts, int i, Tensor &t)
 
     if (t->op->name.find(LOCAL_C1_LOCAL_C0B) != std::string::npos ||
         t->op->name.find(LOCAL_C1_LOCAL_C0A) != std::string::npos) {
-      is_filter_l0 = true;
+      is_filter_c0 = true;
     }
   } else {
     // this case is ordinary gemm
@@ -1513,12 +1519,12 @@ void CCEIslEmitter::EmitReadAttrAtL0(std::vector<Stmt> &stmts, int i, Tensor &t)
       is_gemm_weight_trans = true;
     }
 
-    if (bypathL1_ == 2) {
-      //  left matrix by pass L1
-      if (pos1 != std::string::npos) is_filter_l0 = true;
-    } else if (bypathL1_ == 1) {
-      // right matrix by pass L1
-      if (pos2 != std::string::npos) is_filter_l0 = true;
+    if (bypathC1_ == 2) {
+      //  left matrix by pass C1
+      if (pos1 != std::string::npos) is_filter_c0 = true;
+    } else if (bypathC1_ == 1) {
+      // right matrix by pass C1
+      if (pos2 != std::string::npos) is_filter_c0 = true;
     }
   }
 
@@ -1536,16 +1542,16 @@ void CCEIslEmitter::EmitReadAttrAtL0(std::vector<Stmt> &stmts, int i, Tensor &t)
     gemm_transpose_index_ = gemm_transpose_index_ % 2;
   }
   stmts[i] = ProducerConsumer::make(t->op, true, stmts[i]);
-  if (bypathL1_ > 0) {
-    if (is_filter_l0) {
+  if (bypathC1_ > 0) {
+    if (is_filter_c0) {
       stmts[i] = AttrStmt::make(make_zero(Int(32)), "pragma_bypass_filter_l0", Expr(0), stmts[i]);
     }
   }
 }
 
-void CCEIslEmitter::EmitReadAttrAtL1(std::vector<Stmt> &stmts, int i, Tensor &t) {
+void CCEIslEmitter::EmitReadAttrAtC1(std::vector<Stmt> &stmts, int i, Tensor &t) {
   bool is_fractal = false;
-  bool is_filter_l1 = false;
+  bool is_filter_c1 = false;
   std::string fractal_str = info_.cube_info_.ExtractStringFromAttrs(ATTR_CONV_FEATURE_NAME) + FRACTAL_C1;
   std::string filter_str = info_.cube_info_.ExtractStringFromAttrs(ATTR_CONV_FILTER_NAME) + LOCAL_C1;
 
@@ -1554,76 +1560,76 @@ void CCEIslEmitter::EmitReadAttrAtL1(std::vector<Stmt> &stmts, int i, Tensor &t)
   }
 
   if (filter_str == t->op->name) {
-    is_filter_l1 = true;
+    is_filter_c1 = true;
   }
 
   std::string data_str = info_.cube_info_.ExtractStringFromAttrs(ATTR_CONV_GMM_FEATURE) + LOCAL_C1;
   std::string weight_str = info_.cube_info_.ExtractStringFromAttrs(ATTR_CONV_GMM_WEIGHT) + LOCAL_C1;
-  if ((bypathL1_ == 2 && data_str == t->op->name) || (bypathL1_ == 1 && weight_str == t->op->name)) {
-    is_filter_l1 = true;
+  if ((bypathC1_ == 2 && data_str == t->op->name) || (bypathC1_ == 1 && weight_str == t->op->name)) {
+    is_filter_c1 = true;
   }
 
   if (is_fractal) {
     stmts[i] = AttrStmt::make(make_zero(Int(32)), "pragma_fractal", Expr(1), stmts[i]);
   }
   stmts[i] = ProducerConsumer::make(t->op, true, stmts[i]);
-  if (bypathL1_ > 0) {
-    if (is_filter_l1) {
+  if (bypathC1_ > 0) {
+    if (is_filter_c1) {
       stmts[i] = AttrStmt::make(make_zero(Int(32)), "pragma_bypass_filter_l1", Expr(0), stmts[i]);
     }
   }
 }
 
-void CCEIslEmitter::EmitReadAttr(const std::vector<IslIdSet> &read, std::vector<Stmt> &stmts, int i, bool is_L1,
-                                 bool is_L0) {
+void CCEIslEmitter::EmitReadAttr(const std::vector<IslIdSet> &read, std::vector<Stmt> &stmts, int i, bool is_C1,
+                                 bool is_C0) {
   for (const auto &id : read[i]) {
     Tensor t = info_.FindTensor(id);
-    if (is_L1) {
-      EmitReadAttrAtL1(stmts, i, t);
+    if (is_C1) {
+      EmitReadAttrAtC1(stmts, i, t);
     }
 
-    if (is_L0) {
-      EmitReadAttrAtL0(stmts, i, t);
+    if (is_C0) {
+      EmitReadAttrAtC0(stmts, i, t);
     }
   }
 }
 
-void CCEIslEmitter::EmitWriteAttr(const std::vector<IslIdSet> &write, std::vector<Stmt> &stmts, int i, bool is_L1) {
+void CCEIslEmitter::EmitWriteAttr(const std::vector<IslIdSet> &write, std::vector<Stmt> &stmts, int i, bool is_C1) {
   for (const auto &id : write[i]) {
-    if (is_L1 && info_.cube_info_.IsCUB(id.get_name())) continue;
-    if (is_old_gemm_l1write_ && info_.cube_info_.IsC(id.get_name())) {
+    if (is_C1 && info_.cube_info_.IsCUB(id.get_name())) continue;
+    if (is_old_gemm_c1write_ && info_.cube_info_.IsC(id.get_name())) {
       stmts[i] = AttrStmt::make(make_zero(Int(32)), "pragma_cube_l1write", Expr(1), stmts[i]);
       info_.cube_info_.OldL1WriteInsert(stmts[i]);
     }
     if (info_.cube_info_.IsSpecGemm() && info_.cube_info_.IsC(id.get_name())) {
       stmts[i] = AttrStmt::make(make_zero(Int(32)), "pragma_cube_l0write", Expr(1), stmts[i]);
-      mmu_l0write_.emplace_back(stmts[i]);
+      mmu_c0write_.emplace_back(stmts[i]);
       stmts[i] = Evaluate::make(0);
     }
     if (info_.cube_info_.IsGemm() && !info_.cube_info_.IsSpecGemm() && info_.cube_info_.IsCUB(id.get_name())) {
       stmts[i] = AttrStmt::make(make_zero(Int(32)), "pragma_cube_l0write", Expr(1), stmts[i]);
-      mmu_l0write_.emplace_back(stmts[i]);
+      mmu_c0write_.emplace_back(stmts[i]);
       stmts[i] = Evaluate::make(0);
     }
     if (info_.cube_info_.IsGemm() && !info_.cube_info_.IsSpecGemm() && info_.cube_info_.IsC(id.get_name())) {
       stmts[i] = AttrStmt::make(make_zero(Int(32)), "pragma_cube_l1write", Expr(1), stmts[i]);
-      if (!mmu_l0write_.empty()) {
-        mmu_l0write_.emplace_back(Block::make(mmu_l0write_[0], stmts[i]));
+      if (!mmu_c0write_.empty()) {
+        mmu_c0write_.emplace_back(Block::make(mmu_c0write_[0], stmts[i]));
         stmts[i] = Evaluate::make(0);
       }
     }
   }
 }
 
-void CCEIslEmitter::EmitAttrStmt(const isl::ast_node_block &block_node, const Liveness &liveness, bool is_L1,
-                                 bool is_L0, std::vector<Stmt> &stmts) {
+void CCEIslEmitter::EmitAttrStmt(const isl::ast_node_block &block_node, const Liveness &liveness, bool is_C1,
+                                 bool is_C0, std::vector<Stmt> &stmts) {
   for (unsigned int i = 0; i < block_node.get_children().size(); ++i) {
-    EmitReadAttr(liveness.read_, stmts, i, is_L1, is_L0);
-    EmitWriteAttr(liveness.write_, stmts, i, is_L1);
+    EmitReadAttr(liveness.read_, stmts, i, is_C1, is_C0);
+    EmitWriteAttr(liveness.write_, stmts, i, is_C1);
   }
 }
 
-void CCEIslEmitter::CollectLiveness(const Liveness &liveness_info, bool is_L1, std::vector<IslIdSet> &real,
+void CCEIslEmitter::CollectLiveness(const Liveness &liveness_info, bool is_C1, std::vector<IslIdSet> &real,
                                     std::unordered_map<isl::id, std::set<int>, isl::IslIdIslHash> &liveness,
                                     std::function<bool(const std::string &id)> const &CheckGoOut) {
   for (unsigned int i = 0; i < liveness_info.read_.size(); i++) {
@@ -1680,7 +1686,7 @@ void CCEIslEmitter::CollectLiveness(const Liveness &liveness_info, bool is_L1, s
     }
   }
   /// amazing and fusing control: which should be realized out
-  if (is_L1) realize_out_.clear();
+  if (is_C1) realize_out_.clear();
 
   for (const auto &i : liveness) {
     if (realize_out_.count(i.first)) continue;
@@ -1691,15 +1697,15 @@ void CCEIslEmitter::CollectLiveness(const Liveness &liveness_info, bool is_L1, s
 // add realize
 // so far we do not think about flow analysis for liveness
 // we hack gemm C+=A*B and make C's liveness in the whole loop
-void CCEIslEmitter::EmitRealize(const isl::ast_node_block &block_node, const Liveness &liveness_info, bool is_L1,
-                                bool is_L0, std::vector<Stmt> &stmts) {
+void CCEIslEmitter::EmitRealize(const isl::ast_node_block &block_node, const Liveness &liveness_info, bool is_C1,
+                                bool is_C0, std::vector<Stmt> &stmts) {
   auto c_buf = info_.cube_info_.IsSpecGemm() ? info_.cube_info_.GetCName() : info_.cube_info_.GetCName() + LOCAL_BUF;
   auto c_l0c = c_buf + LOCAL_C0C;
   auto CheckGoOut = [&c_buf, &c_l0c](const std::string &id) -> bool { return !(id == c_buf || id == c_l0c); };
 
   std::vector<IslIdSet> real;
   std::unordered_map<isl::id, std::set<int>, isl::IslIdIslHash> liveness;
-  CollectLiveness(liveness_info, is_L1, real, liveness, CheckGoOut);
+  CollectLiveness(liveness_info, is_C1, real, liveness, CheckGoOut);
 
   size_t last = block_node.get_children().size() - 1;
   for (const auto &var : real[last]) {
@@ -1708,7 +1714,7 @@ void CCEIslEmitter::EmitRealize(const isl::ast_node_block &block_node, const Liv
       if (!CheckGoOut(var.get_name())) continue;
     }
 
-    stmts[last] = InsertRealize(stmts[last], var, is_L0);
+    stmts[last] = InsertRealize(stmts[last], var, is_C0);
   }
 
   for (int i = block_node.get_children().size() - 2; i >= 0; --i) {
@@ -1721,13 +1727,13 @@ void CCEIslEmitter::EmitRealize(const isl::ast_node_block &block_node, const Liv
         if (!CheckGoOut(var.get_name())) continue;
       }
 
-      stmts[p] = InsertRealize(stmts[p], var, is_L0);
+      stmts[p] = InsertRealize(stmts[p], var, is_C0);
 
       if (!DELETE_FRACTAL) continue;
       std::string feature_str = info_.cube_info_.ExtractStringFromAttrs(ATTR_CONV_FEATURE_NAME) + LOCAL_C1;
       if (feature_str == var.get_name()) {
         std::string fractal_str = info_.cube_info_.ExtractStringFromAttrs(ATTR_CONV_FEATURE_NAME) + FRACTAL_C1;
-        stmts[p] = InsertRealize(stmts[p], isl::id(var.ctx(), fractal_str), is_L0);
+        stmts[p] = InsertRealize(stmts[p], isl::id(var.ctx(), fractal_str), is_C0);
       }
     }
   }
@@ -1735,8 +1741,8 @@ void CCEIslEmitter::EmitRealize(const isl::ast_node_block &block_node, const Liv
 
 Stmt CCEIslEmitter::EmitBlock(const isl::ast_node_block &block_node) {
   if (!args_) return IslEmitter::EmitBlock(block_node);
-  bool is_L0 = *static_cast<const bool *>(args_);
-  bool is_L1 = *(static_cast<const bool *>(args_) + 1);
+  bool is_C0 = *static_cast<const bool *>(args_);
+  bool is_C1 = *(static_cast<const bool *>(args_) + 1);
   args_ = nullptr;
 
   realize_must_def_.clear();
@@ -1781,9 +1787,9 @@ Stmt CCEIslEmitter::EmitBlock(const isl::ast_node_block &block_node) {
     hoisted_write_.clear();
   }
 
-  EmitAttrStmt(block_node, liveness, is_L1, is_L0, stmts);
-  EmitRealize(block_node, liveness, is_L1, is_L0, stmts);
-  EmitAttrStmtAfterRealize(is_L1, is_L0, stmts);
+  EmitAttrStmt(block_node, liveness, is_C1, is_C0, stmts);
+  EmitRealize(block_node, liveness, is_C1, is_C0, stmts);
+  EmitAttrStmtAfterRealize(is_C1, is_C0, stmts);
   GemmTranspose(stmts);
   args_ = nullptr;
   return stmts[0];
@@ -1846,8 +1852,8 @@ void CCEIslEmitter::ConvBackPropFilterFixMadInit(const isl::ast_node_mark &node,
 
 Stmt CCEIslEmitter::EmitMarkFuseInst(const isl::ast_node_mark &node) {
   auto stmt = AttrStmt::make(make_zero(Int(32)), "pragma_fuse_vector", Expr(1), EmitAst(node.get_node()));
-  if (info_.cube_info_.IsGemm() && !info_.cube_info_.IsSpecGemm() && !mmu_l0write_.empty()) {
-    mmu_l0write_.emplace_back(Block::make(mmu_l0write_[0], stmt));
+  if (info_.cube_info_.IsGemm() && !info_.cube_info_.IsSpecGemm() && !mmu_c0write_.empty()) {
+    mmu_c0write_.emplace_back(Block::make(mmu_c0write_[0], stmt));
     stmt = Evaluate::make(0);
   }
   return stmt;
@@ -1866,11 +1872,11 @@ Stmt CCEIslEmitter::EmitMarkAllocRealizeOut(const isl::ast_node_mark &node) {
 Stmt CCEIslEmitter::EmitMarkAllocC(const isl::ast_node_mark &node) {
   Stmt body = EmitAst(node.get_node());
   body = RemoveNoOp(body);
-  body = HoistL0write(info_, body, mmu_l0write_);
+  body = HoistC0write(info_, body, mmu_c0write_);
 
   auto c_buf = info_.cube_info_.IsSpecGemm() ? info_.cube_info_.GetCName() : info_.cube_info_.GetCName() + LOCAL_BUF;
-  auto c_l0c = c_buf + LOCAL_C0C;
-  body = InsertRealize(body, isl::id(info_.GetCtx(), c_l0c), false);
+  auto c_c0c = c_buf + LOCAL_C0C;
+  body = InsertRealize(body, isl::id(info_.GetCtx(), c_c0c), false);
   body = InsertRealize(body, isl::id(info_.GetCtx(), c_buf), false);
   body = AttrStmt::make(make_zero(Int(32)), ALLOC_C, Expr(1), body);
   return body;
@@ -1884,7 +1890,7 @@ Stmt CCEIslEmitter::EmitMarkSpecGemm(const isl::ast_node_mark &node) {
     mad_init_cond = Expr(0);
   }
   Stmt stmt = SpecGemmBuilder(info_).Build(mad_init_cond);
-  return EmitSpecGemL1write(node, stmt);
+  return EmitSpecGemC1write(node, stmt);
 }
 
 Stmt CCEIslEmitter::EmitMark(const isl::ast_node_mark &node) {
@@ -1931,8 +1937,8 @@ void CCEIslEmitter::RealizeOut() {
       bool do_out = true;
       auto c_buf =
         info_.cube_info_.IsSpecGemm() ? info_.cube_info_.GetCName() : info_.cube_info_.GetCName() + LOCAL_BUF;
-      auto c_l0c = c_buf + LOCAL_C0C;
-      if (j.get_name() == c_buf || j.get_name() == c_l0c) {
+      auto c_c0c = c_buf + LOCAL_C0C;
+      if (j.get_name() == c_buf || j.get_name() == c_c0c) {
         do_out = false;
       }
       if (do_out) realize_out_.insert(j);
@@ -1968,10 +1974,10 @@ Stmt CCEIslEmitter::EmitMarkMulticore(const isl::ast_node_mark &node) {
   }
 
   if (auto block_node = node.get_node().as<isl::ast_node_block>()) {
-    bool is_L0 = (node.get_id().get_name() == REALIZE_L0);
-    bool is_L1 = (node.get_id().get_name() == REALIZE_L1);
+    bool is_C0 = (node.get_id().get_name() == REALIZE_L0);
+    bool is_C1 = (node.get_id().get_name() == REALIZE_L1);
     bool is_BUF = (node.get_id().get_name() == REALIZE_UB);
-    std::unique_ptr<bool[]> args_tmp(new bool[3]{is_L0, is_L1, is_BUF});
+    std::unique_ptr<bool[]> args_tmp(new bool[3]{is_C0, is_C1, is_BUF});
     args_ = args_tmp.get();
     return EmitBlock(block_node);
   } else if (node.get_node().as<isl::ast_node_if>()) {
