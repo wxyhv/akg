@@ -715,13 +715,13 @@ bool NeedRemoveInvariantDependence(ScopInfo &scop_info) {
   if (scop_info.user_config_.GetIsDynamic()) {
     return false;
   }
-  // disbale this feature for cube related scenes in Ascend
+  // disbale this feature for cube related scenes in NPU
   if (scop_info.cube_info_.IsGemm() || scop_info.cube_info_.IsSpecGemm() || scop_info.cube_info_.IsConv() ||
       scop_info.cube_info_.IsConvBackpropFilter() || scop_info.cube_info_.IsConvBackpropInput()) {
     return false;
   }
-  // disbale this feature for load3d related scenes in Ascend
-  if (scop_info.cube_info_.IsIm2col() || scop_info.cube_info_.IsLoadIm2colCA1BUF()) {
+  // disbale this feature for load_im2col related scenes in NPU
+  if (scop_info.cube_info_.IsIm2col() || scop_info.cube_info_.IsLoadIm2colC1BUF()) {
     return false;
   }
 

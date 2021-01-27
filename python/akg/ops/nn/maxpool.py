@@ -728,7 +728,7 @@ def img2col(input_img, col_shape, filter_h, filter_w, pad, stride, min_value, ta
         repeat_mode = 1
         jmp_offset = 1
 
-        return akg.lang.cce.load3d_l1_ub(
+        return akg.lang.cce.load_im2col_c1_buf(
             akg.tvm.if_then_else(
                 akg.tvm.any(
                     img_h_index < pad_top,

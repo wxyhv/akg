@@ -15,17 +15,17 @@
 import numpy as np
 from tensorio import compare_tensor
 from akg.utils import kernel_exec as utils
-from test_op import load3d
+from test_op import load_im2col
 from akg.utils.result_analysis import allclose_nparray
 from gen_random import random_gaussian
 
-def load3d_run(fmap_shape, kernel_shape, stride, padding, dtype, attrs):
+def load_im2col_run(fmap_shape, kernel_shape, stride, padding, dtype, attrs):
     block_size = 16
     fmap_n, fmap_c, fmap_h, fmap_w = fmap_shape
     if not (fmap_c % 16 == 0):
         raise RuntimeError("Channel needs to be divisible by 16 (needs padding) while channel is {}".format(fmap_c))
     fmap_shape_NC1HWCO = (fmap_n, fmap_c // block_size, fmap_h, fmap_w, block_size)
-    mod = utils.op_build_test(load3d.load3d, [fmap_shape_NC1HWCO], [dtype], op_attrs = [kernel_shape, stride, padding], kernel_name='load3d', attrs=attrs)
+    mod = utils.op_build_test(load_im2col.load_im2col, [fmap_shape_NC1HWCO], [dtype], op_attrs = [kernel_shape, stride, padding], kernel_name='load_im2col', attrs=attrs)
     inputs, exp_output = gen_data(fmap_shape, kernel_shape, padding, stride, dtype)
     out_shape = gen_out_shape(fmap_shape, kernel_shape, padding, stride)
     output = np.full(out_shape, -2, dtype)
@@ -49,7 +49,7 @@ def gen_out_shape(fmap_shape, kernel, pad, stride):
     m = ho * wo
     k = c_ * k_h * k_w
     out_shape = (n_, m//16, k//16, 16, 16)
-    if m % 16 != 0 or load3d.has_pad(pad):
+    if m % 16 != 0 or load_im2col.has_pad(pad):
         m = n_ * m
         out_shape = (m//16, k//16, 16, 16)
     return out_shape
@@ -83,7 +83,7 @@ def gen_data(fmap_shape, kernel, pad, stride, dtype):
                     block_size,
                     C0)
     m = Ho * Wo
-    if m % 16 != 0 or load3d.has_pad(pad):
+    if m % 16 != 0 or load_im2col.has_pad(pad):
         expect_shape = (N * Ho * Wo // block_size,
                         C1 * kernel_h * kernel_w,
                         block_size,
@@ -91,7 +91,7 @@ def gen_data(fmap_shape, kernel, pad, stride, dtype):
 
     expect = np.zeros(expect_shape, dtype=dtype)
 
-    if m % 16 == 0 and not(load3d.has_pad(pad)):
+    if m % 16 == 0 and not(load_im2col.has_pad(pad)):
         for ho in range(Ho):
             for wo in range(Wo):
                 for kh in range(kernel_h):

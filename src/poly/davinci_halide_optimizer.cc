@@ -172,12 +172,12 @@ class OpDetector : public IRVisitor {
 };
 
 /***********************************************************************
- * This pass eliminate the IR transformed by PASS RewriteTensorIdx 
+ * This pass eliminate the IR transformed by PASS RewriteTensorIdx
    for (aa, 0, 4) {
     for (cc1, 0, 192) {
       for (cc0, 0, 192) {
         if((cc0 == input_3(aa)) && (cc1 == input_3(aa))){
-          res(aa, cc0) = res(aa, cc1) + whatever 
+          res(aa, cc0) = res(aa, cc1) + whatever
         }
       }
     }
@@ -430,8 +430,7 @@ class GatherWritePromotion : public IRMutator {
       } else {
         if (auto provide = node.as<Provide>()) {
           if (auto value = provide->value.as<Call>()) {
-            if (value->func.get() == gatherWriteSinkTensor &&
-                GetBufScope(provide->func->func_name()) == DMA_COPY_GLOBAL) {
+            if (value->func.get() == gatherWriteSinkTensor && GetBufScope(provide->func->func_name()) == "global") {
               gatherWriteSinkTensorGm = provide->func.get();
             }
           }
@@ -607,7 +606,7 @@ class DynamicPaddingFix : public IRMutator {
     bool need_fix = false;
     PostOrderVisit(s, [&](const NodeRef &descendant) {
       if (auto call = descendant.as<Call>()) {
-        if (call->name == "load3d_l1_ub") {
+        if (call->name == "load_im2col_c1_buf") {
           need_fix = true;
         }
       }

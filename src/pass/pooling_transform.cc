@@ -29,7 +29,7 @@
 namespace akg {
 namespace ir {
 enum im2colArgIndex { kBatchIndex = 0, kC1Index, kKHIndex, kKWIndex, kOHIndex, kOWIndex, kC0Index, kIm2colArgSize };
-enum LOAD3DCallArgs {
+enum LOADIm2colCallArgs {
   idxTensorIdx = 0,
   idxPadTop,
   idxPadBottom,
@@ -58,7 +58,7 @@ enum ReorderMode { modeOne = 0, modeTwo };
           for (c15, 0, 3) {
             for (cc11, 0, 16) {
               im2col_row_major_local_UB(0, 0, cc10, c15, cc8, cc9, cc11) =
-              load3d_l1_ub(select(((3 < ((cc8*2) + cc1    0)) || (111 < ((cc9*2) + c15))),
+              load_im2col_c1_buf(select(((3 < ((cc8*2) + cc1    0)) || (111 < ((cc9*2) + c15))),
               -65504h, input_1_local_L1(0, 0, ((cc8*2) + cc10), ((cc9*2) + c15), cc11)), 0,
               1, 0, 1, 112, 112, 2, 2, 3, 3, 1, 1, 1, 1):float16:PI
             }
@@ -97,12 +97,12 @@ enum ReorderMode { modeOne = 0, modeTwo };
    }
    for (cc10, 0, 3) {
      for (c15, 0, 3) {
-       // attr [{}] pragma_load3d = 1
+       // attr [{}] pragma_load_im2col = 1
        for (cc8, 0, 2) {
          for (cc9, 0, 56) {
            for (cc11, 0, 16) {
              im2col_row_major_local_UB(0, 0, cc10, c15, cc8, cc9, cc11) =
-             load3d_l1_ub(select(((3 < ((cc8*2) + cc10)) || (111 < ((cc9*2) + c15))), -65504h,
+             load_im2col_c1_buf(select(((3 < ((cc8*2) + cc10)) || (111 < ((cc9*2) + c15))), -65504h,
              input_1_local_L1(0, 0, ((cc8*2) + cc10), ((cc9*2) + c15), cc11)),
              0, 1, 0, 1, 112, 112, 2, 2, 3, 3, 1, 1, 1, 1):float16:PI
            }
@@ -163,14 +163,14 @@ class PoolingFusion : public IRMutator {
     if (!is_dynamic_) {
       const Call *call = op->value.as<Call>();
       if (call && call->name == call_name_) {
-        is_load3d_ = true;
+        is_load_im2col_ = true;
         CHECK_EQ(op->args.size(), static_cast<size_t>(im2colArgIndex::kIm2colArgSize));
         kh_var_ = op->args[static_cast<size_t>(im2colArgIndex::kKHIndex)].as<Variable>();
         kw_var_ = op->args[static_cast<size_t>(im2colArgIndex::kKWIndex)].as<Variable>();
         kh_expr_ = op->args[static_cast<size_t>(im2colArgIndex::kKHIndex)];
         kw_expr_ = op->args[static_cast<size_t>(im2colArgIndex::kKWIndex)];
         img2col_tensor_ = Downcast<Operation>(op->func).output(op->value_index);
-      } else if (is_load3d_) {
+      } else if (is_load_im2col_) {
         bool is_use = false;
         const Call *t_call = nullptr;
         std::tie(is_use, t_call) = GetCallIfUseTensor(op, img2col_tensor_);
@@ -191,13 +191,13 @@ class PoolingFusion : public IRMutator {
       const Call *call = op->value.as<Call>();
       const Max *max_compute = op->value.as<Max>();
       if (call && call->name == call_name_) {
-        is_load3d_ = true;
+        is_load_im2col_ = true;
         CHECK_EQ(op->args.size(), static_cast<size_t>(im2colArgIndex::kIm2colArgSize));
         kh_var_ = op->args[static_cast<size_t>(im2colArgIndex::kKHIndex)].as<Variable>();
         kw_var_ = op->args[static_cast<size_t>(im2colArgIndex::kKWIndex)].as<Variable>();
         kh_expr_ = op->args[static_cast<size_t>(im2colArgIndex::kKHIndex)];
         kw_expr_ = op->args[static_cast<size_t>(im2colArgIndex::kKWIndex)];
-      } else if (is_load3d_ && max_compute != nullptr) {
+      } else if (is_load_im2col_ && max_compute != nullptr) {
         const Call *b_call = max_compute->b.as<Call>();
         CHECK(b_call);
         CHECK_EQ(b_call->args.size(), static_cast<size_t>(im2colArgIndex::kIm2colArgSize));
@@ -208,14 +208,14 @@ class PoolingFusion : public IRMutator {
         value_map[max_kw_] = kw_expr_;
         Stmt res = Substitute(s, value_map);
         return res;
-      } else if (is_load3d_ && isImm(op->value)) {
+      } else if (is_load_im2col_ && isImm(op->value)) {
         is_max_init_ = true;
       }
     }
     return IRMutator::Mutate_(op, s);
   }
 
-  bool ThreePartLoad3d(const Block *op) {
+  bool ThreePartLoadIm2col(const Block *op) {
     std::set<std::string> call_set;
     PostOrderVisit(Block::make(op->first, op->rest), [&call_set](const NodeRef &node) {
       const Call *call = node.as<Call>();
@@ -228,14 +228,14 @@ class PoolingFusion : public IRMutator {
       }
     });
 
-    if (call_set.count("max") > 0 && call_set.count("load3d_l1_ub") > 0) {
+    if (call_set.count("max") > 0 && call_set.count("load_im2col_c1_buf") > 0) {
       return true;
     }
     return false;
   }
 
-  Stmt FuseLoad3dAndPool(const Stmt &load3d, const Stmt &maxpooling) {
-    Stmt res = load3d;
+  Stmt FuseLoadIm2colAndPool(const Stmt &LoadIm2col, const Stmt &maxpooling) {
+    Stmt res = LoadIm2col;
     if (kw_ != nullptr) {
       std::unordered_map<std::string, NodeRef> attrs;
       res = AttrStmt::make(Map<std::string, NodeRef>(attrs.begin(), attrs.end()), "pragma_load3d", Expr(1), res);
@@ -248,8 +248,8 @@ class PoolingFusion : public IRMutator {
     return res;
   }
 
-  Stmt FuseLoad3dAndMax(const Stmt &load3d, const Stmt &maxpooling) {
-    Stmt res = load3d;
+  Stmt FuseLoadIm2colAndMax(const Stmt &LoadIm2col, const Stmt &maxpooling) {
+    Stmt res = LoadIm2col;
     if (kw_ != nullptr) {
       std::unordered_map<std::string, NodeRef> attrs;
       res = AttrStmt::make(Map<std::string, NodeRef>(attrs.begin(), attrs.end()), "pragma_load3d", Expr(1), res);
@@ -265,20 +265,20 @@ class PoolingFusion : public IRMutator {
   Stmt Mutate_(const Block *op, const Stmt &s) final {
     if (!is_dynamic_) {
       Stmt first = this->Mutate(op->first);
-      // load3d must be on the first part,
+      // load_im2col must be on the first part,
       // but pooling compute should be first or rest part.
-      if (is_load3d_ && !info_cache_) {
+      if (is_load_im2col_ && !info_cache_) {
         img2col_stmt_ = first;
         first = Evaluate::make(0);
         info_cache_ = true;
-      } else if (is_load3d_ && detect_pool_compute_) {
-        first = FuseLoad3dAndPool(img2col_stmt_, first);
+      } else if (is_load_im2col_ && detect_pool_compute_) {
+        first = FuseLoadIm2colAndPool(img2col_stmt_, first);
         Init();
       }
 
       Stmt rest = this->Mutate(op->rest);
-      if (is_load3d_ && detect_pool_compute_) {
-        rest = FuseLoad3dAndPool(img2col_stmt_, rest);
+      if (is_load_im2col_ && detect_pool_compute_) {
+        rest = FuseLoadIm2colAndPool(img2col_stmt_, rest);
         Init();
       }
 
@@ -297,40 +297,40 @@ class PoolingFusion : public IRMutator {
             rest->rest.get()->GetTypeKey() == AttrStmt::_type_key) {
           Stmt first_for = Mutate(op->first);
           Stmt rest_for = Mutate(rest->first);
-          if (is_load3d_) {
-            first_for = FuseLoad3dAndMax(first_for, rest_for);
+          if (is_load_im2col_) {
+            first_for = FuseLoadIm2colAndMax(first_for, rest_for);
             Init();
             return Block::make(first_for, rest->rest);
           }
-        } else if (ThreePartLoad3d(rest)) {
+        } else if (ThreePartLoadIm2col(rest)) {
           Stmt first_for = Mutate(op->first);     // im2col
           Stmt rest_first = Mutate(rest->first);  // max init
           const auto rest_block = rest->rest.as<Block>();
           CHECK(rest_block);
           Stmt maxpooling = Mutate(rest_block->first);  // max compute
-          if (is_load3d_ && is_max_init_) {
-            first_for = FuseLoad3dAndMax(first_for, maxpooling);
+          if (is_load_im2col_ && is_max_init_) {
+            first_for = FuseLoadIm2colAndMax(first_for, maxpooling);
             Init();
             first_for = Block::make(rest_first, first_for);
             return Block::make(first_for, rest_block->rest);
           }
-        } else if (ThreePartLoad3d(op)) {
+        } else if (ThreePartLoadIm2col(op)) {
           Stmt im2col = Mutate(op->first);
           Stmt max_init = Mutate(rest->first);
           if (is_max_init_) {
             const auto rest_block = rest->rest.as<Block>();
             CHECK(rest_block);
             Stmt maxpooling = Mutate(rest_block->first);
-            if (is_load3d_) {
-              im2col = FuseLoad3dAndMax(im2col, maxpooling);
+            if (is_load_im2col_) {
+              im2col = FuseLoadIm2colAndMax(im2col, maxpooling);
               Init();
               im2col = Block::make(max_init, im2col);
               return Block::make(im2col, rest_block->rest);
             }
           } else {
             Stmt maxpooling = max_init;
-            if (is_load3d_) {
-              im2col = FuseLoad3dAndMax(im2col, maxpooling);
+            if (is_load_im2col_) {
+              im2col = FuseLoadIm2colAndMax(im2col, maxpooling);
               Init();
               return Block::make(im2col, rest->rest);
             }
@@ -343,7 +343,7 @@ class PoolingFusion : public IRMutator {
 
   Stmt Mutate_(const For *op, const Stmt &s) final {
     Stmt res = Mutate(op->body);
-    if (!is_load3d_) {
+    if (!is_load_im2col_) {
       return For::make(op->loop_var, op->min, op->extent, op->for_type, op->device_api, res);
     }
 
@@ -380,7 +380,7 @@ class PoolingFusion : public IRMutator {
   }
 
   void Init() {
-    is_load3d_ = false;
+    is_load_im2col_ = false;
     is_max_init_ = false;
     info_cache_ = false;
     detect_pool_compute_ = false;
@@ -400,7 +400,7 @@ class PoolingFusion : public IRMutator {
   Expr kw_expr_;
   const Variable *kh_var_{nullptr};
   const Variable *kw_var_{nullptr};
-  bool is_load3d_{false};
+  bool is_load_im2col_{false};
   bool is_max_init_{false};  // for dynamic
   bool info_cache_{false};
   Tensor img2col_tensor_;
@@ -668,19 +668,19 @@ class PoolingReorder : public IRMutator {
 enum PoolingHAxisIndex { INIT = 0, HEAD, BODY, TAIL };
 /********************************************************
  *
- * extract pragma_load3d attributes and added into attributes map
+ * extract pragma_load_im2col attributes and added into attributes map
  *
  *  for (c15, 0, 3) {
  *    // attr [{"dilation_h": 1, "stride_w": 2, "repeat_time": 7, "stride_h": 2, "h": 4, "filter_h": 3, "w": 112,
  *    "filter_w": 3, "repeat_mode": 1, "pos_h": cc10, "firstHi": 0, "firstWi": 0, "pad_bottom": 1, "pos_w": c15,
- *    "pad_top": 0, "di    lation_w": 1, "pad_left": 0, "jump_offset": 1, "pad_right": 1}] pragma_load3d = 1
+ *    "pad_top": 0, "di    lation_w": 1, "pad_left": 0, "jump_offset": 1, "pad_right": 1}] pragma_LoadIm2col = 1
  *     for (cc8, 0, 2) {
  *
  * ******************************************************/
 class PoolingAttrProducer : public IRMutator {
  public:
-  PoolingAttrProducer(const std::string &name, int times) : call_name_(name), load3d_times_(times) {
-    if (load3d_times_ < static_cast<int>(PoolingHAxisIndex::TAIL)) {
+  PoolingAttrProducer(const std::string &name, int times) : call_name_(name), load_im2col_times_(times) {
+    if (load_im2col_times_ < static_cast<int>(PoolingHAxisIndex::TAIL)) {
       index_ = 1;
     }
   }
@@ -709,7 +709,7 @@ class PoolingAttrProducer : public IRMutator {
 
       // default to set 0 with type int8, it will not valid becase there will be no pad.
       pad_value = IntImm::make(Int(8), 0);
-      if (auto select_op = call->args[static_cast<size_t>(LOAD3DCallArgs::idxTensorIdx)].as<Select>()) {
+      if (auto select_op = call->args[static_cast<size_t>(LOADIm2colCallArgs::idxTensorIdx)].as<Select>()) {
         auto tv = select_op->true_value;
         auto fv = select_op->false_value;
         if (tv.as<FloatImm>() || tv.as<IntImm>() || tv.as<UIntImm>()) {
@@ -719,19 +719,19 @@ class PoolingAttrProducer : public IRMutator {
         }
       }
 
-      pad_t = call->args[static_cast<size_t>(LOAD3DCallArgs::idxPadTop)];
-      pad_b = call->args[static_cast<size_t>(LOAD3DCallArgs::idxPadBottom)];
-      pad_l = call->args[static_cast<size_t>(LOAD3DCallArgs::idxPadLeft)];
-      pad_r = call->args[static_cast<size_t>(LOAD3DCallArgs::idxPadRight)];
-      fm_w = call->args[static_cast<size_t>(LOAD3DCallArgs::idxFmW)];
-      stride_h = call->args[static_cast<size_t>(LOAD3DCallArgs::idxStrideH)];
-      stride_w = call->args[static_cast<size_t>(LOAD3DCallArgs::idxStrideW)];
-      filter_h = call->args[static_cast<size_t>(LOAD3DCallArgs::idxFilterH)];
-      filter_w = call->args[static_cast<size_t>(LOAD3DCallArgs::idxFilterW)];
-      dilation_h = call->args[static_cast<size_t>(LOAD3DCallArgs::idxDilationH)];
-      dilation_w = call->args[static_cast<size_t>(LOAD3DCallArgs::idxDilationW)];
-      repeat_mode = call->args[static_cast<size_t>(LOAD3DCallArgs::idxRepeatMode)];
-      jmp_offset = call->args[static_cast<size_t>(LOAD3DCallArgs::idxJmpOffset)];
+      pad_t = call->args[static_cast<size_t>(LOADIm2colCallArgs::idxPadTop)];
+      pad_b = call->args[static_cast<size_t>(LOADIm2colCallArgs::idxPadBottom)];
+      pad_l = call->args[static_cast<size_t>(LOADIm2colCallArgs::idxPadLeft)];
+      pad_r = call->args[static_cast<size_t>(LOADIm2colCallArgs::idxPadRight)];
+      fm_w = call->args[static_cast<size_t>(LOADIm2colCallArgs::idxFmW)];
+      stride_h = call->args[static_cast<size_t>(LOADIm2colCallArgs::idxStrideH)];
+      stride_w = call->args[static_cast<size_t>(LOADIm2colCallArgs::idxStrideW)];
+      filter_h = call->args[static_cast<size_t>(LOADIm2colCallArgs::idxFilterH)];
+      filter_w = call->args[static_cast<size_t>(LOADIm2colCallArgs::idxFilterW)];
+      dilation_h = call->args[static_cast<size_t>(LOADIm2colCallArgs::idxDilationH)];
+      dilation_w = call->args[static_cast<size_t>(LOADIm2colCallArgs::idxDilationW)];
+      repeat_mode = call->args[static_cast<size_t>(LOADIm2colCallArgs::idxRepeatMode)];
+      jmp_offset = call->args[static_cast<size_t>(LOADIm2colCallArgs::idxJmpOffset)];
       kh_expr_ = op->args[static_cast<size_t>(im2colArgIndex::kKHIndex)];
       kw_expr_ = op->args[static_cast<size_t>(im2colArgIndex::kKWIndex)];
     }
@@ -797,7 +797,7 @@ class PoolingAttrProducer : public IRMutator {
 
   void updatePadValue() {
     // no h tiling condition
-    if (load3d_times_ == static_cast<int>(PoolingHAxisIndex::HEAD)) {
+    if (load_im2col_times_ == static_cast<int>(PoolingHAxisIndex::HEAD)) {
       first_hi = Simplify(Expr(0) - pad_t);
       first_wi = Simplify(Expr(0) - pad_l);
       return;
@@ -823,7 +823,7 @@ class PoolingAttrProducer : public IRMutator {
  private:
   std::string call_name_;
   int index_{0};
-  int load3d_times_{0};
+  int load_im2col_times_{0};
   Expr pad_value;
   Expr pad_l;
   Expr pad_r;
@@ -854,22 +854,22 @@ class PoolingCheck : public IRVisitor {
     const Call *call = op->value.as<Call>();
     if (call != nullptr && call->name == call_name_) {
       find_ = true;
-      load3d_times_++;
+      load_im2col_times_++;
     }
     IRVisitor::Visit_(op);
   }
 
   bool find() const { return find_; }
-  int times() const { return load3d_times_; }
+  int times() const { return load_im2col_times_; }
 
  private:
   std::string call_name_;
   bool find_{false};
-  int load3d_times_{0};
+  int load_im2col_times_{0};
 };
 
 Stmt PoolingTransform(Stmt stmt, bool is_dynamic) {
-  std::string call_name = "load3d_l1_ub";
+  std::string call_name = "load_im2col_c1_buf";
   PoolingCheck checker(call_name);
   checker.Visit(stmt);
   if (!checker.find()) {

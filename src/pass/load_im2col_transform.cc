@@ -155,7 +155,7 @@ class MNKExtract : public IRVisitor {
   Range ki_{0, 1};
 };
 
-class Load3dCollector : public IRVisitor {
+class LoadIm2colCollector : public IRVisitor {
  public:
   void Visit_(const AttrStmt *op) final {
     if (op->attr_key == "pragma_attrs") {
@@ -287,15 +287,15 @@ class FindOuterAxis : public IRVisitor {
   VarExpr var_{VarExpr("")};
 };
 
-class Load3dTransform : public IRMutator {
+class LoadIm2colTransform : public IRMutator {
  public:
-  Load3dTransform() {
+  LoadIm2colTransform() {
     axis_map_["m"] = GemmAxis();
     axis_map_["k"] = GemmAxis();
     axis_map_["n"] = GemmAxis();
   }
 
-  explicit Load3dTransform(const ConvolutionBackpropFilterModel conv) : conv_(conv) {
+  explicit LoadIm2colTransform(const ConvolutionBackpropFilterModel conv) : conv_(conv) {
     isolate_idx_max_ = conv_.infer_L1_tile();
     axis_map_["m"] = GemmAxis();
     axis_map_["k"] = GemmAxis();
@@ -303,10 +303,10 @@ class Load3dTransform : public IRMutator {
     is_conv_backprop_filter_ = true;
   }
 
-  ~Load3dTransform() override = default;
+  ~LoadIm2colTransform() override = default;
 
   Stmt transform(const Stmt &stmt) {
-    Load3dCollector collector;
+    LoadIm2colCollector collector;
 
     collector.Visit(stmt);
     if (!collector.find_) {
@@ -1585,7 +1585,7 @@ class RealizeRescope : public IRMutator {
   int isolate_idx_{0};
 };
 
-const char const_outermost_mark[] = "load3d_transform_outermost_mark";
+const char const_outermost_mark[] = "load_im2col_transform_outermost_mark";
 
 static Stmt AddOuterMostMark(const Stmt &stmt) {
   return AttrStmt::make(make_zero(Int(32)), const_outermost_mark, Expr(0), stmt);
@@ -1602,8 +1602,8 @@ class RemoveOutermostMarkMutator : public IRMutator {
   }
 };
 
-Stmt Load3dTrans(Stmt stmt, bool is_dynamic) {
-  Load3dCollector collector;
+Stmt LoadIm2colTrans(Stmt stmt, bool is_dynamic) {
+  LoadIm2colCollector collector;
   collector.Visit(stmt);
   if (!collector.find_) {
     return stmt;
@@ -1618,7 +1618,7 @@ Stmt Load3dTrans(Stmt stmt, bool is_dynamic) {
   if (conv_backprop_filter) {
     ConvolutionBackpropFilterModel conv(collector.attrs, is_dynamic);
 
-    Load3dTransform trans3d(conv);
+    LoadIm2colTransform trans3d(conv);
     stmt = trans3d.transform(stmt);
 
     std::string filter_name = GET_STRINGIMM_ATTR_DEFAULT(collector.attrs, ATTR_CONV_FILTER_NAME, "");
@@ -1630,7 +1630,7 @@ Stmt Load3dTrans(Stmt stmt, bool is_dynamic) {
     stmt = RealizeScopeElimination().Mutate(stmt);
     stmt = RealizeReshape(output_name).Mutate(stmt);
   } else {
-    Load3dTransform trans3d;
+    LoadIm2colTransform trans3d;
     stmt = trans3d.transform(stmt);
     stmt = L0C2UBTransform().Mutate(stmt);
     stmt = RealizeElimination().Mutate(stmt);

@@ -33,7 +33,7 @@ struct StmtOpInfo {
   bool isCubeAssign = false;
   bool isWith = false;
   bool isIm2col = false;
-  bool isLoad3d = false;
+  bool is_load_im2col = false;
   // only used when isCube/isConv = true;
   std::string A_ = "";
   std::string B_ = "";

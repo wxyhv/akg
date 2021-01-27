@@ -270,16 +270,16 @@ bool CubeInfo::IsIm2col() const {
   return false;
 }
 
-bool CubeInfo::IsLoadIm2colCA1BUF() const {
+bool CubeInfo::IsLoadIm2colC1BUF() const {
   for (auto &info : analysis_result_.GetStmtOpInfoMap()) {
-    if (info.second.isLoad3d) return true;
+    if (info.second.is_load_im2col) return true;
   }
   return false;
 }
 
-bool CubeInfo::IsLoadIm2colCA1BUFStmt(const std::string &stmt_name) const {
+bool CubeInfo::IsLoadIm2colC1BUFStmt(const std::string &stmt_name) const {
   for (auto &info : analysis_result_.GetStmtOpInfoMap()) {
-    if (info.second.isLoad3d && info.first.name() == stmt_name) {
+    if (info.second.is_load_im2col && info.first.name() == stmt_name) {
       return true;
     }
   }
@@ -333,14 +333,14 @@ bool CubeInfo::IsConv() const {
 void CubeInfo::UpdateComputeAttrInfo() {
   if (IsConv()) {
     FindComputeAttr(ConvATTRList);
-  } else if (IsLoadIm2colCA1BUF()) {
+  } else if (IsLoadIm2colC1BUF()) {
     FindComputeAttr(FastPoolingATTRList);
   }
 }
 
 void CubeInfo::FindComputeAttr(const std::vector<std::string> &op_keys) {
   for (auto i : analysis_result_.GetStmtOpInfoMap()) {
-    if (i.second.isCube || i.second.isLoad3d) {
+    if (i.second.isCube || i.second.is_load_im2col) {
       const Node *stmt_node = analysis_result_.GetStatementMap().at(i.first);
       if (stmt_node->IsInstance<Provide>()) {
         auto provide = static_cast<const Provide *>(stmt_node);
@@ -1158,7 +1158,7 @@ void ScopInfo::CreateDataFlowInfo() {
       dma_dataflow.CreateStmtDataFlow(STMT_OP_TYPE::CUBE_GEMM, stmt.first, stmt.second, op_read_map, op_write_map);
     }
 
-    if (stmt.second.isIm2col || stmt.second.isLoad3d) {
+    if (stmt.second.isIm2col || stmt.second.is_load_im2col) {
       analysis_result_.stmt_type_[num] = std::make_pair(stmt.first.get_name(), STMT_OP_TYPE::IM2COL_UB);
       dma_dataflow.CreateStmtDataFlow(STMT_OP_TYPE::IM2COL_UB, stmt.first, stmt.second, op_read_map, op_write_map);
     }

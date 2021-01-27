@@ -115,7 +115,7 @@ namespace poly {
   X(sub_relu)                     \
   X(pow)                          \
   X(isnan)                        \
-  X(load3d_l1_ub)                 \
+  X(load_im2col_c1_buf)           \
   X(tanh)
 
 #define GENERATE_ENUM(ENUM) ENUM,
@@ -164,7 +164,7 @@ const std::map<std::string, PolyOpType> POLY_SUPPORTED_OPS = {
   {"sub_relu", PolyOpType::sub_relu},
   {"pow", PolyOpType::pow},
   {"isnan", PolyOpType::isnan},
-  {"load3d_l1_ub", PolyOpType::load3d_l1_ub},
+  {"load_im2col_c1_buf", PolyOpType::load_im2col_c1_buf},
   {"tanh", PolyOpType::tanh},
 };
 

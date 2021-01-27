@@ -26,26 +26,26 @@ namespace akg {
 namespace ir {
 class Im2colCheck : public IRVisitor {
  public:
-  bool IsLoad3d() const { return is_load3d_; }
+  bool is_load_im2col() const { return is_load_im2col_; }
 
  private:
   void Visit_(const Evaluate *op) override {
     if (auto call = op->value.as<Call>()) {
       constexpr int IM2COLARGNUM = 23;
       if (call->name == CALL_IM2COL_UB && call->args.size() == IM2COLARGNUM) {
-        is_load3d_ = true;
+        is_load_im2col_ = true;
       }
     }
     IRVisitor::Visit_(op);
   }
 
-  bool is_load3d_{false};
+  bool is_load_im2col_{false};
 };
 
-class ReorderLoad3d : public IRMutator {
+class ReorderLoadIm2col : public IRMutator {
  public:
-  ReorderLoad3d() = default;
-  ~ReorderLoad3d() override = default;
+  ReorderLoadIm2col() = default;
+  ~ReorderLoadIm2col() override = default;
   int LastVarNum() const { return last_var_num_; }
 
  private:
@@ -105,10 +105,10 @@ class ReorderLoad3d : public IRMutator {
   int last_var_num_{0};
 };
 
-class PostFusionLoad3d : public IRMutator {
+class PostFusionLoadIm2col : public IRMutator {
  public:
-  explicit PostFusionLoad3d(int var_idx) : var_idx_(var_idx) {}
-  ~PostFusionLoad3d() override = default;
+  explicit PostFusionLoadIm2col(int var_idx) : var_idx_(var_idx) {}
+  ~PostFusionLoadIm2col() override = default;
 
  private:
   Stmt Mutate_(const Block *op, const Stmt &s) final {
@@ -191,10 +191,10 @@ class PostFusionLoad3d : public IRMutator {
   int var_idx_{0};
 };
 
-class FixRealizeLoad3d : public IRMutator {
+class FixRealizeLoadIm2col : public IRMutator {
  public:
-  FixRealizeLoad3d() = default;
-  ~FixRealizeLoad3d() override = default;
+  FixRealizeLoadIm2col() = default;
+  ~FixRealizeLoadIm2col() override = default;
 
   Stmt Shape(const Stmt &s) { return Mutate(s); }
 
@@ -340,14 +340,14 @@ class FixRealizeLoad3d : public IRMutator {
 Stmt PostProcessImg2col(Stmt stmt) {
   Im2colCheck checker;
   checker.Visit(stmt);
-  if (!checker.IsLoad3d()) {
+  if (!checker.is_load_im2col()) {
     return stmt;
   }
-  ReorderLoad3d reorder;
+  ReorderLoadIm2col reorder;
   stmt = reorder.Mutate(stmt);
-  PostFusionLoad3d actor(reorder.LastVarNum());
+  PostFusionLoadIm2col actor(reorder.LastVarNum());
   stmt = actor.Mutate(stmt);
-  FixRealizeLoad3d fixed;
+  FixRealizeLoadIm2col fixed;
   stmt = fixed.Shape(stmt);
   return stmt;
 }

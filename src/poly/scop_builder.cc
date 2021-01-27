@@ -288,8 +288,8 @@ void ParseStmtOpCall(const isl::id &id, const Call *call, AnalysisResult &result
           }
         }
       }
-    } else if (0 == strcmp(call->name.c_str(), "load3d_l1_ub")) {
-      result.GetStmtOpInfoMap().at(id).isLoad3d = true;
+    } else if (0 == strcmp(call->name.c_str(), "load_im2col_c1_buf")) {
+      result.GetStmtOpInfoMap().at(id).is_load_im2col = true;
       ParseStmtOps(id, call->args[0], result, func);
     } else if (0 == strcmp(call->name.c_str(), "mad")) {
       result.GetStmtOpInfoMap().at(id).ops.push_back(PolyOpType::mad);
@@ -1397,4 +1397,3 @@ isl::schedule MakeScheduleTree(const isl::space &param_space, isl::set param_set
 }  // namespace poly
 }  // namespace ir
 }  // namespace akg
-

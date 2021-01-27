@@ -72,9 +72,9 @@ class AppendStrideMessage final : public IRMutator {
     {"load_gm_to_ca", [this](Expr expr) { return MutateDmaLoad2D(std::move(expr)); }},
     {"load_gm_to_cb", [this](Expr expr) { return MutateDmaLoad2D(std::move(expr)); }},
     {"load_gm_to_cbuf", [this](Expr expr) { return MutateDmaLoad2D(std::move(expr)); }},
-    {"img2col_cbuf_to_ca", [this](Expr expr) { return MutateDmaLoad3D(std::move(expr)); }},
-    {"img2col_cbuf_to_cb", [this](Expr expr) { return MutateDmaLoad3D(std::move(expr)); }},
-    {"img2col_cbuf_to_ub", [this](Expr expr) { return MutateDmaLoad3D(std::move(expr)); }},
+    {"img2col_cbuf_to_ca", [this](Expr expr) { return MutateDmaLoadIm2col(std::move(expr)); }},
+    {"img2col_cbuf_to_cb", [this](Expr expr) { return MutateDmaLoadIm2col(std::move(expr)); }},
+    {"img2col_cbuf_to_ub", [this](Expr expr) { return MutateDmaLoadIm2col(std::move(expr)); }},
     {"broadcast_ub_to_cc", [this](Expr expr) { return MutateDmaBroadCast(std::move(expr)); }},
     {"vector_dup", [this](Expr expr) { return MutateSingleOpVector(std::move(expr)); }},
     {"vabs", [this](Expr expr) { return MutateSingleOpVector(std::move(expr)); }},
@@ -179,9 +179,9 @@ class AppendStrideMessage final : public IRMutator {
   // Load2Dop , add 5 parameters indclude repeat time, repeat stride, block number, block stride,
   // block size
   Expr MutateDmaLoad2D(const Expr &expr);
-  // Load3Dop , add 5 parameters indclude repeat time, repeat stride, block number, block stride,
+  // LoadIm2colop , add 5 parameters indclude repeat time, repeat stride, block number, block stride,
   // block size
-  Expr MutateDmaLoad3D(const Expr &expr);
+  Expr MutateDmaLoadIm2col(const Expr &expr);
   // BroadCastop , add 5 parameters indclude repeat time, repeat stride, block number, block stride,
   // block size
   Expr MutateDmaBroadCast(const Expr &expr);

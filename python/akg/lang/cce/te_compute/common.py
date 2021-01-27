@@ -238,10 +238,10 @@ def cast_to(data, dtype, f1628_int_flag=False):
 def four2five_nchw(data):
     return akg.tvm.call_pure_intrin(data.dtype, "four2five_nchw", data)
 
-def load3d_l1_ub(data, pad_h, pad_t, pad_l, pad_r,
+def load_im2col_c1_buf(data, pad_h, pad_t, pad_l, pad_r,
                  fm_h, fm_w, stride_h, stride_w,
                  filter_h, filter_w, dilation_h, dilation_w, repeat_mode, jmp_offset):
-    return akg.tvm.call_pure_intrin(data.dtype, "load3d_l1_ub", data, pad_h, pad_t, pad_l, pad_r,
+    return akg.tvm.call_pure_intrin(data.dtype, "load_im2col_c1_buf", data, pad_h, pad_t, pad_l, pad_r,
                                     fm_h, fm_w, stride_h, stride_w,
                                     filter_h, filter_w, dilation_h, dilation_w, repeat_mode, jmp_offset)
 

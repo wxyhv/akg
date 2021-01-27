@@ -1560,7 +1560,7 @@ void PlaceDataCopyBelowImplReadWrite(ScopInfo &scop_info, isl::schedule_node &tr
   }
   if (writes) {
     isl::schedule_node tree_write = tree.get_child(0);
-    if (scop_info.user_config_.GetParams().empty() && scop_info.cube_info_.IsLoadIm2colCA1BUF()) {
+    if (scop_info.user_config_.GetParams().empty() && scop_info.cube_info_.IsLoadIm2colC1BUF()) {
       tree_write = tree;
     }
     isl::set writes_set = exact_writes.intersect_range(original_elements).wrap().product(buffered_footprint);

@@ -63,7 +63,7 @@ class LibAllocator : public IRVisitor {
   void Visit_(const Call *op) final {
     if ((op->name == "sin") || (op->name == "cos") || (op->name == "sinh") || (op->name == "cosh")) {
       category_ = LIB_CATEGORY::TRIGONO;
-    } else if (op->name == "load3d_l1_ub") {
+    } else if (op->name == "load_im2col_c1_buf") {
       category_ = LIB_CATEGORY::IM2COL;
     }
   }

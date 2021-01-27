@@ -14,7 +14,7 @@
 
 import tvm
 
-def intrin_load3d(dtype):
+def intrin_load_im2col(dtype):
     '''
     Create intrin function call for im2col
 

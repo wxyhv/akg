@@ -740,7 +740,8 @@ NodeRef Lower(Schedule sch, const Array<NodeRef> &in_args, const Array<NodeRef> 
   Stmt stmt_before_poly = stmt;
   while (enter_count < max_enter_poly_times) {
     if (target != "aicpu" && polyhedral) {
-      Array<NodeRef> poly_res = NEXT_PASS(AutoPoly, stmt_before_poly, binds_0, target, global_attrs, false, is_dynamic, Schedule());
+      Array<NodeRef> poly_res =
+        NEXT_PASS(AutoPoly, stmt_before_poly, binds_0, target, global_attrs, false, is_dynamic, Schedule());
       enter_count++;
       CHECK_EQ(poly_res.size(), 2);
       stmt = air::Downcast<Stmt>(poly_res[0]);
@@ -784,7 +785,7 @@ NodeRef Lower(Schedule sch, const Array<NodeRef> &in_args, const Array<NodeRef> 
       if (global_attrs.GetBoolAttr(kEnableStrideKernelOp, true)) {
         stmt = NEXT_PASS(StrideKernelOp, stmt, binds_0, is_dynamic);
       }
-      stmt = NEXT_PASS(Load3dTrans, stmt, is_dynamic);
+      stmt = NEXT_PASS(LoadIm2colTrans, stmt, is_dynamic);
       // cube special pass end
       stmt = NEXT_PASS(CopyPropagation, stmt, binds_0);
       stmt = NEXT_PASS(ConvertCondToExtent, stmt);
@@ -931,7 +932,7 @@ NodeRef Lower(Schedule sch, const Array<NodeRef> &in_args, const Array<NodeRef> 
     }
     stmt = NEXT_PASS(ConvertDivModToShift, stmt);
     if (!polyhedral || global_attrs.GetBoolAttr(kCoarsenImg2Col, false)) {
-      // for conv manual schedule and load3d
+      // for conv manual schedule and load_im2col
       stmt = NEXT_PASS(CoarsenImg2Col, stmt);
     }
     stmt = NEXT_PASS(DTypeAdapter, stmt);

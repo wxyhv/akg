@@ -16,7 +16,7 @@ import tvm
 import akg
 from akg import backend as cce
 from akg.utils import kernel_exec as utils
-from test_op.im2col import intrin_load3d
+from test_op.im2col import intrin_load_im2col
 
 def im2col_manual_schedule(shape, kernel, stride, pad, dtype, polyhedral=True, attrs=None):
     '''
@@ -33,7 +33,7 @@ def im2col_manual_schedule(shape, kernel, stride, pad, dtype, polyhedral=True, a
         cce intrin function call for im2col
     '''
 
-    load3d = intrin_load3d(dtype)
+    load_im2col = intrin_load_im2col(dtype)
 
     b, c1, h, w, c0 = shape
     stride_h, stride_w = stride
@@ -72,14 +72,14 @@ def im2col_manual_schedule(shape, kernel, stride, pad, dtype, polyhedral=True, a
         h_idx        = tvm.min(j_h, 0)
         c1_idx = (k // kernel_w) // kernel_h
 
-        load3d_input = data[i,
+        load_im2col_input = data[i,
                             c1_idx,
                             # assume padding < kernel size
                             tvm.max(0, j_h):tvm.min(h, j_h+kernel_h),
                             0:w,
                             0:c0]
 
-        return load3d(load3d_input,
+        return load_im2col(load_im2col_input,
                       w, h_3d, pad_l, pad_r, pad_t_3d, pad_b_3d,
                       w_idx_kernel, h_idx_kernel, w_idx, h_idx, 0,
                       stride_w, stride_h, kernel_w, kernel_h, dilation_w, dilation_h, jump_offset, repeat_mode, repeat_time,

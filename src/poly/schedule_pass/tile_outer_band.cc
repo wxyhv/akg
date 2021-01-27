@@ -610,7 +610,7 @@ void TileOuterBand::TileTypeC0(isl::schedule_node &node, int *full_tile_min, int
 
   isl::schedule_node before_tile_node = node;
 
-  if (scop_info_.cube_info_.IsLoadIm2colCA1BUF()) {
+  if (scop_info_.cube_info_.IsLoadIm2colC1BUF()) {
     node = TileBand(node, sizes);
     node = IsolateTiles(before_tile_node, node, TileType::BUF, full_tile_min, full_tile_max, isolate);
     node = MarkTileBand(node, TileType::BUF);
@@ -671,7 +671,7 @@ isl::schedule_node TileOuterBand::TileC0(isl::schedule_node node) {
 }
 
 bool TileOuterBand::NeedIsolate() {
-  return scop_info_.cube_info_.IsConv() || scop_info_.cube_info_.IsLoadIm2colCA1BUF();
+  return scop_info_.cube_info_.IsConv() || scop_info_.cube_info_.IsLoadIm2colC1BUF();
 }
 
 void TileOuterBand::PaddingIsolate(int &h_head, int &h_tail, int &w_head, int &w_tail) {
@@ -1066,7 +1066,7 @@ isl::schedule_node TileOuterBand::MarkOuterPermutableCce(isl::schedule_node node
       break;
     }
   }
-  bool is_in_load3d = scop_info_.user_config_.GetIsDynamic() ? false : scop_info_.cube_info_.IsLoadIm2colCA1BUF();
+  bool is_in_load_im2col = scop_info_.user_config_.GetIsDynamic() ? false : scop_info_.cube_info_.IsLoadIm2colC1BUF();
   isl::set_list domain_list = node.get_domain().get_set_list();
   for (unsigned int set_index = 0; set_index < domain_list.size(); ++set_index) {
     isl::set set_i = domain_list.get_at(set_index);
@@ -1083,15 +1083,15 @@ isl::schedule_node TileOuterBand::MarkOuterPermutableCce(isl::schedule_node node
       is_in_mmu = true;
     }
     if (scop_info_.user_config_.GetIsDynamic()) {
-      if (scop_info_.cube_info_.IsLoadIm2colCA1BUFStmt(set_i.get_tuple_name())) {
-        is_in_load3d = true;
+      if (scop_info_.cube_info_.IsLoadIm2colC1BUFStmt(set_i.get_tuple_name())) {
+        is_in_load_im2col = true;
       }
     }
   }
 
   if (isCube && is_before_mmu && !is_in_mmu) {
     node = TileBandAndCollectMark(node, &tile_size[0], nullptr, nullptr, TileType::C1_BUF_C1, true);
-  } else if (isCube || is_in_load3d) {
+  } else if (isCube || is_in_load_im2col) {
     node = TileBandAndCollectMark(node, &tile_size[0], nullptr, nullptr, TileType::C1, true);
   } else {
     node = TileBandAndCollectMark(node, &tile_size[0], nullptr, nullptr, TileType::BUF, true);
