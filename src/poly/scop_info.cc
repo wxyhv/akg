@@ -270,14 +270,14 @@ bool CubeInfo::IsIm2col() const {
   return false;
 }
 
-bool CubeInfo::IsLoad3dL1Ub() const {
+bool CubeInfo::IsLoadIm2colCA1BUF() const {
   for (auto &info : analysis_result_.GetStmtOpInfoMap()) {
     if (info.second.isLoad3d) return true;
   }
   return false;
 }
 
-bool CubeInfo::IsLoad3dL1UBStmt(const std::string &stmt_name) const {
+bool CubeInfo::IsLoadIm2colCA1BUFStmt(const std::string &stmt_name) const {
   for (auto &info : analysis_result_.GetStmtOpInfoMap()) {
     if (info.second.isLoad3d && info.first.name() == stmt_name) {
       return true;
@@ -333,7 +333,7 @@ bool CubeInfo::IsConv() const {
 void CubeInfo::UpdateComputeAttrInfo() {
   if (IsConv()) {
     FindComputeAttr(ConvATTRList);
-  } else if (IsLoad3dL1Ub()) {
+  } else if (IsLoadIm2colCA1BUF()) {
     FindComputeAttr(FastPoolingATTRList);
   }
 }

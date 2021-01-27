@@ -610,7 +610,7 @@ void TileOuterBand::TileTypeL0(isl::schedule_node &node, int *full_tile_min, int
 
   isl::schedule_node before_tile_node = node;
 
-  if (scop_info_.cube_info_.IsLoad3dL1Ub()) {
+  if (scop_info_.cube_info_.IsLoadIm2colCA1BUF()) {
     node = TileBand(node, sizes);
     node = IsolateTiles(before_tile_node, node, TileType::UB, full_tile_min, full_tile_max, isolate);
     node = MarkTileBand(node, TileType::UB);
@@ -670,7 +670,9 @@ isl::schedule_node TileOuterBand::TileL0(isl::schedule_node node) {
   return node;
 }
 
-bool TileOuterBand::NeedIsolate() { return scop_info_.cube_info_.IsConv() || scop_info_.cube_info_.IsLoad3dL1Ub(); }
+bool TileOuterBand::NeedIsolate() {
+  return scop_info_.cube_info_.IsConv() || scop_info_.cube_info_.IsLoadIm2colCA1BUF();
+}
 
 void TileOuterBand::PaddingIsolate(int &h_head, int &h_tail, int &w_head, int &w_tail) {
   h_head = 0;
@@ -1064,7 +1066,7 @@ isl::schedule_node TileOuterBand::MarkOuterPermutableCce(isl::schedule_node node
       break;
     }
   }
-  bool is_in_load3d = scop_info_.user_config_.GetIsDynamic() ? false : scop_info_.cube_info_.IsLoad3dL1Ub();
+  bool is_in_load3d = scop_info_.user_config_.GetIsDynamic() ? false : scop_info_.cube_info_.IsLoadIm2colCA1BUF();
   isl::set_list domain_list = node.get_domain().get_set_list();
   for (unsigned int set_index = 0; set_index < domain_list.size(); ++set_index) {
     isl::set set_i = domain_list.get_at(set_index);
@@ -1081,7 +1083,7 @@ isl::schedule_node TileOuterBand::MarkOuterPermutableCce(isl::schedule_node node
       is_in_cube = true;
     }
     if (scop_info_.user_config_.GetIsDynamic()) {
-      if (scop_info_.cube_info_.IsLoad3dL1UBStmt(set_i.get_tuple_name())) {
+      if (scop_info_.cube_info_.IsLoadIm2colCA1BUFStmt(set_i.get_tuple_name())) {
         is_in_load3d = true;
       }
     }

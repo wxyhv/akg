@@ -721,7 +721,7 @@ bool NeedRemoveInvariantDependence(ScopInfo &scop_info) {
     return false;
   }
   // disbale this feature for load3d related scenes in Ascend
-  if (scop_info.cube_info_.IsIm2col() || scop_info.cube_info_.IsLoad3dL1Ub()) {
+  if (scop_info.cube_info_.IsIm2col() || scop_info.cube_info_.IsLoadIm2colCA1BUF()) {
     return false;
   }
 
