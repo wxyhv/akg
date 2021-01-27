@@ -1194,7 +1194,7 @@ void ScopInfo::AddPartitionInfoToData(const std::vector<std::vector<int>> &parti
 }
 
 void CubeInfo::ComputeByPassL1() {
-  if (user_config_.GetByPassL1() == 0) {
+  if (user_config_.GetByPathL1() == 0) {
     int value = ExtractIntFromAttrs(ATTR_CONV_BYPASS_L1);
     if (value >= 0) {
       user_config_.SetByPassL1(value);
