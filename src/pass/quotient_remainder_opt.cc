@@ -22,6 +22,7 @@
 #include <poly/poly_util.h>
 #include <pass/utils.h>
 #include <build_module.h>
+#include "npu_utils.h"
 
 namespace akg {
 namespace ir {
@@ -629,7 +630,7 @@ class LoopSplit : public IRMutator {
   }
 
   Stmt Mutate_(const Provide *op, const Stmt &s) final {
-    if (op->func->func_name() == kernel_name_ + "_local_L1_local_L0B") {
+    if (op->func->func_name() == kernel_name_ + LOCAL_C1_LOCAL_C0B) {
       Expr body = this->Mutate(op->value);
 
       Array<Expr> provide_new_args;
@@ -655,7 +656,7 @@ class LoopSplit : public IRMutator {
   }
 
   Expr Mutate_(const Call *op, const Expr &e) final {
-    if (op->name == kernel_name_ + "_local_L1") {
+    if (op->name == kernel_name_ + LOCAL_C1) {
       load2d_ = true;
       split_var_ = nullptr;
       split_factor_ = -1;

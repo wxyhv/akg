@@ -25,6 +25,7 @@
 #include "pass/ir_util.h"
 #include "ir_pass.h"
 #include "pass/utils.h"
+#include "npu_utils.h"
 
 namespace akg {
 namespace ir {
@@ -148,7 +149,7 @@ class PoolingFusion : public IRMutator {
     if (PatternCheck(op)) {
       const auto op_node = op->node.as<PlaceholderOpNode>();
       CHECK(op_node);
-      std::size_t pos = op_node->name.find("_local_L1");
+      std::size_t pos = op_node->name.find(LOCAL_C1);
       if (pos != std::string::npos) {
         std::string name = op_node->name.substr(0, pos);
         std::unordered_map<std::string, NodeRef> attrs;
@@ -693,7 +694,7 @@ class PoolingAttrProducer : public IRMutator {
 
   Stmt Mutate_(const ProducerConsumer *op, const Stmt &s) final {
     CHECK(op->func.as<PlaceholderOpNode>());
-    std::size_t pos = op->func.as<PlaceholderOpNode>()->name.find("_local_L1");
+    std::size_t pos = op->func.as<PlaceholderOpNode>()->name.find(LOCAL_C1);
     if (pos != std::string::npos) {
       CHECK(op->body.as<For>());
       fm_h = op->body.as<For>()->extent;

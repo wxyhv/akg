@@ -28,6 +28,7 @@
 #include "ir_pass.h"
 #include "poly/isl.h"
 #include "poly/stmt_parse.h"
+#include "poly/davinci_utils.h"
 
 namespace akg {
 namespace ir {
@@ -153,26 +154,26 @@ struct TensorDataFlow {
 };
 
 const DataFlowAttrs Cube_Conv_A = {{MemType::DDR, ""},
-                                   {MemType::C1_, "_local_L1"},
-                                   {MemType::C1_, "_fractal_L1"},
-                                   {MemType::C0A_, "_local_L1_local_L0A"}};
+                                   {MemType::C1_, LOCAL_C1},
+                                   {MemType::C1_, FRACTAL_C1},
+                                   {MemType::C0A_, LOCAL_C1_LOCAL_C0A}};
 const DataFlowAttrs Cube_Conv_B = {
-  {MemType::DDR, ""}, {MemType::C1_, "_local_L1"}, {MemType::C0B_, "_local_L1_local_L0B"}};
+  {MemType::DDR, ""}, {MemType::C1_, LOCAL_C1}, {MemType::C0B_, LOCAL_C1_LOCAL_C0B}};
 const DataFlowAttrs Cube_Conv_C = {
-  {MemType::DDR, ""}, {MemType::BUF_, "_local_UB"}, {MemType::C0C_, "_local_UB_local_L0C"}};
-const DataFlowAttrs Cube_Spec_Gemm_A = {{MemType::C1_, "_fractal_L1"}, {MemType::C0A_, "_fractal_L1_local_L0A"}};
-const DataFlowAttrs Cube_Spec_Gemm_A_ = {{MemType::C1_, "_local_L1"}, {MemType::C0A_, "_local_L1_local_L0A"}};
+  {MemType::DDR, ""}, {MemType::BUF_, LOCAL_BUF}, {MemType::C0C_, "_local_UB_local_L0C"}};
+const DataFlowAttrs Cube_Spec_Gemm_A = {{MemType::C1_, FRACTAL_C1}, {MemType::C0A_, FRACTAL_C1_LOCAL_C0A}};
+const DataFlowAttrs Cube_Spec_Gemm_A_ = {{MemType::C1_, LOCAL_C1}, {MemType::C0A_, LOCAL_C1_LOCAL_C0A}};
 const DataFlowAttrs Cube_Gemm_A = {
-  {MemType::DDR, ""}, {MemType::C1_, "_local_L1"}, {MemType::C0A_, "_local_L1_local_L0A"}};
+  {MemType::DDR, ""}, {MemType::C1_, LOCAL_C1}, {MemType::C0A_, LOCAL_C1_LOCAL_C0A}};
 const DataFlowAttrs Cube_Spec_Gemm_B = {{MemType::C1_, ""}, {MemType::C0B_, "_local_L0B"}};
 const DataFlowAttrs Cube_Spec_Gemm_B_ = {{MemType::C1_, ""}, {MemType::C0B_, "_local_L0B"}};
 const DataFlowAttrs Cube_Gemm_B = {
-  {MemType::DDR, ""}, {MemType::C1_, "_local_L1"}, {MemType::C0B_, "_local_L1_local_L0B"}};
-const DataFlowAttrs Cube_Spec_Gemm_C = {{MemType::BUF_C0_, ""}, {MemType::C0C_, "_local_L0C"}};
+  {MemType::DDR, ""}, {MemType::C1_, LOCAL_C1}, {MemType::C0B_, LOCAL_C1_LOCAL_C0B}};
+const DataFlowAttrs Cube_Spec_Gemm_C = {{MemType::BUF_C0_, ""}, {MemType::C0C_, LOCAL_C0C}};
 const DataFlowAttrs Cube_Gemm_C = {
-  {MemType::DDR, ""}, {MemType::BUF_, "_local_UB"}, {MemType::C0C_, "_local_UB_local_L0C"}};
-const DataFlowAttrs Vector_UB = {{MemType::DDR, ""}, {MemType::BUF_, "_local_UB"}};
-const DataFlowAttrs Im2Col_L1 = {{MemType::DDR, ""}, {MemType::C1_, "_local_L1"}};
+  {MemType::DDR, ""}, {MemType::BUF_, LOCAL_BUF}, {MemType::C0C_, "_local_UB_local_L0C"}};
+const DataFlowAttrs Vector_UB = {{MemType::DDR, ""}, {MemType::BUF_, LOCAL_BUF}};
+const DataFlowAttrs Im2Col_L1 = {{MemType::DDR, ""}, {MemType::C1_, LOCAL_C1}};
 
 class StmtDataFlowInfo {
  public:

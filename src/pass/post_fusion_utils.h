@@ -26,6 +26,7 @@
 #include "pass/convolution_model.h"
 #include "pass/utils.h"
 #include "poly/poly_util.h"
+#include "npu_utils.h"
 
 namespace akg {
 namespace ir {

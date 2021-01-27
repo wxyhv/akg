@@ -21,6 +21,7 @@
 #include <pass/storage_access.h>
 #include <stack>
 
+#include "npu_utils.h"
 namespace akg {
 namespace ir {
 /*
@@ -46,7 +47,7 @@ class FixVaddsInt : public IRMutator {
       auto store = op->body.as<Store>();
       auto add = store->value.as<Add>();
 
-      auto new_buf = VarExpr("fix_vadds_int_" + std::to_string(id++) + "_local_UB", Int(32));
+      auto new_buf = VarExpr("fix_vadds_int_" + std::to_string(id++) + LOCAL_BUF, Int(32));
 
       auto store_stmt = Store::make(new_buf, add->b, 0, const_true(1));
       auto store_attr = AttrStmt::make(make_zero(Int(32)), "pragma_emit_insn", Expr("broadcast"), store_stmt);

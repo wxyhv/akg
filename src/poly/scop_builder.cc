@@ -22,6 +22,7 @@
 
 #include "pass/utils.h"
 #include "construct_poly_accesses.h"
+#include "poly/davinci_utils.h"
 
 namespace akg {
 namespace ir {
@@ -1270,10 +1271,10 @@ isl::schedule MakeScheduleTreeHelper(const NodeRef &s, ScopInfo &scop_info, cons
       std::string update_name = tensor->op->name;
       std::string update_scope;
       if (tensor->op.as<PlaceholderOpNode>()) {
-        update_name += "_local_L1";
+        update_name += LOCAL_C1;
         update_scope = "local.L1";
       } else {
-        update_name += "_local_UB";
+        update_name += LOCAL_BUF;
         update_scope = "local.UB";
       }
       Buffer update_buffer =

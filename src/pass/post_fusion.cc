@@ -350,7 +350,7 @@ class PostFusionAct : public IRMutator {
   Stmt Mutate_(const Provide *op, const Stmt &s) final {
     std::string name = op->func->func_name();
     if (is_conv_backprop_filter_) {
-      if (name == feature_ + "_local_L1") {
+      if (name == feature_ + LOCAL_C1) {
         const Variable *ci{nullptr};
         // [batch, cin_c1, h, w, cin_c0]
         CHECK_EQ(op->args.size(), 5);
@@ -363,7 +363,7 @@ class PostFusionAct : public IRMutator {
         OutAxisExtract extract_ci(ci, cur_iters_);
         extract_ci.Visit(rhl->args[1]);
         axis_ci_ = getVarExpr(extract_ci.axis_oo_);
-      } else if (name == filter_ + "_local_L1") {
+      } else if (name == filter_ + LOCAL_C1) {
         const Variable *co{nullptr};
         // [batch, cout_c1, out_h, out_w, cout_c0]
         CHECK_EQ(op->args.size(), 5);
@@ -376,7 +376,7 @@ class PostFusionAct : public IRMutator {
         OutAxisExtract extract_co(co, cur_iters_);
         extract_co.Visit(rhl->args[1]);
         axis_co_ = getVarExpr(extract_co.axis_oo_);
-      } else if (name == feature_ + "_fractal_L1_local_L0B") {
+      } else if (name == feature_ + FRACTAL_C1_LOCAL_C0B) {
         const Variable *no_{nullptr};
 
         // [batch, ko, no, ni, ki]
@@ -391,7 +391,7 @@ class PostFusionAct : public IRMutator {
         OutAxisExtract extract_noo(no_, cur_iters_);
         extract_noo.Visit(rhl->args[2]);
         axis_no_ = getVarExpr(extract_noo.axis_oo_);
-      } else if (name == filter_ + "_local_L1_local_L0A") {
+      } else if (name == filter_ + LOCAL_C1_LOCAL_C0A) {
         const Variable *mo_{nullptr};
 
         // [batch, mo, ko, mi, ki]
@@ -401,7 +401,7 @@ class PostFusionAct : public IRMutator {
         const Call *rhl = op->value.as<Call>();
         CHECK(rhl);
         std::string rhl_name = rhl->func->func_name();
-        CHECK(rhl_name == filter_ + "_local_L1");
+        CHECK(rhl_name == filter_ + LOCAL_C1);
         OutAxisExtract extract_moo(mo_, cur_iters_);
         extract_moo.Visit(rhl->args[1]);
         axis_mo_ = getVarExpr(extract_moo.axis_oo_);
@@ -434,7 +434,7 @@ class PostFusionAct : public IRMutator {
         }
         if (is_conv_backprop_filter_) {
           while (static_cast<int>(fuse_vector_.size()) <= l1Write_idx_) {
-            RegionExtract extract(output_ + "_local_UB");
+            RegionExtract extract(output_ + LOCAL_BUF);
             extract.Visit(s);
 
             Array<Expr> shape;
@@ -1147,19 +1147,19 @@ class AlignedMAdapt : public IRMutator {
       finder.Visit(s);
       k_l1_ = finder.k_L1_;
 
-      GetOuterAxisRHS axisBatch(outerlv_map_, filter_name_ + "_local_L1", NN);
+      GetOuterAxisRHS axisBatch(outerlv_map_, filter_name_ + LOCAL_C1, NN);
       axisBatch.Visit(s);
       batch_var_ = axisBatch.var_;
 
-      GetOuterAxisRHS axisCo(outerlv_map_, filter_name_ + "_local_L1", C1);
+      GetOuterAxisRHS axisCo(outerlv_map_, filter_name_ + LOCAL_C1, C1);
       axisCo.Visit(s);
       co_var_ = axisCo.var_;
 
-      GetOuterAxisRHS axisH(outerlv_map_, filter_name_ + "_local_L1", HH);
+      GetOuterAxisRHS axisH(outerlv_map_, filter_name_ + LOCAL_C1, HH);
       axisH.Visit(s);
       h_var_ = axisH.var_;
 
-      GetOuterAxisRHS axisW(outerlv_map_, filter_name_ + "_local_L1", WW);
+      GetOuterAxisRHS axisW(outerlv_map_, filter_name_ + LOCAL_C1, WW);
       axisW.Visit(s);
       w_var_ = axisW.var_;
     } else if (op->attr_key == "isolated_idx") {
@@ -1170,7 +1170,7 @@ class AlignedMAdapt : public IRMutator {
   }
 
   Stmt Mutate_(const Provide *op, const Stmt &s) final {
-    if (op->func->func_name() == filter_name_ + "_local_L1") {
+    if (op->func->func_name() == filter_name_ + LOCAL_C1) {
       if (auto var = op->args[KO].as<Variable>()) {
         ko_name_ = var->name_hint;
       } else {

@@ -20,6 +20,7 @@
 #include "ir_pass.h"
 #include "poly/poly_util.h"
 #include "pass/convolution_model.h"
+#include "npu_utils.h"
 
 namespace akg {
 namespace ir {
@@ -88,7 +89,7 @@ class SubstituteHW : public IRMutator {
   ~SubstituteHW() override = default;
 
   Stmt Mutate_(const Provide *op, const Stmt &s) final {
-    if (op->func->func_name() == feature_ + "_local_L1") {
+    if (op->func->func_name() == feature_ + LOCAL_C1) {
       Expr var_h = op->args[H];
       Expr var_w = op->args[W];
       if (auto c = op->value.as<Call>()) {

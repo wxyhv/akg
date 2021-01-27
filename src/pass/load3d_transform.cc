@@ -24,6 +24,8 @@
 #include "pass/convolution_model.h"
 #include "build_module.h"
 
+#include "npu_utils.h"
+
 namespace akg {
 namespace ir {
 const int DY_L0B_LEN = 5;
@@ -102,7 +104,7 @@ class MNKExtract : public IRVisitor {
   } while (0)
 
   void Visit_(const Provide *op) final {
-    if (op->func->func_name() == filter_ + "_local_L1_local_L0B") {
+    if (op->func->func_name() == filter_ + LOCAL_C1_LOCAL_C0B) {
       if (conv_backprop_filter_) {
         // dy_l0B[Batch, Mo, Ko, Mi, Ki]
         CHECK_EQ(op->args.size(), DY_L0B_LEN);
@@ -459,7 +461,7 @@ class Load3dTransform : public IRMutator {
   Stmt Mutate_(const Provide *op, const Stmt &s) final {
     size_t idx1 = is_dynamic_ ? 1 : 0;
     size_t idx2 = is_dynamic_ ? 2 : 1;
-    if (op->func->func_name() == feature_ + "_local_L1") {
+    if (op->func->func_name() == feature_ + LOCAL_C1) {
       if (Equal(op->args[2], 0)) {
         pos_h_[idx1] = 0;
         pos_h_[idx2] = 1;
@@ -500,7 +502,7 @@ class Load3dTransform : public IRMutator {
 
   Stmt Mutate_(const Realize *op, const Stmt &s) final {
     if (is_dynamic_) {
-      if (op->func->func_name() == feature_ + "_local_L1") {
+      if (op->func->func_name() == feature_ + LOCAL_C1) {
         auto region = op->bounds;
 
         CHECK_EQ(region.size(), 5);  // NC1HWC0
@@ -560,7 +562,7 @@ class Load3dTransform : public IRMutator {
       Expr srcStrideTo = Expr(win_h * win_w - 1);
 
       // filter_local_L1[Batch, Mo, Ko, Mi, Ki]
-      FindOuterAxis axisMO(outerlv_map_, filter_ + "_local_L1", 1);
+      FindOuterAxis axisMO(outerlv_map_, filter_ + LOCAL_C1, 1);
       axisMO.Visit(s);
 
       if (!is_zero(isolated_co)) {
@@ -591,7 +593,7 @@ class Load3dTransform : public IRMutator {
           int batch_cut = attrs_[ATTR_CONV_TILE_B].as<IntImm>()->value;
           CHECK_EQ(batch_cut, 1) << batch_cut;
 
-          FindOuterAxis axisBO(outerlv_map_, filter_ + "_local_L1", 0);
+          FindOuterAxis axisBO(outerlv_map_, filter_ + LOCAL_C1, 0);
           axisBO.Visit(s);
           CHECK_NE(axisBO.var_->name_hint, "");
           offset = offset + (floordiv((win_h * win_w + BLOCK_INDEX - 1), BLOCK_INDEX) * BLOCK_INDEX - win_h * win_w) *
@@ -760,7 +762,7 @@ class Load3dTransform : public IRMutator {
           CHECK(info.outer.as<IntImm>());
           if (info.outer.as<IntImm>()->value > 1) {
             // feature_fractal_L1_local_L0B[Batch, Mo, Ko, Ki, Mi]
-            FindOuterAxis axisK(outerlv_map_, feature_ + "_fractal_L1_local_L0B", 2);
+            FindOuterAxis axisK(outerlv_map_, feature_ + FRACTAL_C1_LOCAL_C0B, 2);
             axisK.Visit(s);
             idx_k += axisK.var_ * Expr(info.inner);
           }
@@ -772,7 +774,7 @@ class Load3dTransform : public IRMutator {
           idx = conv_.get_k_idx(gemm_idx_);
           info = conv_.k_info[idx];
           Expr idx_m = Expr(conv_.calc_till_idx(&conv_.k_info, idx));
-          FindOuterAxis axisM(outerlv_map_, feature_ + "_fractal_L1_local_L0B", 1);
+          FindOuterAxis axisM(outerlv_map_, feature_ + FRACTAL_C1_LOCAL_C0B, 1);
           axisM.Visit(s);
 
           CHECK(info.outer.as<IntImm>());
@@ -1181,7 +1183,7 @@ class Load2dTranspose : public IRMutator {
   ~Load2dTranspose() override = default;
 
   Stmt Mutate_(const Provide *op, const Stmt &s) final {
-    if (op->func->func_name() == filter_name_ + "_local_L1_local_L0A") {
+    if (op->func->func_name() == filter_name_ + LOCAL_C1_LOCAL_C0A) {
       isProvide_ = true;
       Stmt stmt = IRMutator::Mutate_(op, s);
       isProvide_ = false;
@@ -1193,7 +1195,7 @@ class Load2dTranspose : public IRMutator {
   }
 
   Expr Mutate_(const Call *op, const Expr &e) override {
-    if (isProvide_ && op->func->func_name() == filter_name_ + "_local_L1") {
+    if (isProvide_ && op->func->func_name() == filter_name_ + LOCAL_C1) {
       CHECK_EQ(op->args.size(), 5);
       std::vector<Expr> args(op->args.size());
       for (size_t i = 0; i < args.size() - 2; i++) {
@@ -1232,7 +1234,7 @@ class RealizeReshape : public IRMutator {
   Stmt Mutate_(const Realize *op, const Stmt &s) final {
     FunctionRef func = op->func;
     std::string name = func->func_name();
-    if (name == output_name_ + "_local_UB_local_L0C") {
+    if (name == output_name_ + LOCAL_BUF_LOCAL_C0C) {
       Region bounds;
       Stmt body = this->Mutate(op->body);
       for (size_t i = 0; i < l0c_shape_.size(); i++) {
@@ -1241,7 +1243,7 @@ class RealizeReshape : public IRMutator {
       l0c_shape_.clear();
 
       return Realize::make(op->func, op->value_index, op->type, bounds, op->condition, body);
-    } else if (name == output_name_ + "_local_UB") {
+    } else if (name == output_name_ + LOCAL_BUF) {
       Region bounds;
       Stmt body = this->Mutate(op->body);
       for (size_t i = 0; i < ub_shape_.size(); i++) {
@@ -1258,7 +1260,7 @@ class RealizeReshape : public IRMutator {
   Stmt Mutate_(const Provide *op, const Stmt &s) final {
     FunctionRef func = op->func;
     std::string name = func->func_name();
-    if (name == output_name_ + "_local_UB_local_L0C" && l0c_shape_.size() == 0) {
+    if (name == output_name_ + LOCAL_BUF_LOCAL_C0C && l0c_shape_.size() == 0) {
       for (size_t i = 0; i < op->args.size(); i++) {
         if (const auto var = op->args[i].as<Variable>()) {
           CHECK_GT(loopvarMap_.count(var->name_hint), 0);
@@ -1268,7 +1270,7 @@ class RealizeReshape : public IRMutator {
           l0c_shape_.push_back(Expr(1));
         }
       }
-    } else if (name == output_name_ + "_local_UB" && ub_shape_.size() == 0) {
+    } else if (name == output_name_ + LOCAL_BUF && ub_shape_.size() == 0) {
       for (size_t i = 0; i < op->args.size(); i++) {
         if (const auto var = op->args[i].as<Variable>()) {
           CHECK_GT(loopvarMap_.count(var->name_hint), 0);
@@ -1526,10 +1528,10 @@ class RealizeRescope : public IRMutator {
   Stmt Mutate_(const Realize *op, const Stmt &s) final {
     FunctionRef func = op->func;
     std::string name = func->func_name();
-    if (name == output_name_ + "_local_UB_local_L0C") {
+    if (name == output_name_ + LOCAL_BUF_LOCAL_C0C) {
       realize_res_l0c_ = op;
       return this->Mutate(op->body);
-    } else if (name == output_name_ + "_local_UB") {
+    } else if (name == output_name_ + LOCAL_BUF) {
       realize_res_ub_ = op;
       return this->Mutate(op->body);
     }

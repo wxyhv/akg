@@ -35,6 +35,7 @@
 #include "pass/utils.h"
 #include "poly/scop_info.h"
 #include "poly/tiling/tiling_utils.h"
+#include "poly/davinci_utils.h"
 
 namespace akg {
 namespace ir {

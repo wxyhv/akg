@@ -18,6 +18,7 @@
 #include "poly/dma_inject.h"
 #include "poly/scop_builder.h"
 #include "poly/schedule_tree_util.h"
+#include "poly/davinci_utils.h"
 
 namespace akg {
 namespace ir {
@@ -121,13 +122,13 @@ isl::schedule_node MemoryManager::HoistTensorClusterFootprint(isl::schedule_node
         scop_info_.analysis_result_.GetFakeCopyin().foreach_map(
           [&insert_ub_to_l1, &src_tensor_id, &dst_tensor_id](const isl::map &m) -> void {
             if ((m.get_tuple_id(isl_dim_out).get_name() == src_tensor_id.get_name()) &&
-                (src_tensor_id.get_name() + "_local_L1" == dst_tensor_id.get_name())) {
+                (src_tensor_id.get_name() + LOCAL_C1 == dst_tensor_id.get_name())) {
               insert_ub_to_l1 = true;
             }
           });
       }
       if (insert_ub_to_l1) {
-        isl::id outer_tensorId = isl::id(src_tensor_id.ctx(), src_tensor_id.get_name() + "_local_UB");
+        isl::id outer_tensorId = isl::id(src_tensor_id.ctx(), src_tensor_id.get_name() + LOCAL_BUF);
         tree = PlaceInnerDataCopyBelow(scop_info_, tree, *fp_cluster, *fp_cluster, src_tensor_id, dst_tensor_id,
                                        outer_tensorId, sch_map);
       } else {

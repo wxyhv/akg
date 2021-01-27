@@ -19,6 +19,8 @@
 #include <ir_pass.h>
 #include <algorithm>
 
+#include "npu_utils.h"
+
 namespace akg {
 namespace ir {
 class FindReduce : public IRVisitor {
@@ -108,7 +110,7 @@ class FindReduce : public IRVisitor {
           // find corresponding output
           if (auto load = store->value.as<Load>()) {
             if (store->buffer_var.get() && load->buffer_var.get() && !reduce_arr_.empty() &&
-                store->buffer_var->name_hint + "_local_UB" == load->buffer_var->name_hint) {
+                store->buffer_var->name_hint + LOCAL_BUF == load->buffer_var->name_hint) {
               auto reduce_store = ObtainStoreFromAttr(reduce_arr_.back());
               if (reduce_store && reduce_store->buffer_var.get() &&
                   reduce_store->buffer_var->name_hint == load->buffer_var->name_hint) {
@@ -125,7 +127,7 @@ class FindReduce : public IRVisitor {
           if (auto add = store->value.as<Add>()) {
             if (auto load = add->b.as<Load>()) {
               if (store->buffer_var.get() && load->buffer_var.get() && !reduce_arr_.empty() &&
-                  store->buffer_var->name_hint + "_local_UB" == load->buffer_var->name_hint) {
+                  store->buffer_var->name_hint + LOCAL_BUF == load->buffer_var->name_hint) {
                 auto reduce_store = ObtainStoreFromAttr(reduce_arr_.back());
                 if (reduce_store && reduce_store->buffer_var.get() &&
                     reduce_store->buffer_var->name_hint == load->buffer_var->name_hint) {
