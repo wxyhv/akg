@@ -18,6 +18,7 @@
 #include <tvm/ir_pass.h>
 
 #include "emit_insn/insn_info.h"
+#include "npu_utils.h"
 
 namespace akg {
 namespace ir {
@@ -82,7 +83,7 @@ class BroadcastVecRewriter : public IRMutator {
 
           if (secDimFit && dimFit && forLoopFit && remainDim > 1) {
             newExtent = GetInt32Const(GetItem(forInfo.ops_, idx).as<For>()->extent) / remainDim;
-            tmpBuffer = VarExpr("tmp_broadcast_" + std::to_string(broadBufferCount++) + "_local_UB", dtype);
+            tmpBuffer = VarExpr("tmp_broadcast_" + std::to_string(broadBufferCount++) + LOCAL_BUF, dtype);
             varList = dstInfo->var_;
             strideList = dstInfo->strides_;
             SetItem(strideList, -1, Expr(1));

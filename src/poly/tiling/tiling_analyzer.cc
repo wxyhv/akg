@@ -423,7 +423,7 @@ int64_t TileCandidate::CalActualTile(const CalAlignInfo *align_info) {
       if (attr.attr_key.find(AT_ALIGN) == std::string::npos) {
         continue;
       }
-      std::string local_name = attr.attr_value + "_local_UB";
+      std::string local_name = attr.attr_value + LOCAL_BUF;
       if (align_info->buf->name.find(local_name) == std::string::npos) {
         continue;
       }
@@ -1066,7 +1066,7 @@ class LinearAccessPatternBuilder : public IRVisitor {
           CHECK_EQ(src_info.size(), 2U);
           std::string src_buffer = src_info[0];
           buffer_names.emplace_back(src_buffer);
-          buffer_names.emplace_back(src_buffer + "_local_UB");
+          buffer_names.emplace_back(src_buffer + LOCAL_BUF);
         }
 
         std::vector<std::string> dst_info = akg::common::Split(src_dst[1], ":");
@@ -1075,7 +1075,7 @@ class LinearAccessPatternBuilder : public IRVisitor {
         std::string dst_buffer = dst_info[0];
         auto cast_to_size = static_cast<int64_t>(std::strtol(dst_info[1].c_str(), nullptr, 10));
         buffer_names.emplace_back(dst_buffer);
-        buffer_names.emplace_back(dst_buffer + "_local_UB");
+        buffer_names.emplace_back(dst_buffer + LOCAL_BUF);
 
         for (const auto &bn : buffer_names) {
           cast_to_size = GetMinAlignSize(bn, cast_to_size);

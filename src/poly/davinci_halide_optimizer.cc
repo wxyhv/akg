@@ -27,6 +27,7 @@
 #include "tvm.h"
 #include "emit_insn/insn_info.h"
 #include "emit_insn/cce_params.h"
+#include "poly/davinci_utils.h"
 
 namespace akg {
 namespace ir {
@@ -618,7 +619,7 @@ class DynamicPaddingFix : public IRMutator {
   Stmt Mutate_(const ProducerConsumer *op, const Stmt &s) final {
     auto ph = op->func.as<PlaceholderOpNode>();
     CHECK(ph);
-    if (ph->name.find("_local_L1") != std::string::npos) {
+    if (ph->name.find(LOCAL_C1) != std::string::npos) {
       fm_l1_ = ph->name;
       CHECK(op->body.as<For>());
       fm_h_ = op->body.as<For>();
@@ -631,7 +632,7 @@ class DynamicPaddingFix : public IRMutator {
 
   Stmt Mutate_(const Realize *op, const Stmt &s) final {
     if (op->func.as<PlaceholderOpNode>() &&
-        op->func.as<PlaceholderOpNode>()->name.find("_local_L1") != std::string::npos) {
+        op->func.as<PlaceholderOpNode>()->name.find(LOCAL_C1) != std::string::npos) {
       Stmt body = Mutate(op->body);
       Array<Range> bounds;
       for (auto item : op->bounds) {

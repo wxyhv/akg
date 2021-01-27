@@ -20,6 +20,7 @@
 #include "poly/dma_inject.h"
 #include "pass/utils.h"
 #include "poly/spec_gemm_builder.h"
+#include "poly/davinci_utils.h"
 
 namespace akg {
 namespace ir {
@@ -662,7 +663,7 @@ Stmt CCEIslEmitter::EmitRead(const isl::ast_node_user &node) {
   size_t pos = info_.cube_info_.GetBName().find("_local");
   std::string b_name =
     pos == std::string::npos ? info_.cube_info_.GetBName() : info_.cube_info_.GetBName().substr(0, pos);
-  auto b_l1_name = b_name + "_local_L1";
+  auto b_l1_name = b_name + LOCAL_C1;
 
   if (info_.user_config_.GetMatBDimH() > 0 && info_.user_config_.GetMatBDimW() > 0 &&
       original.get_tuple_id(isl_dim_out).get_name() == b_l1_name) {
@@ -1334,7 +1335,7 @@ std::string CCEIslEmitter::FindRealizeScopeToString(const isl::id &var) {
     }
   }
   // GEMM C_local_UB is global
-  if (var.get_name().find("_local_UB") != std::string::npos) {
+  if (var.get_name().find(LOCAL_BUF) != std::string::npos) {
     return "local.UB";
   }
 
@@ -1353,7 +1354,7 @@ Stmt CCEIslEmitter::InsertRealize(Stmt stmt, const isl::id &var, bool is_L0) {
   Region bounds;
 
   if (info_.cube_info_.IsCUB(var.get_name())) {
-    auto ct = info_.FindTensor(var.get_name() + "_local_L0C");
+    auto ct = info_.FindTensor(var.get_name() + LOCAL_C0C);
     for (auto j : ct->shape) {
       bounds.push_back(Range::make_by_min_extent(Expr(0), j));
     }
@@ -1490,13 +1491,13 @@ void CCEIslEmitter::EmitReadAttrAtL0(std::vector<Stmt> &stmts, int i, Tensor &t)
   bool is_gemm_weight_trans = false;
   if (info_.cube_info_.IsSpecGemm()) {
     // this case is conv gemm
-    if (t->op->name.find("_fractal_L1_local_L0A") != std::string::npos ||
+    if (t->op->name.find(FRACTAL_C1_LOCAL_C0A) != std::string::npos ||
         t->op->name.find("_fractal_L1_local_L0B") != std::string::npos) {
       is_im2col = true;
     }
 
-    if (t->op->name.find("_local_L1_local_L0B") != std::string::npos ||
-        t->op->name.find("_local_L1_local_L0A") != std::string::npos) {
+    if (t->op->name.find(LOCAL_C1_LOCAL_C0B) != std::string::npos ||
+        t->op->name.find(LOCAL_C1_LOCAL_C0A) != std::string::npos) {
       is_filter_l0 = true;
     }
   } else {
@@ -1545,8 +1546,8 @@ void CCEIslEmitter::EmitReadAttrAtL0(std::vector<Stmt> &stmts, int i, Tensor &t)
 void CCEIslEmitter::EmitReadAttrAtL1(std::vector<Stmt> &stmts, int i, Tensor &t) {
   bool is_fractal = false;
   bool is_filter_l1 = false;
-  std::string fractal_str = info_.cube_info_.ExtractStringFromAttrs(ATTR_CONV_FEATURE_NAME) + "_fractal_L1";
-  std::string filter_str = info_.cube_info_.ExtractStringFromAttrs(ATTR_CONV_FILTER_NAME) + "_local_L1";
+  std::string fractal_str = info_.cube_info_.ExtractStringFromAttrs(ATTR_CONV_FEATURE_NAME) + FRACTAL_C1;
+  std::string filter_str = info_.cube_info_.ExtractStringFromAttrs(ATTR_CONV_FILTER_NAME) + LOCAL_C1;
 
   if (fractal_str == t->op->name) {
     is_fractal = true;
@@ -1556,8 +1557,8 @@ void CCEIslEmitter::EmitReadAttrAtL1(std::vector<Stmt> &stmts, int i, Tensor &t)
     is_filter_l1 = true;
   }
 
-  std::string data_str = info_.cube_info_.ExtractStringFromAttrs(ATTR_CONV_GMM_FEATURE) + "_local_L1";
-  std::string weight_str = info_.cube_info_.ExtractStringFromAttrs(ATTR_CONV_GMM_WEIGHT) + "_local_L1";
+  std::string data_str = info_.cube_info_.ExtractStringFromAttrs(ATTR_CONV_GMM_FEATURE) + LOCAL_C1;
+  std::string weight_str = info_.cube_info_.ExtractStringFromAttrs(ATTR_CONV_GMM_WEIGHT) + LOCAL_C1;
   if ((bypassL1_ == 2 && data_str == t->op->name) || (bypassL1_ == 1 && weight_str == t->op->name)) {
     is_filter_l1 = true;
   }
@@ -1692,8 +1693,8 @@ void CCEIslEmitter::CollectLiveness(const Liveness &liveness_info, bool is_L1, s
 // we hack gemm C+=A*B and make C's liveness in the whole loop
 void CCEIslEmitter::EmitRealize(const isl::ast_node_block &block_node, const Liveness &liveness_info, bool is_L1,
                                 bool is_L0, std::vector<Stmt> &stmts) {
-  auto c_ub = info_.cube_info_.IsSpecGemm() ? info_.cube_info_.GetCName() : info_.cube_info_.GetCName() + "_local_UB";
-  auto c_l0c = c_ub + "_local_L0C";
+  auto c_ub = info_.cube_info_.IsSpecGemm() ? info_.cube_info_.GetCName() : info_.cube_info_.GetCName() + LOCAL_BUF;
+  auto c_l0c = c_ub + LOCAL_C0C;
   auto CheckGoOut = [&c_ub, &c_l0c](const std::string &id) -> bool { return !(id == c_ub || id == c_l0c); };
 
   std::vector<IslIdSet> real;
@@ -1723,9 +1724,9 @@ void CCEIslEmitter::EmitRealize(const isl::ast_node_block &block_node, const Liv
       stmts[p] = InsertRealize(stmts[p], var, is_L0);
 
       if (!DELETE_FRACTAL) continue;
-      std::string feature_str = info_.cube_info_.ExtractStringFromAttrs(ATTR_CONV_FEATURE_NAME) + "_local_L1";
+      std::string feature_str = info_.cube_info_.ExtractStringFromAttrs(ATTR_CONV_FEATURE_NAME) + LOCAL_C1;
       if (feature_str == var.get_name()) {
-        std::string fractal_str = info_.cube_info_.ExtractStringFromAttrs(ATTR_CONV_FEATURE_NAME) + "_fractal_L1";
+        std::string fractal_str = info_.cube_info_.ExtractStringFromAttrs(ATTR_CONV_FEATURE_NAME) + FRACTAL_C1;
         stmts[p] = InsertRealize(stmts[p], isl::id(var.ctx(), fractal_str), is_L0);
       }
     }
@@ -1867,8 +1868,8 @@ Stmt CCEIslEmitter::EmitMarkAllocC(const isl::ast_node_mark &node) {
   body = RemoveNoOp(body);
   body = HoistL0write(info_, body, cube_l0write_);
 
-  auto c_ub = info_.cube_info_.IsSpecGemm() ? info_.cube_info_.GetCName() : info_.cube_info_.GetCName() + "_local_UB";
-  auto c_l0c = c_ub + "_local_L0C";
+  auto c_ub = info_.cube_info_.IsSpecGemm() ? info_.cube_info_.GetCName() : info_.cube_info_.GetCName() + LOCAL_BUF;
+  auto c_l0c = c_ub + LOCAL_C0C;
   body = InsertRealize(body, isl::id(info_.GetCtx(), c_l0c), false);
   body = InsertRealize(body, isl::id(info_.GetCtx(), c_ub), false);
   body = AttrStmt::make(make_zero(Int(32)), ALLOC_C, Expr(1), body);
@@ -1929,8 +1930,8 @@ void CCEIslEmitter::RealizeOut() {
     if (info_.MayWriteAfterRead(tensor_name)) {
       bool do_out = true;
       auto c_ub =
-        info_.cube_info_.IsSpecGemm() ? info_.cube_info_.GetCName() : info_.cube_info_.GetCName() + "_local_UB";
-      auto c_l0c = c_ub + "_local_L0C";
+        info_.cube_info_.IsSpecGemm() ? info_.cube_info_.GetCName() : info_.cube_info_.GetCName() + LOCAL_BUF;
+      auto c_l0c = c_ub + LOCAL_C0C;
       if (j.get_name() == c_ub || j.get_name() == c_l0c) {
         do_out = false;
       }
@@ -2546,8 +2547,8 @@ Stmt CCEIslEmitter::EmitAccessNodeCall(const Node *node, const VarMap &var_map_t
   // Not hoisted, emitting just the mapped subscript.
   if (!buffer_footprint_info.cluster_id) {
     std::string call_name = call->name;
-    if (IsTransferStmt() && (std::string::npos == call_name.find("_local_UB"))) {
-      call_name = call_name + "_local_UB";
+    if (IsTransferStmt() && (std::string::npos == call_name.find(LOCAL_BUF))) {
+      call_name = call_name + LOCAL_BUF;
       Tensor t = info_.FindTensor(call_name);
       if (t.defined()) {
         return Evaluate::make(Call::make(call->type, call_name, args, call->call_type, t->op, call->value_index));

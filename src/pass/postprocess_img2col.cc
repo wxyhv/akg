@@ -21,6 +21,7 @@
 #include "ir_pass.h"
 #include "poly/poly_util.h"
 #include "pass/utils.h"
+#include "npu_utils.h"
 
 namespace akg {
 namespace ir {
@@ -131,7 +132,7 @@ class PostFusionLoad3d : public IRMutator {
   Stmt Mutate_(const Realize *op, const Stmt &s) final {
     Region bounds;
     Stmt body = this->Mutate(op->body);
-    size_t pos_UB = op->func->func_name().find("_local_UB");
+    size_t pos_UB = op->func->func_name().find(LOCAL_BUF);
     bool is_UB = pos_UB != std::string::npos;
     for (size_t i = 0; i < op->bounds.size(); ++i) {
       if (is_UB && i <= 1) {
@@ -204,7 +205,7 @@ class FixRealizeLoad3d : public IRMutator {
 
     Region bounds;
     Stmt body = this->Mutate(op->body);
-    if (judge_func_(op->func->func_name(), "_local_UB")) {
+    if (judge_func_(op->func->func_name(), LOCAL_BUF)) {
       for (size_t i = 0; i < op->bounds.size(); ++i) {
         if (idx_marker_.count(i) == 0) {
           bounds.push_back(Range(0, 1));
@@ -215,7 +216,7 @@ class FixRealizeLoad3d : public IRMutator {
       idx_marker_.clear();
     }
 
-    if (judge_func_(op->func->func_name(), "_local_L1")) {
+    if (judge_func_(op->func->func_name(), LOCAL_C1)) {
       for (size_t i = 0; i < op->bounds.size(); ++i) {
         if (realize_L1_range_.count(i) > 0) {
           bounds.push_back(Range(0, realize_L1_range_[i]));
@@ -243,7 +244,7 @@ class FixRealizeLoad3d : public IRMutator {
   }
 
   Stmt Mutate_(const ProducerConsumer *op, const Stmt &s) final {
-    is_L1_ = judge_func_(op->func->func_name(), "_local_L1");
+    is_L1_ = judge_func_(op->func->func_name(), LOCAL_C1);
     realize_L1_info_.clear();
     auto res = IRMutator::Mutate_(op, s);
     is_L1_ = false;
@@ -285,7 +286,7 @@ class FixRealizeLoad3d : public IRMutator {
       }
     }
 
-    if (cal->name.find("_local_UB") != std::string::npos) {
+    if (cal->name.find(LOCAL_BUF) != std::string::npos) {
       for (size_t idx = 0; idx < cal->args.size(); ++idx) {
         auto item = cal->args[idx];
         if (item.as<Variable>() && ub_for_collecter_.count(item.as<Variable>()) > 0) {

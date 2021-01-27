@@ -33,7 +33,7 @@ void FindMNKValue::Visit_(const Call *op) {
     return;
   }
 
-  size_t pos = op->name.find("_local_L0C");
+  size_t pos = op->name.find(LOCAL_C0C);
   size_t len = op->args.size();
   if (len < 4) {
     return;
@@ -48,7 +48,7 @@ void FindMNKValue::Visit_(const Call *op) {
     return;
   }
 
-  pos = op->name.find("_local_L0B");
+  pos = op->name.find(LOCAL_C0B);
   if (pos != std::string::npos && maps_.find("ni") != maps_.end()) {
     // none transpose B ko, no, ni, ki, trans B no, ko, ki, ni
     if (IsSame(maps_["ni"], op->args[len - 2])) {
@@ -305,7 +305,7 @@ Stmt RealizeNewShape::Mutate_(const Provide *op, const Stmt &s) {
 
 Stmt RealizeNewShape::Mutate_(const Realize *op, const Stmt &s) {
   auto name = op->func->func_name();
-  if (mutate_ && name.find("_local_UB") != std::string::npos) {
+  if (mutate_ && name.find(LOCAL_BUF) != std::string::npos) {
     size_t pos = name.find('_');
     std::string bias = name.substr(0, pos);
     Region bounds;
@@ -754,7 +754,7 @@ Stmt TensorReplace::Mutate_(const Provide *op, const Stmt &s) {
   newValue = this->Mutate(op->value);
 
   Array<Expr> newArgs;
-  if (op->func->func_name().find("_local_UB") != std::string::npos) {
+  if (op->func->func_name().find(LOCAL_BUF) != std::string::npos) {
     newArgs = rhs_args_;
   } else {
     newArgs = lhs_args_;

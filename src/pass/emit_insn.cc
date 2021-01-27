@@ -22,6 +22,7 @@
 #include "poly/poly_util.h"
 #include "emit_insn/insn_emitter.h"
 #include "emit_insn/ir_transform.h"
+#include "npu_utils.h"
 
 namespace akg {
 namespace ir {
@@ -152,7 +153,7 @@ class EmitInsns : public IRMutator {
     auto store = GetStores(s)[0].as<Store>();
     if (paramters_.defined() && Downcast<Map<std::string, NodeRef>>(paramters_).count("feature")) {
       std::string feature = Downcast<Map<std::string, NodeRef>>(paramters_)["feature"].as<StringImm>()->value;
-      if (store && store->buffer_var->name_hint == feature + "_local_L1") {
+      if (store && store->buffer_var->name_hint == feature + LOCAL_C1) {
         img2col_store_ = store;
         img2col_for_info_ = for_info;
       }
@@ -374,7 +375,7 @@ class UnalignedMad : public IRMutator {
         CHECK(dst->args[1].as<Variable>());
         std::string src_name = src->args[1].as<Variable>()->name_hint;
         std::string dst_name = dst->args[1].as<Variable>()->name_hint;
-        if (dst_name == filter_ + "_local_L1" && src_name == filter_) {
+        if (dst_name == filter_ + LOCAL_C1 && src_name == filter_) {
           Expr new_src = Call::make(src->type, src->name,
                                     {src->args[0], src->args[1], src->args[2] - offset_, src->args[3], src->args[4]},
                                     src->call_type);

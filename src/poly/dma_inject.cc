@@ -1451,7 +1451,7 @@ void UpdateTensorShape(ScopInfo &scop_info, const isl::map &read_extension) {
   if (!foot_print.box.is_valid()) {
     return;
   }
-  isl::id cluster_id = isl::id(read_extension.ctx(), read_extension.get_tuple_id(isl_dim_out).get_name() + "_local_UB");
+  isl::id cluster_id = isl::id(read_extension.ctx(), read_extension.get_tuple_id(isl_dim_out).get_name() + LOCAL_BUF);
   std::vector<size_t> shape;
   shape.reserve(foot_print.GetBoxDim());
   for (const auto &size : foot_print.box.get_size().get_val_list()) {
@@ -1629,7 +1629,7 @@ isl::schedule_node PlaceDataCopyBelowImpl(ScopInfo &scop_info, isl::schedule_nod
         scop_info.cube_info_.GetConvAttrInfo().count(ATTR_CONV_KERNEL_H) > 0 &&
         scop_info.cube_info_.GetConvAttrInfo().count(ATTR_CONV_KERNEL_W) > 0 &&
         scop_info.cube_info_.GetConvAttrInfo().count(ATTR_CONV_FEATURE_C) > 0) {
-      std::string featureName = scop_info.cube_info_.ExtractStringFromAttrs(ATTR_CONV_FEATURE_NAME) + "_local_L1";
+      std::string featureName = scop_info.cube_info_.ExtractStringFromAttrs(ATTR_CONV_FEATURE_NAME) + LOCAL_C1;
       int kh = scop_info.cube_info_.ExtractIntFromAttrs(ATTR_CONV_KERNEL_H);
       int kw = scop_info.cube_info_.ExtractIntFromAttrs(ATTR_CONV_KERNEL_W);
       int ci = scop_info.cube_info_.ExtractIntFromAttrs(ATTR_CONV_FEATURE_C);

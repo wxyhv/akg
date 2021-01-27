@@ -254,14 +254,14 @@ void StmtDataFlowInfo::CubeConvC(const std::string &name, TensorDataFlow &datafl
 }
 
 void StmtDataFlowInfo::CubeGEMMA(const std::string &name, TensorDataFlow &dataflow) {
-  std::size_t start1 = name.find("_fractal_L1");
+  std::size_t start1 = name.find(FRACTAL_C1);
   if (start1 != std::string::npos) {
     // spec gemm A
     std::string head = name.substr(0, start1);
     dataflow.Initial(head, Cube_Spec_Gemm_A);
     return;
   }
-  std::size_t start2 = name.find("_local_L1");
+  std::size_t start2 = name.find(LOCAL_C1);
   if (start2 != std::string::npos) {
     // spec gemm A
     std::string head = name.substr(0, start2);
@@ -273,13 +273,13 @@ void StmtDataFlowInfo::CubeGEMMA(const std::string &name, TensorDataFlow &datafl
 }
 
 void StmtDataFlowInfo::CubeGEMMB(const std::string &name, TensorDataFlow &dataflow) {
-  std::size_t start1 = name.find("_local_L1");
+  std::size_t start1 = name.find(LOCAL_C1);
   if (start1 != std::string::npos) {
     // spec gemm B
     dataflow.Initial(name, Cube_Spec_Gemm_B);
     return;
   }
-  std::size_t start2 = name.find("_fractal_L1");
+  std::size_t start2 = name.find(FRACTAL_C1);
   if (start2 != std::string::npos) {
     // spec gemm B
     dataflow.Initial(name, Cube_Spec_Gemm_B_);
@@ -290,7 +290,7 @@ void StmtDataFlowInfo::CubeGEMMB(const std::string &name, TensorDataFlow &datafl
 }
 
 void StmtDataFlowInfo::CubeGEMMC(const std::string &name, TensorDataFlow &dataflow) {
-  std::size_t start = name.find("_local_UB");
+  std::size_t start = name.find(LOCAL_BUF);
   if (start != std::string::npos) {
     // spec gemm C
     // this is only for conv fusion condition,

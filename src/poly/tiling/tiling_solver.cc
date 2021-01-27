@@ -658,7 +658,7 @@ Expr InequalitySolver::EstimateAlignment(const TilingAnalyzer::BufferEntry *buf,
     std::string align_type;
     for (const auto &attr : axis->attrs) {
       if (attr.attr_key.find(AT_ALIGN) == std::string::npos) continue;
-      std::string local_name = attr.attr_value + "_local_UB";
+      std::string local_name = attr.attr_value + LOCAL_BUF;
       if (buf->name.find(local_name) != std::string::npos) {
         std::vector<std::string> res = akg::common::Split(attr.attr_key, ":");
         if (res.size() == 2U) align_type = res[1];

@@ -17,6 +17,7 @@
 #include "scop_info.h"
 #include <regex>
 #include "poly/dma_inject.h"
+#include "poly/davinci_utils.h"
 
 namespace akg {
 namespace ir {
@@ -228,7 +229,7 @@ bool CubeInfo::IsC(const std::string &name) const {
 bool CubeInfo::IsCUB(const std::string &name) const {
   for (auto &info : analysis_result_.GetStmtOpInfoMap()) {
     if (info.second.isCube) {
-      if (info.second.C_ + "_local_UB" == name) {
+      if (info.second.C_ + LOCAL_BUF == name) {
         return true;
       }
     }
