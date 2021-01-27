@@ -87,7 +87,7 @@ REGISTER_PASS(AutoPoly);
 REGISTER_PASS(PromoteIfStmt);
 REGISTER_PASS(PromoteLetStmt);
 REGISTER_PASS(GenTuningSpace);
-REGISTER_PASS(Load3dTrans);
+REGISTER_PASS(LoadIm2colTrans);
 REGISTER_PASS(PostFusion);
 REGISTER_PASS(DmaFlatten);
 REGISTER_PASS(ReduceFusionOpt);

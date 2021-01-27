@@ -214,7 +214,7 @@ Stmt PromoteLetStmt(const Stmt &stmt, const Array<NodeRef> &arg_list);
 NodeRef GenTuningSpace(const Stmt &body, std::string target, const Map<Tensor, Buffer> &extern_buffer,
                        const Map<std::string, NodeRef> &attrs, const bool is_specgemm, Schedule sch = Schedule());
 
-Stmt Load3dTrans(Stmt stmt, bool is_dynamic);
+Stmt LoadIm2colTrans(Stmt stmt, bool is_dynamic);
 
 Stmt PostFusion(Stmt stmt, const Map<Tensor, Buffer> &extern_buffer, bool is_dynamic);
 

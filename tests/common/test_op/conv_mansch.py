@@ -39,7 +39,7 @@ def manual_im2col_1repeat(indices, A, fp_w, fp_h, fm_w, fm_h, pad_t, pad_b, l1_h
     return A[0, 0, h_index, w_index, c0_index]
 
 
-def intrin_load3d(A_shape, strides, kernel_size, padding):
+def intrin_load_im2col(A_shape, strides, kernel_size, padding):
 
 
     _, _, _, _, c0_value = A_shape
@@ -94,7 +94,7 @@ def intrin_load3d(A_shape, strides, kernel_size, padding):
 
 def im2col_fractal(A_im2col_shape, A, kernel_h, kernel_w, stride, padding):
 
-    load3D = intrin_load3d(A.shape, stride, [kernel_h, kernel_w], padding)
+    load_im2col = intrin_load_im2col(A.shape, stride, [kernel_h, kernel_w], padding)
 
 
     _, _, H, W, C0 = A.shape
@@ -105,7 +105,7 @@ def im2col_fractal(A_im2col_shape, A, kernel_h, kernel_w, stride, padding):
 
     # assume we need the whole width of A
     # choose a section of the rows of A that encompasses all of the windows in the current window-batch
-    return akg.tvm.compute(A_im2col_shape, lambda i, j, k : load3D(A[i, (k // kernel_w) // kernel_h,
+    return akg.tvm.compute(A_im2col_shape, lambda i, j, k : load_im2col(A[i, (k // kernel_w) // kernel_h,
                                                                # assume padding < kernel size
                                                                akg.tvm.max((((j*windowsPerBatch)//Wo)*stride_h)-pad_t, 0):
                                                                akg.tvm.min(H, ((((j*windowsPerBatch)//Wo)*stride_h)-pad_t)+kernel_h), 0:W, 0:C0],

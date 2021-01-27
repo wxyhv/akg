@@ -704,8 +704,7 @@ class InstructionMutator : IRMutator {
     }
 
     if (CountVars(args[1]) != CountVars(args[2]) ||
-        (!is_constant(args[0]) && CountVars(args[0]) != CountVars(args[1])) ||
-        CountVars(args[2]) != CountVars(args_)) {
+        (!is_constant(args[0]) && CountVars(args[0]) != CountVars(args[1])) || CountVars(args[2]) != CountVars(args_)) {
       return Add::make(l, r);
     }
 
@@ -1330,7 +1329,7 @@ class ThreeAddressStmtMutator : public IRMutator {
     }
 
     const Call *call = op->value.as<Call>();
-    if (call && (call->name == "mad" || call->name == "load3d_l1_ub" || call->name == "divide_var")) {
+    if (call && (call->name == "mad" || call->name == "load_im2col_c1_buf" || call->name == "divide_var")) {
       return IRMutator::Mutate_(op, s);
     }
 

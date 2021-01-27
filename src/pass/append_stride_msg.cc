@@ -225,14 +225,14 @@ Expr AppendStrideMessage::MutateDmaLoad2D(const Expr &expr) {
   return Call::make(load2d_call->type, load2d_call->name, args, load2d_call->call_type);
 }
 
-Expr AppendStrideMessage::MutateDmaLoad3D(const Expr &expr) {
-  auto load3d = expr.as<Call>();
-  CHECK(load3d);
-  CHECK_GE(load3d->args.size(), 2);
+Expr AppendStrideMessage::MutateDmaLoadIm2col(const Expr &expr) {
+  auto load_im2col = expr.as<Call>();
+  CHECK(load_im2col);
+  CHECK_GE(load_im2col->args.size(), 2);
   Array<Expr> args;
 
-  auto buf_dst = load3d->args[0].as<Call>();
-  auto buf_src = load3d->args[1].as<Call>();
+  auto buf_dst = load_im2col->args[0].as<Call>();
+  auto buf_src = load_im2col->args[1].as<Call>();
 
   CHECK(buf_src);
   CHECK(buf_src->name == tvm_access_ptr);
@@ -255,21 +255,21 @@ Expr AppendStrideMessage::MutateDmaLoad3D(const Expr &expr) {
 
   args_storage_ = std::vector<Expr>{make_const(Int(32), 1), dst_burst_length, make_const(Int(32), 1), dst_burst_length,
                                     dst_burst_length};
-  Expr dst_buffer = Mutate(load3d->args[0]);
+  Expr dst_buffer = Mutate(load_im2col->args[0]);
   args_storage_.clear();
 
   args_storage_ = std::vector<Expr>{make_const(Int(32), 1), src_burst_length, make_const(Int(32), 1), src_burst_length,
                                     src_burst_length};
-  Expr src_buffer = Mutate(load3d->args[1]);
+  Expr src_buffer = Mutate(load_im2col->args[1]);
   args_storage_.clear();
 
   args.push_back(dst_buffer);
   args.push_back(src_buffer);
-  for (size_t i = 2; i < load3d->args.size(); ++i) {
-    args.push_back(load3d->args[i]);
+  for (size_t i = 2; i < load_im2col->args.size(); ++i) {
+    args.push_back(load_im2col->args[i]);
   }
 
-  return Call::make(load3d->type, load3d->name, args, load3d->call_type);
+  return Call::make(load_im2col->type, load_im2col->name, args, load_im2col->call_type);
 }
 
 Expr AppendStrideMessage::MutateDmaBroadCast(const Expr &expr) {

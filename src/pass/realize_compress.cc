@@ -435,9 +435,9 @@ class RealizeCompressor : public IRMutator {
   std::set<const Variable *> loop_vars_;
 };
 
-class Load3DCheck : public IRVisitor {
+class LoadIm2colCheck : public IRVisitor {
  public:
-  bool is_load3d_{false};
+  bool is_load_im2col_{false};
 
  private:
   void Visit_(const Evaluate *op) override {
@@ -446,7 +446,7 @@ class Load3DCheck : public IRVisitor {
       constexpr int im2col_argnum = 23;
       const std::string im2col_callname = "cce_img2col_ub";
       if (call->name == im2col_callname && call->args.size() == im2col_argnum) {
-        is_load3d_ = true;
+        is_load_im2col_ = true;
       }
     }
     IRVisitor::Visit_(op);
@@ -454,9 +454,9 @@ class Load3DCheck : public IRVisitor {
 };
 
 Stmt RealizeCompress(Stmt stmt) {
-  Load3DCheck checker;
+  LoadIm2colCheck checker;
   checker.Visit(stmt);
-  if (checker.is_load3d_) {
+  if (checker.is_load_im2col_) {
     return stmt;
   }
   stmt = RealizeCompressor().Mutate(stmt);

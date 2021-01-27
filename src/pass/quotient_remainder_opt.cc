@@ -277,9 +277,9 @@ class QuoEliminater : public IRMutator {
 
   Expr Mutate_(const Call *op, const Expr &e) final {
     if (op->name == "img2col_cbuf_to_ca" || op->name == "img2col_cbuf_to_cb") {
-      load3d_ = true;
+      load_im2col_ = true;
       Expr expr = IRMutator::Mutate_(op, e);
-      load3d_ = false;
+      load_im2col_ = false;
       return expr;
     }
 
@@ -287,7 +287,7 @@ class QuoEliminater : public IRMutator {
   }
 
   Expr Mutate_(const Mod *op, const Expr &e) final {
-    if (load3d_) {
+    if (load_im2col_) {
       level_++;
       max_level_++;
 
@@ -348,7 +348,7 @@ class QuoEliminater : public IRMutator {
   }
 
   Expr Mutate_(const Div *op, const Expr &e) final {
-    if (load3d_) {
+    if (load_im2col_) {
       level_++;
       max_level_++;
 
@@ -524,7 +524,7 @@ class QuoEliminater : public IRMutator {
   std::unordered_map<Expr, SubstituteBody, ExprHash, ModDivExprEqual> substitute_map_;
 
   std::vector<VarExpr> loop_vars_;
-  bool load3d_{false};
+  bool load_im2col_{false};
   uint32_t level_{0};
   uint32_t max_level_{0};
 };

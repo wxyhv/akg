@@ -36,7 +36,7 @@ def manual_im2col_1repeat(indices, A, fp_w, fp_h, fm_w, fm_h, fp_c1, pad_t, pad_
     return A[0, 0, h_index, w_index, c0_index]
 
 
-def intrin_load3d(A_shape, strides, kernel_size, padding):
+def intrin_load_im2col(A_shape, strides, kernel_size, padding):
 
     N, C1, H, W, C0 = A_shape
     stride_h, stride_w = strides
@@ -108,7 +108,7 @@ def intrin_load3d(A_shape, strides, kernel_size, padding):
 
 def im2col_fractal(A_im2col_shape, A, kernel_h, kernel_w, stride, padding):
 
-    load3D = intrin_load3d(A.shape, stride, [kernel_h, kernel_w], padding)
+    load_im2col = intrin_load_im2col(A.shape, stride, [kernel_h, kernel_w], padding)
 
     N, C1, H, W, C0 = A.shape
     stride_h, stride_w = stride
@@ -119,7 +119,7 @@ def im2col_fractal(A_im2col_shape, A, kernel_h, kernel_w, stride, padding):
         if has_pad(padding) and  not large_tensor(A):
             # assume we need the whole width of A
             # choose a section of the rows of A that encompasses all of the windows in the current window-batch
-            compute = akg.tvm.compute(A_im2col_shape, lambda i, j, k : load3D(A[0, 0, 0:H, 0:W, 0:C0],
+            compute = akg.tvm.compute(A_im2col_shape, lambda i, j, k : load_im2col(A[0, 0, 0:H, 0:W, 0:C0],
                                                                               # fetch position w, fetch position h
                                                                               (k % kernel_w), ((k // kernel_w) % kernel_h),
                                                                               # top-left corner w,
@@ -137,7 +137,7 @@ def im2col_fractal(A_im2col_shape, A, kernel_h, kernel_w, stride, padding):
                                                                               ))
         else:
             if large_tensor(A):
-                compute = akg.tvm.compute(A_im2col_shape, lambda i, j, k : load3D(A[0, 0, 0:H, 0:W, 0:C0],
+                compute = akg.tvm.compute(A_im2col_shape, lambda i, j, k : load_im2col(A[0, 0, 0:H, 0:W, 0:C0],
                                                                                   # fetch position w, fetch position h
                                                                                   (k % kernel_w), ((k // kernel_w) % kernel_h),
                                                                                   # top-left corner w,
@@ -151,7 +151,7 @@ def im2col_fractal(A_im2col_shape, A, kernel_h, kernel_w, stride, padding):
             else:
             # assume we need the whole width of A
             # choose a section of the rows of A that encompasses all of the windows in the current window-batch
-                compute = akg.tvm.compute(A_im2col_shape, lambda i, j, k : load3D(A[0, 0,
+                compute = akg.tvm.compute(A_im2col_shape, lambda i, j, k : load_im2col(A[0, 0,
                                                                    #A[i, (k // kernel_w) // kernel_h,
                                                                    # assume padding < kernel size
                                                                    0:H,
@@ -178,7 +178,7 @@ def im2col_fractal(A_im2col_shape, A, kernel_h, kernel_w, stride, padding):
     elif len(A_im2col_shape) == 4:
         windowBatches, ComboSize, windowsPerBatch, channelsPerBatch = A_im2col_shape
         if has_pad(padding):
-            compute = akg.tvm.compute(A_im2col_shape, lambda j, k : load3D(A[0, 0,
+            compute = akg.tvm.compute(A_im2col_shape, lambda j, k : load_im2col(A[0, 0,
                                                                            0:H,
                                                                            0:W, 0:C0],
                                                                            # fetch position w, fetch position h
@@ -198,7 +198,7 @@ def im2col_fractal(A_im2col_shape, A, kernel_h, kernel_w, stride, padding):
                                                                            kernel_h - akg.tvm.max(((((((j*windowsPerBatch)//Wo)*stride_h)-pad_t)+kernel_h) - H), 0), name='im2col_fractal'
                                                                            ))
         else:
-            compute = akg.tvm.compute(A_im2col_shape, lambda j, k : load3D(A[0, 0,
+            compute = akg.tvm.compute(A_im2col_shape, lambda j, k : load_im2col(A[0, 0,
                                                                       0:H,
                                                                       0:W, 0:C0],
                                                                       # fetch position w, fetch position h
@@ -223,7 +223,7 @@ def im2col_fractal(A_im2col_shape, A, kernel_h, kernel_w, stride, padding):
 
 
 
-def load3d_dsl_no_padding(placeholders, input_shape, kernel, padding, stride):
+def load_im2col_dsl_no_padding(placeholders, input_shape, kernel, padding, stride):
     # A is input
     A, = placeholders
 
@@ -250,7 +250,7 @@ def load3d_dsl_no_padding(placeholders, input_shape, kernel, padding, stride):
     A_im2col_fractal_res = im2col_fractal(A_im2col_fractal_shape, A, kernel_h, kernel_w, stride, padding)
     return A_im2col_fractal_res
 
-def load3d_dsl(placeholders, input_shape, kernel, padding, stride):
+def load_im2col_dsl(placeholders, input_shape, kernel, padding, stride):
     # A is input
     A, = placeholders
 
@@ -278,7 +278,7 @@ def load3d_dsl(placeholders, input_shape, kernel, padding, stride):
 
 
 
-load3d_set_dim_map = {
+load_im2col_set_dim_map = {
     #2D
     str(((32, 1, 224, 224, 16), (7, 7), (2, 2), (3, 3, 3, 3))) : ((1, 0), (14, 0), (49, 0)),
     str(((32, 1, 224, 224, 16), (7, 7), (2, 2), (2, 3, 2, 3))) : ((1, 0), (14, 0), (49, 0)),
@@ -312,7 +312,7 @@ def get_attrs():
     attr_map["enable_hoist_insn"] = False
     return attr_map
 
-def load3d_set_dim(tensor_fmap, kernel, stride, pad):
+def load_im2col_set_dim(tensor_fmap, kernel, stride, pad):
     fmap_n, fmap_c1, fmap_h, fmap_w, fmap_c0 = tensor_fmap.shape
     filter_h, filter_w = kernel
     # calculate the tiling factor.
@@ -330,7 +330,7 @@ def load3d_set_dim(tensor_fmap, kernel, stride, pad):
 
     key = ((fmap_n, fmap_c1, fmap_h, fmap_w, fmap_c0), kernel, stride, pad)
 
-    set_dims = ct_util.set_dims_by_key(str(key), load3d_set_dim_map)
+    set_dims = ct_util.set_dims_by_key(str(key), load_im2col_set_dim_map)
     if set_dims == '':
         dims = ()
         if mode and fmap_n.value > 1:
@@ -340,8 +340,8 @@ def load3d_set_dim(tensor_fmap, kernel, stride, pad):
     return set_dims, str(key)
 
 
-@ct_util.reg_set_dim_func(load3d_set_dim)
-def load3d(tensor_fmap, kernel, stride, pad):
+@ct_util.reg_set_dim_func(load_im2col_set_dim)
+def load_im2col(tensor_fmap, kernel, stride, pad):
     # adjust to TilingApi
     # feature map (NCHW -> NC1HWC0)
     fmap_n, fmap_c1, fmap_h, fmap_w, fmap_c0 = tensor_fmap.shape
@@ -351,15 +351,15 @@ def load3d(tensor_fmap, kernel, stride, pad):
     filter_h, filter_w = kernel
 
     # fmap_placeholder (NC1HWCO)
-    load3d_dsl_input = (tensor_fmap,)
+    load_im2col_dsl_input = (tensor_fmap,)
 
-    load3d_dsl_output = load3d_dsl(load3d_dsl_input, fmap_shape_NC1HWCO, kernel, pad, stride)
+    load_im2col_dsl_output = load_im2col_dsl(load_im2col_dsl_input, fmap_shape_NC1HWCO, kernel, pad, stride)
 
     # calculate the tiling factor.
     Ho = (fmap_h + pad[0] + pad[1] - filter_h) // (stride[0]) + 1
     Wo = (fmap_w + pad[2] + pad[3] - filter_w) // (stride[1]) + 1
 
     if not large_tensor(tensor_fmap) and ((Ho.value * Wo.value) % block_size > 0 or has_pad(pad)):
-        load3d_dsl_output = load3d_dsl_no_padding(load3d_dsl_input, fmap_shape_NC1HWCO, kernel, pad, stride)
+        load_im2col_dsl_output = load_im2col_dsl_no_padding(load_im2col_dsl_input, fmap_shape_NC1HWCO, kernel, pad, stride)
     attrs = get_attrs()
-    return load3d_dsl_output, attrs
+    return load_im2col_dsl_output, attrs
