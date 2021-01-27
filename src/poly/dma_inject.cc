@@ -1584,7 +1584,7 @@ void PlaceDataCopyBelowImplFakeReads(ScopInfo &scop_info, isl::schedule_node &tr
     }
     CHECK(node.isa<isl::schedule_node_mark>()) << "must find a mark node." << std::endl;
     auto tag = node.as<isl::schedule_node_mark>().get_id().get_name();
-    if (tag == REALIZE_L1) {
+    if (tag == REALIZE_C1) {
       isl::map stmt_extension = read_extension.range().unwrap();
       isl::id stmt_tensor_id = cluster_id;
       size_t pos = cluster_id.get_name().find("_local_");

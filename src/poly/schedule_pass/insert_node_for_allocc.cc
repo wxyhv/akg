@@ -22,12 +22,12 @@ namespace poly {
 
 isl::schedule_node InsertNodeForAllocCImpl(isl::schedule_node node) {
   if (node.isa<isl::schedule_node_mark>()) {
-    if (node.as<isl::schedule_node_mark>().get_id().get_name() == REALIZE_L1) {
+    if (node.as<isl::schedule_node_mark>().get_id().get_name() == REALIZE_C1) {
       node = node.del();
       node =
         node.as<isl::schedule_node_band>().split(static_cast<int>(node.as<isl::schedule_node_band>().n_member()) - 1);
       node = node.child(0);
-      node = node.insert_mark(isl::id(node.ctx(), REALIZE_L1));
+      node = node.insert_mark(isl::id(node.ctx(), REALIZE_C1));
       node = node.insert_mark(isl::id(node.ctx(), ALLOC_C));
       node = node.parent();
     }

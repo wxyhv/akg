@@ -230,7 +230,7 @@ class UserConfig {
     ParseStringAttr(attrs, "dump_poly_dir", &dump_poly_dir_);
 
     if (GetTarget() == TARGET_CUDA) {
-      ParseBoolAttr(attrs, "enable_tile_l0", &enable_tile_l0_);
+      ParseBoolAttr(attrs, "enable_tile_c0", &enable_tile_c0_);
       ParseBoolAttr(attrs, "enable_atomic_add", &enable_atomic_add_);
       ParseBoolAttr(attrs, "pragma_enable_tensor_core", &enable_tensor_core_);
       ParseBoolAttr(attrs, "pragma_enable_matmul", &enable_matmul_);
@@ -284,8 +284,8 @@ class UserConfig {
     replace_cfg->BindFromStr(replace_cfg_str, id);
     this->replace_cfg_[id] = replace_cfg;
   }
-  void SetL0BlockSize(const std::vector<int> l0_block_size) { l0_block_size_ = l0_block_size; }
-  std::vector<int> GetL0BlockSize() { return l0_block_size_; }
+  void SetC0BlockSize(const std::vector<int> c0_block_size) { c0_block_size_ = c0_block_size; }
+  std::vector<int> GetC0BlockSize() { return c0_block_size_; }
   std::vector<NodeRef> GetCustomTiling() { return custom_tiling_; }
   std::string GetBDim() const { return b_dim_; }
   std::string GetElemPerThread() const { return elem_per_thread_; }
@@ -384,7 +384,7 @@ class UserConfig {
   // dump all info
   void DumpScopDataScheduleAttrs(std::ofstream &of);
 
-  bool GetEnableTileL0() { return enable_tile_l0_; }
+  bool GetEnableTileC0() { return enable_tile_c0_; }
   bool GetEnableAtomicAdd() { return enable_atomic_add_; }
 
   bool GetEnableAkgReduceLib() { return enable_akg_reduce_lib_; }
@@ -531,7 +531,7 @@ class UserConfig {
   bool tile_size_is_var_{false};
   bool outer_band_need_split_{false};
 
-  bool enable_tile_l0_{false};
+  bool enable_tile_c0_{false};
   bool enable_atomic_add_{false};
   // tensor_core config
   bool enable_matmul_{false};
@@ -562,7 +562,7 @@ class UserConfig {
   MappingCfg block_cfg_;
   MappingCfg thread_cfg_;
   std::unordered_map<std::string, MappingCfg *> replace_cfg_;
-  std::vector<int> l0_block_size_;
+  std::vector<int> c0_block_size_;
   int max_elem_per_thread_{1024};
   std::string elem_per_thread_;
   std::vector<NodeRef> custom_tiling_;

@@ -595,7 +595,7 @@ def _build_to_gpu_func(desc_s, desc_d, attrs=None, poly=False):
         if not reuse_map:
             reuse_map['EMPTY'] = []
         if _reducemax_pattern(desc_d)[0]:
-            attrs['enable_tile_l0'] = True
+            attrs['enable_tile_c0'] = True
             elem_per_thread = 4
             blockdim_x = 64
             blockdim_y = 16

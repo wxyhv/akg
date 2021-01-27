@@ -72,10 +72,10 @@ Expr SpecGemmBuilder::ReplacePragmaPrimeByVar(Expr pragma) {
     if (const auto prime = pragma.as<IntImm>()) {
       auto conv_mnk_dims = info_.cube_info_.GetConvMNKDims();
       for (auto dim : conv_mnk_dims) {
-        if (dim.pragma.defined() && ((dim.l1_tiling_size == prime->value))) {
-          return RemoveCast(dim.l1_var);
-        } else if (dim.l1_tiling_size / 16 == prime->value) {
-          return floordiv(dim.l1_var + 15, 16);
+        if (dim.pragma.defined() && ((dim.c1_tiling_size == prime->value))) {
+          return RemoveCast(dim.c1_var);
+        } else if (dim.c1_tiling_size / 16 == prime->value) {
+          return floordiv(dim.c1_var + 15, 16);
         }
       }
     }
@@ -343,7 +343,7 @@ std::string SpecGemmBuilder::AutoConstructGemmDimensionInfo() {
         auto conv_mnk_dims = info_.cube_info_.GetConvMNKDims();
         for (const auto &dim : conv_mnk_dims) {
           if (dim.axis == key) {
-            int tile = static_cast<int>(dim.l0_tiling_size);
+            int tile = static_cast<int>(dim.c0_tiling_size);
             dim_out << " " << dim.index << " " << dim.axis << " " << tile << " " << 0;
           }
         }

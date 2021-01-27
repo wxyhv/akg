@@ -325,15 +325,15 @@ std::vector<int> GetTileSizeOfLevel(const int member_size, const int dim_size, c
       continue;
     }
     // tile_size maybe bigger than dim_num
-    if (tile_level == L0) {
-      tile_size[i] = static_cast<int>(tile_sizes[i].l0_tiling_size);
-    } else if (tile_level == L1) {
-      tile_size[i] = static_cast<int>(tile_sizes[i].l1_tiling_size);
+    if (tile_level == TILE_WITH_C0) {
+      tile_size[i] = static_cast<int>(tile_sizes[i].c0_tiling_size);
+    } else if (tile_level == TILE_WITH_C1) {
+      tile_size[i] = static_cast<int>(tile_sizes[i].c1_tiling_size);
     } else {
-      // The tiling size of n and m is warp_number times of l0_tiling_size, which is equivalent to extracting the for
+      // The tiling size of n and m is warp_number times of c0_tiling_size, which is equivalent to extracting the for
       // loop generated during mapping.This avoids the if condition and facilitates isl_emitter.
-      tile_size[i] = (i < count_coincident) ? static_cast<int>(tile_sizes[i].l1_tiling_size)
-                                            : static_cast<int>(tile_sizes[i].l0_tiling_size);
+      tile_size[i] = (i < count_coincident) ? static_cast<int>(tile_sizes[i].c1_tiling_size)
+                                            : static_cast<int>(tile_sizes[i].c0_tiling_size);
     }
   }
   return tile_size;

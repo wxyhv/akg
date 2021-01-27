@@ -24,7 +24,7 @@ namespace poly {
 isl::schedule LabelRealizeOutPosition::Run(isl::schedule sch_label) {
   auto fn_ = [](isl::schedule_node node) -> isl::schedule_node {
     if (node.isa<isl::schedule_node_mark>()) {
-      if (REALIZE_UB == node.as<isl::schedule_node_mark>().get_id().get_name() &&
+      if (REALIZE_BUF == node.as<isl::schedule_node_mark>().get_id().get_name() &&
           node.child(0).isa<isl::schedule_node_band>()) {
         auto band = node.child(0).as<isl::schedule_node_band>();
 
@@ -60,7 +60,7 @@ isl::schedule LabelRealizeOutPosition::Run(isl::schedule sch_label) {
           node = node.del();
           node = node.as<isl::schedule_node_band>().split(pos);
           node = node.child(0);
-          node = node.insert_mark(isl::id(node.ctx(), REALIZE_UB));
+          node = node.insert_mark(isl::id(node.ctx(), REALIZE_BUF));
           node = node.insert_mark(isl::id(node.ctx(), ALLOC_REALIZE_OUT));
           node = node.parent();
         }

@@ -348,11 +348,11 @@ void InsertRange(std::map<int64_t, Expr> &param_map, const std::pair<int64_t, Ex
 
 void InsertPairsSpecGemmOrConv(Stmt &stmt, ScopInfo &scop_info, std::map<int64_t, Expr> &param_map) {
   for (const auto &dims : scop_info.analysis_result_.GetTileSizes()) {
-    if (dims.l1_var.defined()) {
-      InsertRange(param_map, std::make_pair(dims.l1_tiling_size, dims.l1_var));
-      param_map.insert(std::make_pair(dims.l1_tiling_size * 16, dims.l1_var * 16));
-      if (dims.l0_var.defined()) {
-        param_map.insert(std::make_pair(dims.l0_tiling_size, dims.l0_var));
+    if (dims.c1_var.defined()) {
+      InsertRange(param_map, std::make_pair(dims.c1_tiling_size, dims.c1_var));
+      param_map.insert(std::make_pair(dims.c1_tiling_size * 16, dims.c1_var * 16));
+      if (dims.c0_var.defined()) {
+        param_map.insert(std::make_pair(dims.c0_tiling_size, dims.c0_var));
       }
     }
   }
@@ -363,26 +363,26 @@ void InsertPairsSpecGemmOrConv(Stmt &stmt, ScopInfo &scop_info, std::map<int64_t
   auto conv_mnk_dims = scop_info.cube_info_.GetConvMNKDims();
   for (const auto &dims : conv_mnk_dims) {
     if (dims.axis == ATTR_CONV_TILE_M || dims.axis == ATTR_CONV_TILE_N || dims.axis == ATTR_CONV_TILE_K) {
-      if (dims.l0_var.defined()) {
-        if (!dims.l0_var.as<IntImm>()) {
+      if (dims.c0_var.defined()) {
+        if (!dims.c0_var.as<IntImm>()) {
           if (dims.axis == ATTR_CONV_TILE_M) {
-            t0_mo = dims.l0_tiling_size;
-            t0_mo_expr = dims.l0_var;
+            t0_mo = dims.c0_tiling_size;
+            t0_mo_expr = dims.c0_var;
           }
-          InsertRange(param_map, std::make_pair(dims.l0_tiling_size, dims.l0_var));
-          param_map.insert(std::make_pair(dims.l0_tiling_size * 16, dims.l0_var * 16));
+          InsertRange(param_map, std::make_pair(dims.c0_tiling_size, dims.c0_var));
+          param_map.insert(std::make_pair(dims.c0_tiling_size * 16, dims.c0_var * 16));
         }
       }
-      if (dims.l1_var.defined()) {
-        if (!dims.l1_var.as<IntImm>()) {
-          InsertRange(param_map, std::make_pair(dims.l1_tiling_size, dims.l1_var));
+      if (dims.c1_var.defined()) {
+        if (!dims.c1_var.as<IntImm>()) {
+          InsertRange(param_map, std::make_pair(dims.c1_tiling_size, dims.c1_var));
         }
       }
     } else if (dims.axis == ATTR_CONV_TILE_H || dims.axis == ATTR_CONV_TILE_W) {
-      CHECK(dims.l1_var.defined()) << dims.axis << "'s var not defined";
-      m_size *= dims.l1_tiling_size;
-      m_size_expr *= dims.l1_var;
-      param_map.insert(std::make_pair(dims.l1_tiling_size, dims.l1_var));
+      CHECK(dims.c1_var.defined()) << dims.axis << "'s var not defined";
+      m_size *= dims.c1_tiling_size;
+      m_size_expr *= dims.c1_var;
+      param_map.insert(std::make_pair(dims.c1_tiling_size, dims.c1_var));
     }
   }
   if (m_size != 1) {
@@ -407,37 +407,37 @@ void InsertPairsSpecGemmOrConv(Stmt &stmt, ScopInfo &scop_info, std::map<int64_t
 
 void InsertPairs(Stmt &stmt, ScopInfo &scop_info, std::map<int64_t, Expr> &param_map) {
   for (const auto &dims : scop_info.analysis_result_.GetTileSizes()) {
-    if (dims.l1_var.defined()) {
+    if (dims.c1_var.defined()) {
       if (dims.pragma.defined()) {
         // pragma defined is used for special axes like shift axis
-        int64_t tile = dims.l0_tiling_size;
+        int64_t tile = dims.c0_tiling_size;
         const auto shift_imm = dims.pragma.as<IntImm>();
         CHECK(shift_imm);
         int shift = shift_imm->value - 1;
-        int64_t shifted_bound = dims.l1_tiling_size;
+        int64_t shifted_bound = dims.c1_tiling_size;
         int64_t bound = shifted_bound + shift - 1;
-        Expr bound_param = dims.l1_var;
-        Expr shifted_bound_param = dims.l1_var + 1 - shift;
+        Expr bound_param = dims.c1_var;
+        Expr shifted_bound_param = dims.c1_var + 1 - shift;
         for (auto i = 1; i <= shift; ++i) {
           InsertRange(param_map, std::make_pair(shifted_bound * i, shifted_bound_param * i));
           InsertRange(param_map, std::make_pair(bound * i, bound_param * i));
-          InsertRange(param_map, std::make_pair(bound / tile * i, floordiv(dims.l1_var, dims.l0_var) * i));
-          param_map.insert(std::make_pair((bound - 1) * i, dims.l1_var * i));
+          InsertRange(param_map, std::make_pair(bound / tile * i, floordiv(dims.c1_var, dims.c0_var) * i));
+          param_map.insert(std::make_pair((bound - 1) * i, dims.c1_var * i));
           param_map.insert(
-            std::make_pair((shifted_bound - tile) * i, (dims.l1_var - Expr(shift - 1) - dims.l0_var) * i));
+            std::make_pair((shifted_bound - tile) * i, (dims.c1_var - Expr(shift - 1) - dims.c0_var) * i));
         }
       } else {
-        InsertRange(param_map, std::make_pair(dims.l1_tiling_size, dims.l1_var));
-        InsertRange(param_map, std::make_pair(dims.l1_tiling_size * 2, dims.l1_var * 2));
-        InsertRange(param_map, std::make_pair(dims.l1_tiling_size * (-2), dims.l1_var * (-2)));
-        param_map.insert(std::make_pair(dims.l1_tiling_size * 2 + 1, dims.l1_var * 2 + 1));
-        if (dims.l0_var.defined()) {
+        InsertRange(param_map, std::make_pair(dims.c1_tiling_size, dims.c1_var));
+        InsertRange(param_map, std::make_pair(dims.c1_tiling_size * 2, dims.c1_var * 2));
+        InsertRange(param_map, std::make_pair(dims.c1_tiling_size * (-2), dims.c1_var * (-2)));
+        param_map.insert(std::make_pair(dims.c1_tiling_size * 2 + 1, dims.c1_var * 2 + 1));
+        if (dims.c0_var.defined()) {
           // normal cube axis's L0 tile
-          int64_t floor = dims.l1_tiling_size / dims.l0_tiling_size;
-          int64_t mod = dims.l1_tiling_size - floor * dims.l0_tiling_size;
-          InsertRange(param_map, std::make_pair(dims.l0_tiling_size, dims.l0_var));
-          param_map.insert(std::make_pair(floor, floordiv(dims.l1_var, dims.l0_var)));
-          param_map.insert(std::make_pair(mod, floormod(dims.l1_var, dims.l0_var)));
+          int64_t floor = dims.c1_tiling_size / dims.c0_tiling_size;
+          int64_t mod = dims.c1_tiling_size - floor * dims.c0_tiling_size;
+          InsertRange(param_map, std::make_pair(dims.c0_tiling_size, dims.c0_var));
+          param_map.insert(std::make_pair(floor, floordiv(dims.c1_var, dims.c0_var)));
+          param_map.insert(std::make_pair(mod, floormod(dims.c1_var, dims.c0_var)));
         }
       }
     }

@@ -364,8 +364,8 @@ void ScopInfo::DumpScopDataAdvanced(std::ofstream &of) {
 
   PrintHeader(of, "dim_infos");
   for (const auto &dim_info : analysis_result_.GetTileSizes()) {
-    of << "index=" << dim_info.index << " axis=" << dim_info.axis << " l1_tiling_size=" << dim_info.l1_tiling_size
-       << " l0_tiling_size=" << dim_info.l0_tiling_size << " dim_seq=" << dim_info.dim_seq << std::endl;
+    of << "index=" << dim_info.index << " axis=" << dim_info.axis << " c1_tiling_size=" << dim_info.c1_tiling_size
+       << " c0_tiling_size=" << dim_info.c0_tiling_size << " dim_seq=" << dim_info.dim_seq << std::endl;
   }
 
   PrintHeader(of, "fractal_int_info");

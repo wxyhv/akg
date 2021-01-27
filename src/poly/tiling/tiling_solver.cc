@@ -225,11 +225,11 @@ Expr InequalitySolver::GetSubstitutedExpr(const NodeRef &op) {
 
     ret = make_const(var.type(), 1);
     auto ScanTileVal = [this, &ret, &var](TileAxis *axis) {
-      const auto l1_var = this->cand_.GetTileVal(axis).first.as<Variable>();
-      const auto l0_var = this->cand_.GetTileVal(axis).second.as<Variable>();
-      if (l1_var != nullptr && l1_var->name_hint == var->name_hint) {
+      const auto c1_var = this->cand_.GetTileVal(axis).first.as<Variable>();
+      const auto c0_var = this->cand_.GetTileVal(axis).second.as<Variable>();
+      if (c1_var != nullptr && c1_var->name_hint == var->name_hint) {
         ret = axis->c1_constraints.tile_min_;
-      } else if (l0_var != nullptr && l0_var->name_hint == var->name_hint) {
+      } else if (c0_var != nullptr && c0_var->name_hint == var->name_hint) {
         ret = axis->c0_constraints.tile_min_;
       }
       if (ret.type() != var.type()) {
