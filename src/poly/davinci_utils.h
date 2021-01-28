@@ -31,6 +31,13 @@ constexpr auto LOCAL_C1_LOCAL_C0B = "_local_L1_local_L0B";
 constexpr auto LOCAL_BUF_LOCAL_C0C = "_local_UB_local_L0C";
 constexpr auto FRACTAL_C1_LOCAL_C0A = "_fractal_L1_local_L0A";
 
+constexpr auto BUF = "UB";
+constexpr auto C1 = "L1";
+constexpr auto C0A = "L0A";
+constexpr auto C0B = "L0B";
+constexpr auto C0C = "L0C";
+constexpr auto REG = "REG";
+
 }  // namespace poly
 }  // namespace ir
 }  // namespace akg

@@ -23,10 +23,9 @@
 #include <iostream>
 #include <stack>
 
+#include "common/common_util.h"
 #include "pass/utils.h"
 #include "tvm.h"
-#include "emit_insn/insn_info.h"
-#include "emit_insn/cce_params.h"
 #include "poly/davinci_utils.h"
 
 namespace akg {
@@ -62,19 +61,19 @@ class OpDetector : public IRVisitor {
   }
 
   void Visit_(const Realize *op) final {
-    inRealize_ = true;
-    if (memBufferTab_.count(op->func->func_name()) == 0) {
-      memBufferTab_[op->func->func_name()] = 0;
+    in_realize_ = true;
+    if (mem_buffer_tab_.count(op->func->func_name()) == 0) {
+      mem_buffer_tab_[op->func->func_name()] = 0;
     } else {
-      memBufferTab_[op->func->func_name()]++;
+      mem_buffer_tab_[op->func->func_name()]++;
     }
     IRVisitor::Visit_(op);
-    inRealize_ = false;
+    in_realize_ = false;
   }
 
   void Visit_(const For *op) final {
     for_stk.push(op);
-    if (inRealize_) {
+    if (in_realize_) {
       if (tab_.count(op->loop_var.get()) == 0) {
         std::vector<const IfThenElse *> value;
         tab_[op->loop_var.get()] = value;
@@ -93,9 +92,9 @@ class OpDetector : public IRVisitor {
     };
     std::vector<const Variable *> res;
     if (isType<Add>(expr)) {
-      const auto addExpr = expr.as<Add>();
-      res.push_back(tabAdd(addExpr->a, tab_));
-      res.push_back(tabAdd(addExpr->b, tab_));
+      const auto add_expr = expr.as<Add>();
+      res.push_back(tabAdd(add_expr->a, tab_));
+      res.push_back(tabAdd(add_expr->b, tab_));
     } else if (isType<Variable>(expr)) {
       res.push_back(tabAdd(expr, tab_));
     }
@@ -104,19 +103,19 @@ class OpDetector : public IRVisitor {
 
   void Visit_(const IfThenElse *op) final {
     CHECK(op);
-    auto emptyCase = op->else_case;
+    auto empty_case = op->else_case;
     auto checkTOfTensor = [](const Expr &e, const std::unordered_map<std::string, int> &table) {
       if (isType<Call>(e) && table.count(e.as<Call>()->name) > 0) {
         return true;
       }
       return false;
     };
-    if (emptyCase == Stmt() && isType<EQ>(op->condition)) {
+    if (empty_case == Stmt() && isType<EQ>(op->condition)) {
       const auto equation = op->condition.as<EQ>();
-      if (checkTOfTensor(equation->a, memBufferTab_) || checkTOfTensor(equation->b, memBufferTab_)) {
+      if (checkTOfTensor(equation->a, mem_buffer_tab_) || checkTOfTensor(equation->b, mem_buffer_tab_)) {
         type_ = OP_TYPE::T_TENSOR_OF_TENSOR;
         std::vector<const Variable *> vars;
-        vars = checkTOfTensor(equation->b, memBufferTab_) ? GetExprSpecVar(equation->a) : GetExprSpecVar(equation->b);
+        vars = checkTOfTensor(equation->b, mem_buffer_tab_) ? GetExprSpecVar(equation->a) : GetExprSpecVar(equation->b);
         for (const auto var : vars) {
           if (tab_.count(var) > 0) {
             tab_[var].push_back(op);
@@ -124,21 +123,21 @@ class OpDetector : public IRVisitor {
         }
         return;
       }
-    } else if (emptyCase == Stmt() && isType<And>(op->condition)) {
+    } else if (empty_case == Stmt() && isType<And>(op->condition)) {
       auto and_op = op->condition.as<And>();
       if (isType<EQ>(and_op->a) && isType<EQ>(and_op->b)) {
         auto eq_first = and_op->a.as<EQ>();
         auto eq_second = and_op->b.as<EQ>();
-        if ((checkTOfTensor(eq_first->a, memBufferTab_) || checkTOfTensor(eq_first->b, memBufferTab_)) &&
-            (checkTOfTensor(eq_second->a, memBufferTab_) || checkTOfTensor(eq_second->b, memBufferTab_))) {
+        if ((checkTOfTensor(eq_first->a, mem_buffer_tab_) || checkTOfTensor(eq_first->b, mem_buffer_tab_)) &&
+            (checkTOfTensor(eq_second->a, mem_buffer_tab_) || checkTOfTensor(eq_second->b, mem_buffer_tab_))) {
           type_ = T_TENSOR_OF_TENSOR_ACCUM;
           elim_if_ = op;
-          if (checkTOfTensor(eq_first->a, memBufferTab_)) {
+          if (checkTOfTensor(eq_first->a, mem_buffer_tab_)) {
             tensor_map_[eq_first->b.as<Variable>()] = eq_first->a;
           } else {
             tensor_map_[eq_first->a.as<Variable>()] = eq_first->b;
           }
-          if (checkTOfTensor(eq_second->a, memBufferTab_)) {
+          if (checkTOfTensor(eq_second->a, mem_buffer_tab_)) {
             tensor_map_[eq_second->b.as<Variable>()] = eq_second->a;
           } else {
             tensor_map_[eq_second->a.as<Variable>()] = eq_second->b;
@@ -167,9 +166,9 @@ class OpDetector : public IRVisitor {
   const IfThenElse *elim_if_;
 
  private:
-  bool inRealize_{false};
+  bool in_realize_{false};
   std::stack<const For *> for_stk;
-  std::unordered_map<std::string, int> memBufferTab_;
+  std::unordered_map<std::string, int> mem_buffer_tab_;
 };
 
 /***********************************************************************
@@ -252,9 +251,9 @@ class PassDownForAxis : public IRMutator {
   Stmt Mutate_(const AttrStmt *op, const Stmt &s) final {
     CHECK(op);
     if (op->attr_key == PASS_DOWN) {
-      needPassDown_ = true;
+      need_pass_down_ = true;
       Stmt stmt = this->Mutate(op->body);
-      needPassDown_ = false;
+      need_pass_down_ = false;
       return stmt;
     }
     return IRMutator::Mutate_(op, s);
@@ -262,10 +261,10 @@ class PassDownForAxis : public IRMutator {
 
   Stmt Mutate_(const For *op, const Stmt &s) final {
     CHECK(op);
-    if (needPassDown_ && passDownFor_ == nullptr) {
-      passDownFor_ = op;
+    if (need_pass_down_ && pass_down_for_ == nullptr) {
+      pass_down_for_ = op;
       Stmt stmt = this->Mutate(op->body);
-      passDownFor_ = nullptr;
+      pass_down_for_ = nullptr;
       return stmt;
     }
     return IRMutator::Mutate_(op, s);
@@ -273,17 +272,17 @@ class PassDownForAxis : public IRMutator {
 
   Stmt Mutate_(const Provide *op, const Stmt &s) final {
     CHECK(op);
-    if (needPassDown_ && passDownFor_ != nullptr) {
+    if (need_pass_down_ && pass_down_for_ != nullptr) {
       Stmt stmt = IRMutator::Mutate_(op, s);
-      return For::make(passDownFor_->loop_var, passDownFor_->min, passDownFor_->extent, passDownFor_->for_type,
-                       passDownFor_->device_api, stmt);
+      return For::make(pass_down_for_->loop_var, pass_down_for_->min, pass_down_for_->extent, pass_down_for_->for_type,
+                       pass_down_for_->device_api, stmt);
     }
     return IRMutator::Mutate_(op, s);
   }
 
  private:
-  bool needPassDown_{false};
-  const For *passDownFor_{nullptr};
+  bool need_pass_down_{false};
+  const For *pass_down_for_{nullptr};
 };
 
 /***********************************************************************
@@ -325,54 +324,54 @@ class PassDownForAxis : public IRMutator {
 ***************************************************************/
 class GatherWritePromotion : public IRMutator {
  public:
-  explicit GatherWritePromotion(const std::set<const Variable *> &conditionRemovedGatherVars)
-      : gatherVars(conditionRemovedGatherVars) {}
+  explicit GatherWritePromotion(const std::set<const Variable *> &condition_removed_gather_vars)
+      : gather_vars(condition_removed_gather_vars) {}
   ~GatherWritePromotion() override = default;
 
   Stmt run(const Stmt &s) {
-    std::unordered_map<std::string, std::string> gatherWriteTensors;
+    std::unordered_map<std::string, std::string> gather_write_tensors;
     auto getGatherWriteTensor_ = [&, this](const NodeRef &node) { this->getGatherWriteSink(node); };
     PostOrderVisit(s, getGatherWriteTensor_);
     return Mutate(s);
   }
 
-  Stmt getWritePromotion(const std::unordered_map<const Variable *, const For *> &var2For, const Stmt &write) {
+  Stmt getWritePromotion(const std::unordered_map<const Variable *, const For *> &var2for, const Stmt &write) {
     //
-    std::stack<const Variable *> srcVars;
+    std::stack<const Variable *> src_vars;
     auto provide = write.as<Provide>();
     CHECK(provide);
     auto src = provide->value;
-    PostOrderVisit(src, [&srcVars](const NodeRef &node) {
+    PostOrderVisit(src, [&src_vars](const NodeRef &node) {
       if (auto var = node.as<Variable>()) {
-        srcVars.push(var);
+        src_vars.push(var);
       }
     });
 
-    Stmt writePromotion = write;
-    while (!srcVars.empty()) {
-      auto var = srcVars.top();
-      CHECK_GT(var2For.count(var), 0);
-      auto for_ = var2For.at(var);
-      writePromotion =
-        For::make(for_->loop_var, for_->min, for_->extent, for_->for_type, for_->device_api, writePromotion);
-      srcVars.pop();
+    Stmt write_promotion = write;
+    while (!src_vars.empty()) {
+      auto var = src_vars.top();
+      CHECK_GT(var2for.count(var), 0);
+      auto for_ = var2for.at(var);
+      write_promotion =
+        For::make(for_->loop_var, for_->min, for_->extent, for_->for_type, for_->device_api, write_promotion);
+      src_vars.pop();
     }
-    return writePromotion;
+    return write_promotion;
   }
 
   Stmt Mutate_(const Realize *op, const Stmt &s) final {
     auto tensor = op->func.get();
-    if (gatherWriteSink_.count(tensor) > 0) {
-      auto gatherWriteTensor = tensor;
-      auto gatherWriteTensorGm_ = gatherWriteSink_[tensor];
+    if (gather_write_sink_.count(tensor) > 0) {
+      auto gather_write_tensor = tensor;
+      auto gather_write_tensor_gm_ = gather_write_sink_[tensor];
       bool record = true;
-      std::unordered_map<const Variable *, const For *> var2For;
-      Stmt gatherWriteProvide_;
+      std::unordered_map<const Variable *, const For *> var2for;
+      Stmt gather_write_provide_;
       PackedFunc recordFor = PackedFunc([&](TVMArgs args, TVMRetValue *ret) {
         Stmt st = args[0];
         if (auto for_ = st.as<For>()) {
           if (record) {
-            var2For[for_->loop_var.get()] = for_;
+            var2for[for_->loop_var.get()] = for_;
           }
         }
       });
@@ -382,18 +381,18 @@ class GatherWritePromotion : public IRMutator {
         if (auto provide = st.as<Provide>()) {
           auto dst = provide->func;
           auto src = provide->value.as<Call>();
-          if (dst.get() == gatherWriteTensorGm_ && src && src->func.get() == gatherWriteTensor) {
+          if (dst.get() == gather_write_tensor_gm_ && src && src->func.get() == gather_write_tensor) {
             record = false;
-            gatherWriteProvide_ = st;
+            gather_write_provide_ = st;
             *ret = Evaluate::make(0);
           }
         }
       });
       auto body = air::ir::IRTransform(op->body, recordFor, eliminateGatherWrite, {Expr("Provide"), Expr("For")});
 
-      CHECK(gatherWriteProvide_.defined());
-      Stmt writePromotion = getWritePromotion(var2For, gatherWriteProvide_);
-      body = Block::make(body, writePromotion);
+      CHECK(gather_write_provide_.defined());
+      Stmt write_promotion = getWritePromotion(var2for, gather_write_provide_);
+      body = Block::make(body, write_promotion);
       return Realize::make(op->func, op->value_index, op->type, op->bounds, op->condition, body);
     }
     return IRMutator::Mutate_(op, s);
@@ -404,7 +403,7 @@ class GatherWritePromotion : public IRMutator {
     auto op = node.as<Block>();
     if (op && op->first.as<Store>()) {
       auto store = node.as<Block>()->first.as<Store>();
-      if (gatherVars.count(store->buffer_var.get()) > 0) {
+      if (gather_vars.count(store->buffer_var.get()) > 0) {
         gatherVar = store->buffer_var.get();
       }
     }
@@ -412,41 +411,67 @@ class GatherWritePromotion : public IRMutator {
       return;
     }
 
-    const Node *gatherWriteSinkTensor = nullptr;
-    const Node *gatherWriteSinkTensorGm = nullptr;
-    PostOrderVisit(op->rest, [&gatherVar, &gatherWriteSinkTensor, &gatherWriteSinkTensorGm](const NodeRef &node) {
-      if (gatherWriteSinkTensor == nullptr) {
-        if (auto provide = node.as<Provide>()) {
-          bool valueHasGatherVar = false;
-          PostOrderVisit(provide->value, [&gatherVar, &valueHasGatherVar](const NodeRef &node_) {
-            auto load = node_.as<Load>();
-            if (load && load->buffer_var.get() == gatherVar) {
-              valueHasGatherVar = true;
-            }
-          });
-          if (valueHasGatherVar && provide->func->IsInstance<OperationNode>()) {
-            gatherWriteSinkTensor = provide->func.get();
-          }
-        }
-      } else {
-        if (auto provide = node.as<Provide>()) {
-          if (auto value = provide->value.as<Call>()) {
-            if (value->func.get() == gatherWriteSinkTensor && GetBufScope(provide->func->func_name()) == "global") {
-              gatherWriteSinkTensorGm = provide->func.get();
-            }
-          }
-        }
-      }
-    });
+    const Node *gather_write_sink_tensor = nullptr;
+    const Node *gather_write_sink_tensor_gm = nullptr;
+    PostOrderVisit(op->rest,
+                   [&gatherVar, &gather_write_sink_tensor, &gather_write_sink_tensor_gm, this](const NodeRef &node) {
+                     if (gather_write_sink_tensor == nullptr) {
+                       if (auto provide = node.as<Provide>()) {
+                         bool valueHasGatherVar = false;
+                         PostOrderVisit(provide->value, [&gatherVar, &valueHasGatherVar](const NodeRef &node_) {
+                           auto load = node_.as<Load>();
+                           if (load && load->buffer_var.get() == gatherVar) {
+                             valueHasGatherVar = true;
+                           }
+                         });
+                         if (valueHasGatherVar && provide->func->IsInstance<OperationNode>()) {
+                           gather_write_sink_tensor = provide->func.get();
+                         }
+                       }
+                     } else {
+                       if (auto provide = node.as<Provide>()) {
+                         if (auto value = provide->value.as<Call>()) {
+                           if (value->func.get() == gather_write_sink_tensor &&
+                               this->dataScope(provide->func->func_name()) == "global") {
+                             gather_write_sink_tensor_gm = provide->func.get();
+                           }
+                         }
+                       }
+                     }
+                   });
 
-    if (gatherWriteSinkTensorGm != nullptr) {
-      gatherWriteSink_[gatherWriteSinkTensor] = gatherWriteSinkTensorGm;
+    if (gather_write_sink_tensor_gm != nullptr) {
+      gather_write_sink_[gather_write_sink_tensor] = gather_write_sink_tensor_gm;
     }
   }
 
+  std::string dataScope(const std::string &name) {
+    std::string local = "local.";
+    std::map<std::string, std::string> mem_dict{{BUF, local + BUF}, {C1, local + C1},   {C0A, local + C0A},
+                                                {C0B, local + C0B}, {C0C, local + C0C}, {REG, local + REG}};
+    std::vector<std::string> split_list = akg::common::Split(name, ".");
+    if (split_list.size() == 1) {
+      split_list = akg::common::Split(name, "_local_");
+    }
+
+    std::string key = split_list[split_list.size() - 1];
+    for (auto &iter : mem_dict) {
+      std::string::size_type pos = split_list[split_list.size() - 1].find(iter.first);
+      if (pos != std::string::npos) {
+        key = iter.first;
+        break;
+      }
+    }
+    if (split_list.size() == 1) {
+      return "global";
+    }
+
+    return mem_dict[key];
+  }
+
  private:
-  std::set<const Variable *> gatherVars;
-  std::unordered_map<const Node *, const Node *> gatherWriteSink_;
+  std::set<const Variable *> gather_vars;
+  std::unordered_map<const Node *, const Node *> gather_write_sink_;
 };
 
 class GatherTransform : public IRMutator {
@@ -455,17 +480,17 @@ class GatherTransform : public IRMutator {
   ~GatherTransform() { for_ = nullptr; }
 
   Stmt run(const Stmt s) {
-    bool allZero = true;
-    TensorVarTab filterTab;
+    bool all_zero = true;
+    TensorVarTab filter_tab;
     for (auto item : tab_) {
       if (item.second.size() > 0) {
-        allZero = false;
-        filterTab[item.first] = item.second;
+        all_zero = false;
+        filter_tab[item.first] = item.second;
       }
     }
 
-    if (!allZero) {
-      tab_ = filterTab;
+    if (!all_zero) {
+      tab_ = filter_tab;
       const Stmt &res = this->Mutate(s);
       return res;
     }
@@ -480,33 +505,33 @@ class GatherTransform : public IRMutator {
     // get assign value
     Expr left = condition.as<EQ>()->a;
     Expr right = condition.as<EQ>()->b;
-    auto assignEq = [&](const Expr &arith, const Expr &call) {
+    auto assign_eq = [&](const Expr &arith, const Expr &call) {
       Expr simple = Simplify(arith - var);
       return Simplify(call - simple);
     };
 
-    Expr assignValue = isType<Call>(right) ? assignEq(left, right) : assignEq(right, left);
+    Expr assignValue = isType<Call>(right) ? assign_eq(left, right) : assign_eq(right, left);
 
-    Stmt newStore = Store::make(replVar, assignValue, make_const(Int(32), 0), Expr(1));
-    Stmt temp1 = Block::make(newStore, body);
-    Stmt newAllo = Allocate::make(replVar, Int(32), {make_const(Int(32), 1)}, const_true(), temp1);
-    Stmt newAttr = AttrStmt::make(replVar, air::ir::attr::storage_scope, StringImm::make("local.REG"), newAllo);
-    return newAttr;
+    Stmt new_store = Store::make(repl_var, assignValue, make_const(Int(32), 0), Expr(1));
+    Stmt temp1 = Block::make(new_store, body);
+    Stmt new_allo = Allocate::make(repl_var, Int(32), {make_const(Int(32), 1)}, const_true(), temp1);
+    Stmt new_attr = AttrStmt::make(repl_var, air::ir::attr::storage_scope, StringImm::make("local.REG"), new_allo);
+    return new_attr;
   }
 
   Stmt Mutate_(const For *op, const Stmt &s) final {
     if (tab_.count(op->loop_var.get()) > 0) {
       for_ = op;
       // initialize buffer table
-      memBufferTab_.clear();
+      mem_buffer_tab_.clear();
       // make register variable
-      std::string regName = "reg" + std::to_string(regCnt) + "_local_REG";
-      ++regCnt;
-      replVar = Variable::make(Int(32), regName);
+      std::string reg_name = "reg" + std::to_string(reg_cnt) + "_local_REG";
+      ++reg_cnt;
+      repl_var = Variable::make(Int(32), reg_name);
 
       Stmt res = Mutate(op->body);
-      if (needTransform_ && isType<EQ>(condition)) {
-        needTransform_ = false;
+      if (need_transform_ && isType<EQ>(condition)) {
+        need_transform_ = false;
         for_ = nullptr;
         return MakeRegAssign(op->loop_var, res);
       } else {
@@ -518,8 +543,8 @@ class GatherTransform : public IRMutator {
   }
 
   Expr Mutate_(const Variable *op, const Expr &e) final {
-    if (needTransform_ && tab_.count(op)) {
-      return Load::make(Int(32), replVar, Expr(0), Expr(1));
+    if (need_transform_ && tab_.count(op)) {
+      return Load::make(Int(32), repl_var, Expr(0), Expr(1));
     }
     return IRMutator::Mutate_(op, e);
   }
@@ -536,19 +561,19 @@ class GatherTransform : public IRMutator {
   }
 
   Stmt Mutate_(const IfThenElse *op, const Stmt &s) final {
-    auto varInCondition = for_ != nullptr ? for_->loop_var.get() : nullptr;
-    if (varInCondition != nullptr && tableFind(varInCondition, op)) {
-      needTransform_ = true;
+    auto var_in_condition = for_ != nullptr ? for_->loop_var.get() : nullptr;
+    if (var_in_condition != nullptr && tableFind(var_in_condition, op)) {
+      need_transform_ = true;
       condition = op->condition;
       Stmt res = IRMutator::Mutate(op->then_case);
       if (condition.as<EQ>() != nullptr && condition.as<EQ>()->a.as<Add>()) {
         // tiling tensor of tensor case
-        Expr cond = GE::make(Load::make(Int(32), replVar, Expr(0), Expr(1)), Expr(0));
-        Expr cond_less = LT::make(Load::make(Int(32), replVar, Expr(0), Expr(1)), for_->extent);
+        Expr cond = GE::make(Load::make(Int(32), repl_var, Expr(0), Expr(1)), Expr(0));
+        Expr cond_less = LT::make(Load::make(Int(32), repl_var, Expr(0), Expr(1)), for_->extent);
         cond = And::make(cond, cond_less);
         return IfThenElse::make(cond, res, op->else_case);
       }
-      conditionRemovedReplVars.insert(replVar.get());
+      condition_removed_repl_vars.insert(repl_var.get());
       return res;
     }
     return IRMutator::Mutate_(op, s);
@@ -556,13 +581,13 @@ class GatherTransform : public IRMutator {
 
  private:
   Expr condition;
-  int regCnt{0};
+  int reg_cnt{0};
   TensorVarTab tab_;
-  VarExpr replVar;
-  bool needTransform_{false};
+  VarExpr repl_var;
+  bool need_transform_{false};
   const For *for_{nullptr};
-  std::unordered_map<std::string, int> memBufferTab_;
-  std::set<const Variable *> conditionRemovedReplVars;
+  std::unordered_map<std::string, int> mem_buffer_tab_;
+  std::set<const Variable *> condition_removed_repl_vars;
 };
 
 class InductionVarElinate : public IRMutator {
@@ -583,8 +608,8 @@ class InductionVarElinate : public IRMutator {
 
   Stmt Mutate_(const For *op, const Stmt &s) final {
     if (inductionExprCheck(op->extent)) {
-      if (elinateVars.count(op->loop_var.get()) == 0) {
-        elinateVars[op->loop_var.get()] = Expr(0);
+      if (elinate_vars.count(op->loop_var.get()) == 0) {
+        elinate_vars[op->loop_var.get()] = Expr(0);
       }
       return Mutate(op->body);
     }
@@ -592,13 +617,13 @@ class InductionVarElinate : public IRMutator {
   }
 
   Expr Mutate_(const Variable *var, const Expr &e) final {
-    if (elinateVars.count(var) > 0) {
-      return elinateVars[var];
+    if (elinate_vars.count(var) > 0) {
+      return elinate_vars[var];
     }
     return IRMutator::Mutate_(var, e);
   }
 
-  std::unordered_map<const Variable *, Expr> elinateVars;
+  std::unordered_map<const Variable *, Expr> elinate_vars;
 };
 
 class DynamicPaddingFix : public IRMutator {
@@ -689,9 +714,9 @@ class DynamicPaddingFix : public IRMutator {
   std::string fm_l1_{""};
 };
 
-Stmt DavinciHalideOptimizer(const Stmt &s, bool dynamicShape = false) {
+Stmt DavinciHalideOptimizer(const Stmt &s, bool dynamic_shape = false) {
   Stmt stmt = s;
-  if (dynamicShape) {
+  if (dynamic_shape) {
     stmt = InductionVarElinate().Run(s);
     stmt = Simplify_cce(stmt);
     stmt = DynamicPaddingFix().Run(stmt);
