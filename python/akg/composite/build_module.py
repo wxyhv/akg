@@ -71,18 +71,6 @@ def dominance_analysis(in_out_dict, start_node, stitch_node):
                 changed = True
     return consumer_doms
 
-def clean_op_detect(in_out_dict, stitch_node):
-    """
-    For buffer stitch, detect fake outputs in json.
-    These fake outputs would not be in alloc_map but stored in clean_op_map instead.
-    """
-    input_set = set(list(in_out_dict.keys()))
-    clean_op_list = []
-    for node in stitch_node:
-        if node not in input_set:
-            clean_op_list.append(node)
-    return clean_op_list
-
 def topology_analysis(in_out_dict):
     # topologically sorting graph nodes.
     topo_sort = []
@@ -127,46 +115,102 @@ def shared_memory_optimization(in_out_dict, consumer_doms, topo_sort, req_map):
             if not shared:
                 alloc_map[inst] = ['ALLOC', req_map[inst]]
     return alloc_map, reuse_map
+def is_tensor(op_info):
+    return 'value' not in op_info
+
 
 def parse_merged_json(desc_d, stitch_tensor_name, input_tensor_name, output_tensor_name):
+    '''
+    Parse merged json to get subgraph splitted by stitch nodes and input-output relationship of merged graph.
+
+    Args:
+        desc_d (dict): The dict of compute description.
+        stitch_tensor_name (list[string]): The list of stitch node tensors.
+            stitch nodes are regarded as edges of sub_graphs. The smallest number of sub_graph is the length of 
+            stitch_tensor_name + 1.
+
+        input_tensor_name (list[string]): The list of input tensors.
+        output_tensor_name (list[string]): The list of output tensors.
+            output tensors would be regarded as inter_output_tensor and final_output_tensor. The main difference
+            of the two kinds of tensors is whether out-degree is zero, in which final_output_tensor is the tensor 
+            with zero out-degree in merged graph and otherwise, it is inter_output_tensor.
+
+    Returns:
+        in_out_dict (dict): The dict with input-output relationship of merged graph.
+        extra_subgraph_output (dict): The dict of extra output tensors for each sub_graph.
+        final_output_list (list[string]): The list of final output tensors.
+            output tensors in this list are are final_output_tensor and the subgraph they belong to doesn't
+            include stitch nodes.
+        final_output_within_graph (list[string]): The list of final output tensors.
+            output tensors in this list are final_output_tensor and the subgraph they belong to also includes 
+            stitch node.
+            
+    '''
+    # Initialize sub_graph number as the smallest possible number of sub graph. 
+    # sub graphs number might increase based on graph structure. 
     sub_graph_length = len(stitch_tensor_name) + 1
     sub_graph_node = [set() for _ in range(sub_graph_length)]
-    extra_subgraph_output = dict(zip(range(sub_graph_length), [[] for _ in range(sub_graph_length)]))
+    # use dict to save extra outputs for each sub_graph.
+    extra_subgraph_output = dict(zip(stitch_tensor_name, [[] for _ in range(sub_graph_length)]))
     in_out_dict = {}
-    inter_output_list = []
-    idx = sub_graph_length - 1
+    inter_output_list = set()
+    final_output_list = set()
+    final_output_within_graph = []
+    idx = 0
     for i in range(len(desc_d['op_desc']) - 1, -1, -1):
         op_info = desc_d['op_desc'][i]
         for out_desc in op_info['output_desc']:
+            # out_desc not in in_out_dict means out-degree is zero.
+            if out_desc['tensor_name'] not in in_out_dict:
+                final_output_graph = True
+                cur_final_node = out_desc['tensor_name']
+                final_output_within_graph.append(cur_final_node)
+
+            # switch to next subgraph if find stitch node.
             if out_desc['tensor_name'] in stitch_tensor_name:
-                idx -= 1
+                idx += 1
+                cur_stitch_node = out_desc['tensor_name']
+                # when current subgraph concludes final output and encounters with stitch node, increase number of subgraph.
+                if final_output_graph:
+                    final_output_list.add(cur_final_node)
+                    final_output_within_graph.remove(cur_final_node)
+                    sub_graph_length += 1
+                    sub_graph_node += [set()]
+                    final_output_graph = False
             sub_graph_node[idx].add(out_desc['tensor_name'])
             for input_desc in op_info['input_desc']:
                 for sub_input_desc in input_desc:
                     sub_graph_node[idx].add(sub_input_desc['tensor_name'])
                     if sub_input_desc['tensor_name'] in output_tensor_name:
-                        inter_output_list.append(sub_input_desc['tensor_name'])
-                    for subgraph in sub_graph_node[idx + 1:]:
+                        inter_output_list.add(sub_input_desc['tensor_name'])
+                    for subgraph in sub_graph_node[0: idx]:
                         tmp_name = sub_input_desc['tensor_name']
-                        extra_output = tmp_name in subgraph and tmp_name not in stitch_tensor_name and tmp_name not in input_tensor_name
-                        if extra_output:
-                            extra_subgraph_output[idx].insert(0, sub_input_desc['tensor_name'])
+                        extra_output = is_tensor(sub_input_desc) and tmp_name not in stitch_tensor_name and tmp_name not in input_tensor_name
+                        used_by_other_sg = tmp_name in subgraph
+                        used_as_output = tmp_name in output_tensor_name
+                        extra_output = extra_output and (used_by_other_sg or used_as_output)
+                        if extra_output and cur_stitch_node and not final_output_graph:
+                            extra_subgraph_output[cur_stitch_node].insert(0, tmp_name)
                             break
                     if sub_input_desc['tensor_name'] not in in_out_dict:
                         in_out_dict[sub_input_desc['tensor_name']] = [out_desc['tensor_name']]
                     else:
                         in_out_dict[sub_input_desc['tensor_name']].append(out_desc['tensor_name'])
-    final_output_list = [output for output in output_tensor_name if output not in inter_output_list]
-    return in_out_dict, extra_subgraph_output, final_output_list
+    
+    return in_out_dict, extra_subgraph_output, list(final_output_list), final_output_within_graph
 
 def collect_subgraph_info(desc_d, sub_stitch_graphs, req_map, input_tensor_name, output_tensor_name, stitch_node_list):
     inplace_assign_map = {}
+    fake_output_list = []
     # traversal desc_d by reverse topologically order.
     for i in range(len(desc_d['op_desc']) - 1, -1, -1):
         op_info = desc_d['op_desc'][i]
         if (op_info['name'] == "InplaceAssign"):
             inplace_assign_map[op_info['output_desc'][0]['tensor_name']] = op_info['input_desc'][0][0]['tensor_name']
+            if (op_info['attr'][0]['name'] == 'fake_output' and op_info['attr'][0]['value'] == 1):
+                fake_output_list.append(op_info['output_desc'][0]['tensor_name'])
         for sg in sub_stitch_graphs:
+            added_output = []
             for out_desc in op_info['output_desc']:
                 out_tensor_name = out_desc['tensor_name']
                 if out_tensor_name in sg.tensors:
@@ -177,25 +221,28 @@ def collect_subgraph_info(desc_d, sub_stitch_graphs, req_map, input_tensor_name,
                         else:
                             req_map[out_tensor_name] = 1
 
-                    if out_tensor_name in sg.output_name:
+                    if out_tensor_name in sg.output_name and out_tensor_name not in added_output:
                         sg.output.append(out_desc)
+                        added_output.append(out_tensor_name)
 
                     for input_desc in op_info['input_desc']:
                         for sub_input_desc in input_desc:
-                            input_name = sub_input_desc['tensor_name']
-                            if input_name in output_tensor_name:
-                                sg.output.insert(0, sub_input_desc)
-                            if input_name in input_tensor_name and input_name not in sg.input_name:
-                                sg.input_name.append(sub_input_desc['tensor_name'])
-                                sg.input.append([sub_input_desc])
-                            # stop expand subgraph when encounter with stitch node.
-                            if input_name not in stitch_node_list:
-                                sg.tensors.add(sub_input_desc['tensor_name'])
-                            # add extra input into subgraph.
-                            elif input_name not in sg.output_name and input_name not in sg.input_name:
-                                sg.input_name.append(input_name)
-                                sg.input.append([sub_input_desc])
-    return sub_stitch_graphs
+                            if is_tensor(sub_input_desc):
+                                input_name = sub_input_desc['tensor_name']
+                                if input_name in output_tensor_name and input_name not in added_output:
+                                    sg.output.insert(0, sub_input_desc)
+                                    added_output.append(input_name)
+                                if input_name in input_tensor_name and input_name not in sg.input_name:
+                                    sg.input_name.append(sub_input_desc['tensor_name'])
+                                    sg.input.append([sub_input_desc])
+                                # stop expand subgraph when encounter with stitch node.
+                                if input_name not in stitch_node_list:
+                                    sg.tensors.add(sub_input_desc['tensor_name'])
+                                # add extra input into subgraph.
+                                elif input_name not in sg.output_name and input_name not in sg.input_name:
+                                    sg.input_name.append(input_name)
+                                    sg.input.append([sub_input_desc])
+    return sub_stitch_graphs, inplace_assign_map, fake_output_list
 
 
 def sub_graph_info(sub_graph, desc_d):
@@ -233,12 +280,10 @@ def json_split(desc_d):
     output_tensor_name = [tensor['tensor_name'] for tensor in desc_d['output_desc']]
     stitch_node = desc_d['buffer_stitch']['stitch_op']
     stitch_node_name = [node for stitchnode in stitch_node for node in stitchnode]
-    in_out_dict, extra_subgraph_output, final_output_list = parse_merged_json(desc_d, stitch_node_name, input_tensor_name, output_tensor_name)
+    in_out_dict, extra_subgraph_output, final_output_list, final_output_within_graph = parse_merged_json(desc_d, stitch_node_name, input_tensor_name, output_tensor_name)
 
     # traverse extra_subgraph_output to save extra output into subgraph
-    for item in extra_subgraph_output:
-        if extra_subgraph_output[item]:
-            stitch_node[item] = extra_subgraph_output[item] + stitch_node[item]
+    stitch_node = [[item] + extra_subgraph_output[item] for item in extra_subgraph_output]
     stitch_node_name = [node for stitchnode in stitch_node for node in stitchnode]
 
     # initialize req_map
@@ -246,17 +291,20 @@ def json_split(desc_d):
     req_map = dict(zip(stitch_node_name, req_op_size))
     # add final output into stitch_op.
     stitch_node += [[op] for op in final_output_list]
+    # add final output within subgraph into the first initialized stitch sub_graph.
+    stitch_node = [stitch_node[0] + final_output_within_graph] + stitch_node[1:]
     stitch_node_list = [node for stitchnode in stitch_node for node in stitchnode]
+    # each output tensor can only be parsed as output once in all subgraphs. 
+    # All tensors in stitch_node_list will be put into output_name. 
+    # Save other output tensors which are not in stitch_node_name for the output collection of subgraphs.
+    complement_output = [tensor for tensor in output_tensor_name if tensor not in stitch_node_list]
 
     # initialize sub_stitch_graphs.
     sub_stitch_graphs = []
     for i, stitch_op in enumerate(stitch_node):
         sub_stitch_graphs.append(Graph(stitch_op))
 
-    # store InplaceAssign op output_tensor and first input_tensor.
-    inplace_assign_map = {}
-
-    sub_stitch_graphs = collect_subgraph_info(desc_d, sub_stitch_graphs, req_map, input_tensor_name, output_tensor_name, stitch_node_list)
+    sub_stitch_graphs, inplace_assign_map, fake_output_list = collect_subgraph_info(desc_d, sub_stitch_graphs, req_map, input_tensor_name, complement_output, stitch_node_list)
     # reverse op order to generate topological subgraph
     for sg in sub_stitch_graphs:
         sg.ops = list(reversed(sg.ops))
@@ -265,8 +313,8 @@ def json_split(desc_d):
         # print("====stitch_json====")
         # print(stitch_json_str)
         stitch_jsons.append(stitch_json_str)
-
-    clean_op_list = clean_op_detect(in_out_dict, stitch_node_name)
+    
+    clean_op_list = [fake_op for fake_op in fake_output_list if fake_op in stitch_node_name]
     # add fake outputs into output_tensor_name
     output_tensor_name += clean_op_list
     dominance_dom = dominance_analysis(in_out_dict, output_tensor_name, stitch_node_name)
