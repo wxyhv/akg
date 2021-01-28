@@ -784,7 +784,7 @@ void CubeInfo::CreateConvModel() {
       }
     }
     if (model_) {
-      static_cast<void>(model_->infer_L1_tile());
+      static_cast<void>(model_->infer_CA1_tile());
     }
   }
 }

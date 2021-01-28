@@ -1,5 +1,5 @@
 /**
- * Copyright 2020 Huawei Technologies Co., Ltd
+ * Copyright 2020-2021 Huawei Technologies Co., Ltd
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -290,7 +290,7 @@ class PostFusionAct : public IRMutator {
   PostFusionAct(const Map<Tensor, Buffer> &extern_buffer, ConvolutionBackpropFilterModel &conv)
       : binds_(extern_buffer), conv_(conv) {
     is_dynamic_ = conv_.is_dynamic_;
-    isolate_idx_max_ = conv_.infer_L1_tile();
+    isolate_idx_max_ = conv_.infer_CA1_tile();
   }
 
   ~PostFusionAct() override = default;
@@ -534,7 +534,7 @@ class PostFusionAct : public IRMutator {
     if (op->attr_key == "isolated_idx") {
       if (mutate_) {
         if (is_conv_backprop_filter_) {
-          gemm_idx_max_ = conv_.infer_L0_tile(++isolate_idx_);
+          gemm_idx_max_ = conv_.infer_CA0_tile(++isolate_idx_);
         }
         gemm_idx_ = -1;
       }
@@ -1017,7 +1017,7 @@ class PartialDmaAdapt : public IRMutator {
 class AlignedMAdapt : public IRMutator {
  public:
   AlignedMAdapt(ConvolutionBackpropFilterModel &conv, const std::string &name) : conv_(conv), filter_name_(name) {
-    isolate_idx_max_ = conv_.infer_L1_tile();
+    isolate_idx_max_ = conv_.infer_CA1_tile();
   }
   ~AlignedMAdapt() override = default;
 

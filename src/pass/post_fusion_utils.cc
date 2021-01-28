@@ -1,5 +1,5 @@
 /**
- * Copyright 2020 Huawei Technologies Co., Ltd
+ * Copyright 2020-2021 Huawei Technologies Co., Ltd
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -885,9 +885,9 @@ Stmt RemoveNullRealizeScope::Mutate_(const AttrStmt *op, const Stmt &s) {
   }
 
   if (op->attr_key == "pragma_cube_l0write") {
-    if (conv_.reduce_at_l1 && isolate_idx_ % conv_.l1_reduce_base == 0 && gemm_idx_ == gemm_num_) {
+    if (conv_.reduce_at_ca1 && isolate_idx_ % conv_.ca1_reduce_base == 0 && gemm_idx_ == gemm_num_) {
       return AttrStmt::make(op->node, "pragma_cube_l0write", Expr(++l0write_idx_), this->Mutate(op->body));
-    } else if (!conv_.reduce_at_l1 && gemm_idx_ % conv_.l0_reduce_base == 0) {
+    } else if (!conv_.reduce_at_ca1 && gemm_idx_ % conv_.ca0_reduce_base == 0) {
       return AttrStmt::make(op->node, "pragma_cube_l0write", Expr(++l0write_idx_), this->Mutate(op->body));
     } else {
       return AttrStmt::make(op->node, "pragma_cube_l0write", Expr(-1), this->Mutate(op->body));
@@ -903,7 +903,7 @@ Stmt RemoveNullRealizeScope::Mutate_(const AttrStmt *op, const Stmt &s) {
       CHECK_EQ(gemm_idx_, gemm_num_) << isolate_idx_ << " : " << gemm_idx_ << " : " << gemm_num_;
     }
 
-    gemm_num_ = conv_.infer_L0_tile(isolate_idx_++);
+    gemm_num_ = conv_.infer_CA0_tile(isolate_idx_++);
     gemm_idx_ = 0;
   }
 
