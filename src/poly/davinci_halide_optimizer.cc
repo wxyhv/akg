@@ -287,7 +287,7 @@ class PassDownForAxis : public IRMutator {
 
 /***********************************************************************
  * After the condition is removed, the sinked tensor write back to promotion
- // attr [placeholder(gather_output_local_UB, 0x2f725f0)] realize_scope = "local.UB"
+ // attr [placeholder(gather_output_local_UB, 0x2f725f0)] realize_scope = DOT_LOCAL_BUF
   realize gather_output_local_UB<float16>([0, 1], [0, 59], [0, 212]) {
     for (cc4, 0, 212) {
       // attr [reg0_local_REG] storage_scope = "local.REG"
@@ -305,7 +305,7 @@ class PassDownForAxis : public IRMutator {
   |
   v
 
- * // attr [placeholder(gather_output_local_UB, 0x2f725f0)] realize_scope = "local.UB"
+ * // attr [placeholder(gather_output_local_UB, 0x2f725f0)] realize_scope = DOT_LOCAL_BUF
   realize gather_output_local_UB<float16>([0, 1], [0, 59], [0, 212]) {
     for (cc4, 0, 212) {
       // attr [reg0_local_REG] storage_scope = "local.REG"

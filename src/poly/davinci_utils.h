@@ -33,10 +33,19 @@ constexpr auto FRACTAL_C1_LOCAL_C0A = "_fractal_L1_local_L0A";
 
 constexpr auto BUF = "UB";
 constexpr auto C1 = "L1";
+constexpr auto C0 = "L0";
 constexpr auto C0A = "L0A";
 constexpr auto C0B = "L0B";
 constexpr auto C0C = "L0C";
 constexpr auto REG = "REG";
+
+constexpr auto DOT_LOCAL_BUF = "local.UB";
+constexpr auto DOT_LOCAL_C1 = "local.L1";
+constexpr auto DOT_LOCAL_C0A = "local.L0A";
+constexpr auto DOT_LOCAL_C0B = "local.L0B";
+constexpr auto DOT_LOCAL_C0C = "local.L0C";
+
+constexpr auto LOAD_IM2COL = "load_3d";
 
 }  // namespace poly
 }  // namespace ir

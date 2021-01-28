@@ -317,7 +317,7 @@ class TileCandidate {
       return;
     }
     for (const auto &attr : analyzer_->RootAxis()->attrs) {
-      std::string buf_name = attr.attr_value + "_local_buffer";
+      std::string buf_name = attr.attr_value + LOCAL_BUF;
       if (attr.attr_key == AT_ELEMWISE) {
         this->elem_align_buf_.insert(buf_name);
       } else if (attr.attr_key == AT_BROADCAST) {
@@ -370,10 +370,10 @@ class TileCandidate {
   std::vector<TileAxis *> GetTileAxis() { return this->tile_axis_; }
   void ResetTileAxis() { this->tile_axis_.clear(); }
   void ResetTileVal() { this->tile_val_.clear(); }
-  void UpdateConstTile(const TileAxis *a, int64_t l1_val, const int64_t l0_val = -1);
-  void UpdateL1Tile(const TileAxis *a, const Expr &l1_val);
-  void UpdateL0Tile(const TileAxis *a, const Expr &l0_val);
-  void UpdateTile(const TileAxis *a, const Expr &l1_val, const Expr &l0_val = Expr());
+  void UpdateConstTile(const TileAxis *a, int64_t c1_val, const int64_t c0_val = -1);
+  void UpdateC1Tile(const TileAxis *a, const Expr &c1_val);
+  void UpdateC0Tile(const TileAxis *a, const Expr &c0_val);
+  void UpdateTile(const TileAxis *a, const Expr &c1_val, const Expr &c0_val = Expr());
   std::pair<Expr, Expr> GetTileVal(const TileAxis *a);
   std::pair<int64_t, int64_t> GetConstTileVal(const TileAxis *a);
 

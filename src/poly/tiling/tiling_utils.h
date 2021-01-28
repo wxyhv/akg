@@ -23,6 +23,7 @@
 #include <tvm/ir.h>
 
 #include "common/target_info.h"
+#include "poly/davinci_utils.h"
 
 namespace akg {
 namespace ir {
@@ -68,11 +69,11 @@ class NpuInfo {
       CHECK(info.defined());
       npu_mem_limit_[mem] = info->max_num_bits / 8;
     };
-    CollectLimit("local.UB", MEM_SCOPE_BUFFER);
-    CollectLimit("local.L1", MEM_SCOPE_CACHE1);
-    CollectLimit("local.L0A", MEM_SCOPE_CACHE0_A);
-    CollectLimit("local.L0B", MEM_SCOPE_CACHE0_B);
-    CollectLimit("local.L0C", MEM_SCOPE_CACHE0_C);
+    CollectLimit(DOT_LOCAL_BUF, MEM_SCOPE_BUFFER);
+    CollectLimit(DOT_LOCAL_C1, MEM_SCOPE_CACHE1);
+    CollectLimit(DOT_LOCAL_C0A, MEM_SCOPE_CACHE0_A);
+    CollectLimit(DOT_LOCAL_C0B, MEM_SCOPE_CACHE0_B);
+    CollectLimit(DOT_LOCAL_C0C, MEM_SCOPE_CACHE0_C);
     npu_mem_limit_[MEM_SCOPE_GM] = 0;
   }
 };

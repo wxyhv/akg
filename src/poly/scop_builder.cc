@@ -1272,10 +1272,10 @@ isl::schedule MakeScheduleTreeHelper(const NodeRef &s, ScopInfo &scop_info, cons
       std::string update_scope;
       if (tensor->op.as<PlaceholderOpNode>()) {
         update_name += LOCAL_C1;
-        update_scope = "local.L1";
+        update_scope = DOT_LOCAL_C1;
       } else {
         update_name += LOCAL_BUF;
-        update_scope = "local.UB";
+        update_scope = DOT_LOCAL_BUF;
       }
       Buffer update_buffer =
         BufferNode::make(buffer->data, buffer->dtype, buffer->shape, buffer->strides, buffer->elem_offset, buffer->name,

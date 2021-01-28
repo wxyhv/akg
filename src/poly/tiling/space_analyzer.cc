@@ -119,7 +119,7 @@ class SpaceVisitor : public IRVisitor {
 
     auto src_length = static_cast<int>(src_tensor.size());
     for (auto st : src_tensor) {
-      if (st.name == "mad" || st.name == "load_3d") {
+      if (st.name == "mad" || st.name == LOAD_IM2COL) {
         basic_op_type = "SP_CALL";
       }
     }
@@ -588,25 +588,25 @@ void SpaceAnalyzer::IdentifyAlignAxes() {
         };
         if (pe.basic_op_type.find(AT_REDUCE) != std::string::npos) {
           const For *dst_last = GetBufferInnerAxis(dst_tensor);
-          int64_t ub_block = 1;
+          int64_t buf_block = 1;
           if (dst_last != nullptr) {
             align_axes_attrs[dst_last] = std::make_pair(dst_tensor.name, pe.basic_op_type);
-            if (const auto i = dst_last->extent.as<IntImm>()) ub_block = i->value;
+            if (const auto i = dst_last->extent.as<IntImm>()) buf_block = i->value;
           }
           IdentifySrcAlign(src_tensors, dst_tensor);
           if (src_last != nullptr) {
             TileAxis *align_axis = analyzer_->Axis(src_last);
-            if ((align_axis != nullptr && !align_axis->children.empty()) || (ub_block != gm_block)) {
+            if ((align_axis != nullptr && !align_axis->children.empty()) || (buf_block != gm_block)) {
               align_axes_attrs[src_last] = std::make_pair(src_name, pe.basic_op_type);
             }
           }
         } else if (pe.basic_op_type.find(AT_BROADCAST) != std::string::npos) {
           const For *dst_last = GetBufferInnerAxis(dst_tensor);
-          int64_t ub_block = 1;
+          int64_t buf_block = 1;
           if (dst_last == nullptr) continue;
-          if (const auto i = dst_last->extent.as<IntImm>()) ub_block = i->value;
+          if (const auto i = dst_last->extent.as<IntImm>()) buf_block = i->value;
           IdentifySrcAlign(src_tensors, dst_tensor);
-          if (ub_block != gm_block && src_last != nullptr) {
+          if (buf_block != gm_block && src_last != nullptr) {
             align_axes_attrs[dst_last] = std::make_pair(dst_tensor.name, pe.basic_op_type);
             align_axes_attrs[src_last] = std::make_pair(src_name, pe.basic_op_type);
           }

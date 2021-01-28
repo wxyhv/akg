@@ -375,13 +375,13 @@ void TileCandidate::UpdateConstTile(const TileAxis *a, const int64_t l1_val, con
   is_update_ = false;
 }
 
-void TileCandidate::UpdateL1Tile(const TileAxis *a, const Expr &l1_val) {
+void TileCandidate::UpdateC1Tile(const TileAxis *a, const Expr &l1_val) {
   TileVal &val = this->tile_val_[a];
   val.tile_c1 = l1_val;
   is_update_ = false;
 }
 
-void TileCandidate::UpdateL0Tile(const TileAxis *a, const Expr &l0_val) {
+void TileCandidate::UpdateC0Tile(const TileAxis *a, const Expr &l0_val) {
   TileVal &val = this->tile_val_[a];
   val.tile_c0 = l0_val;
   is_update_ = false;
@@ -403,14 +403,14 @@ std::pair<Expr, Expr> TileCandidate::GetTileVal(const TileAxis *a) {
 }
 
 std::pair<int64_t, int64_t> TileCandidate::GetConstTileVal(const TileAxis *a) {
-  Expr l1_expr;
-  Expr l0_expr;
-  std::tie(l1_expr, l0_expr) = GetTileVal(a);
-  int64_t l1 = a->range_extent.as<IntImm>() ? TileVarId::UNDEFINE : TileVarId::VAR;
-  int64_t l0 = a->range_extent.as<IntImm>() ? TileVarId::UNDEFINE : TileVarId::VAR;
-  if (const auto l1_imm = l1_expr.as<IntImm>()) l1 = l1_imm->value;
-  if (const auto l0_imm = l0_expr.as<IntImm>()) l0 = l0_imm->value;
-  return std::make_pair(l1, l0);
+  Expr c1_expr;
+  Expr c0_expr;
+  std::tie(c1_expr, c0_expr) = GetTileVal(a);
+  int64_t c1 = a->range_extent.as<IntImm>() ? TileVarId::UNDEFINE : TileVarId::VAR;
+  int64_t c0 = a->range_extent.as<IntImm>() ? TileVarId::UNDEFINE : TileVarId::VAR;
+  if (const auto c1_imm = c1_expr.as<IntImm>()) c1 = c1_imm->value;
+  if (const auto c0_imm = c0_expr.as<IntImm>()) c0 = c0_imm->value;
+  return std::make_pair(c1, c0);
 }
 
 int64_t TileCandidate::CalActualTile(const CalAlignInfo *align_info) {
@@ -833,7 +833,8 @@ class LinearAccessPatternBuilder : public IRVisitor {
         } else if (timestamp > buffer_usage_timetable_[ref].first || timestamp > buffer_usage_timetable_[ref].second) {
           buffer_usage_timetable_[ref].second = timestamp;
         }
-        // If it is gm->ub, ub's allocate might be lifted in invariant hoist, so make its ref time to maximal.
+        // If it is gm->local_buf, local_buf's allocate might be lifted in invariant hoist, so make its ref time to
+        // maximal.
         if (local_buf_.count(ref->name) == 0) buffer_usage_timetable_[e.def].second = seq_.size();
       }
       timestamp += 1;
@@ -914,12 +915,12 @@ class LinearAccessPatternBuilder : public IRVisitor {
       CHECK(!mem_flow.empty());
       if (local_buf_.count(ref) && mem_flow.size() == 2U) {
         // If it is a buffer from gm to certain location, directly use destination as buffer's scope
-        // in conv_backprop, multiple bands are merged and local buffer can have gm->ub->l1->l0 memflow.
+        // in conv_backprop, multiple bands are merged and local buffer can have gm->buf->c1->c0 memflow.
         ref_buf.push_back(GetBuffer(ref, mem_flow.back()));
       } else {
         BufferEntry *from = GetBuffer(ref, mem_flow[0]);
         for (size_t i = 1; i < mem_flow.size(); ++i) {
-          if (mem_flow[i] == C1_ && mem_flow[i] == mem_flow[i - 1]) {  // fractal_L1
+          if (mem_flow[i] == C1_ && mem_flow[i] == mem_flow[i - 1]) {  // fractal_C1
             continue;
           }
           BufferEntry *to = GetBuffer(ref, mem_flow[i]);
@@ -1422,7 +1423,7 @@ void TilingAnalyzer::AddTilingConstraints() {
   actived_strategies.push_back(&dyn_bound_strategy);
 
   strategy_manager->SetStrategies(actived_strategies);
-  strategy_manager->ExecuteCce();
+  strategy_manager->ExecuteNpu();
 }
 
 bool TilingAnalyzer::Prepare() {
