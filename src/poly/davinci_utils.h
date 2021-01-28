@@ -53,6 +53,13 @@ constexpr auto REALIZE_BUFC0 = "realize_UBL0";
 constexpr auto REALIZE_BUFC1 = "realize_UBL1";
 constexpr auto REALIZE_C1BUFC1 = "realize_L1UBL1";
 
+constexpr auto FLOW_S = 1;
+constexpr auto FLOW_V = 2;
+constexpr auto FLOW_M = 3;
+constexpr auto FLOW_DMA1 = 4;
+constexpr auto FLOW_DMA2 = 5;
+constexpr auto FLOW_DMA3 = 6;
+
 }  // namespace poly
 }  // namespace ir
 }  // namespace akg

@@ -25,7 +25,6 @@
 #include <unordered_map>
 #include <unordered_set>
 
-#include "pass/common.h"
 #include "poly/tiling/tiling_analyzer.h"
 #include "poly/tiling/custom_tiling.h"
 
@@ -51,7 +50,7 @@ class SpaceAnalyzer {
   // represent a provide stmt
   struct ProvideEntry {
     std::string basic_op_type;
-    std::unordered_set<int> pipe;
+    std::unordered_set<int> flow;
     std::vector<Tensor> src;
     Tensor dst;
     size_t band_index{0};

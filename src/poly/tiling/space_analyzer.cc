@@ -83,7 +83,7 @@ class SpaceVisitor : public IRVisitor {
   int loop_count_ = 0;
   size_t band_count_ = 0;
   std::unordered_set<std::string> local_buf_;
-  std::unordered_map<std::string, int> op_pipe_map_ = {{AT_DMA2, PIPE_MTE2}, {AT_DMA3, PIPE_MTE3}, {AT_REDUCE, PIPE_V}};
+  std::unordered_map<std::string, int> op_flow_map_ = {{AT_DMA2, FLOW_DMA2}, {AT_DMA3, FLOW_DMA3}, {AT_REDUCE, FLOW_V}};
 
   void AnalyzeProvide(const Provide *op) {
     if (cur_loop_ == nullptr) return;
@@ -138,7 +138,7 @@ class SpaceVisitor : public IRVisitor {
     dst_tensor.band_index = band_count_;
     dst_tensor.type_byte = analyzer_->scop_info_.user_config_.GetDataType(dst_tensor.name);
     prov.basic_op_type = basic_op_type.empty() ? GetBasicOpType(dst_tensor, src_tensor) : basic_op_type;
-    prov.pipe = GetPipeFromBasicOpType(prov.basic_op_type);
+    prov.flow = GetFlowFromBasicOpType(prov.basic_op_type);
     prov.band_index = band_count_;
     prov.src = src_tensor;
     prov.dst = dst_tensor;
@@ -147,15 +147,17 @@ class SpaceVisitor : public IRVisitor {
     provides_ana_[cur_loop_].emplace_back(prov);
   }
 
-  std::unordered_set<int> GetPipeFromBasicOpType(const std::string &basic_op_type) {
-    std::unordered_set<int> pipe;
-    for (auto it : op_pipe_map_) {
-      if (basic_op_type.find(it.first) != std::string::npos) pipe.insert(it.second);
+  std::unordered_set<int> GetFlowFromBasicOpType(const std::string &basic_op_type) {
+    std::unordered_set<int> flows;
+    for (auto it : op_flow_map_) {
+      if (basic_op_type.find(it.first) != std::string::npos) {
+        flows.insert(it.second);
+      }
     }
-    if (basic_op_type.find(AT_ELEMWISE) != std::string::npos && pipe.empty()) {
-      pipe.insert(PIPE_V);
+    if (basic_op_type.find(AT_ELEMWISE) != std::string::npos && flows.empty()) {
+      flows.insert(FLOW_V);
     }
-    return pipe;
+    return flows;
   }
 
   // Match variable to loop by name since the name in current band is unique.

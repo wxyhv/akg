@@ -30,7 +30,6 @@
 
 #include "build_module.h"
 #include "contrib/cce_parm/cceconf.h"
-#include "common/common_util.h"
 #include "pass/expr_alg_simplify.h"
 #include "pass/utils.h"
 #include "poly/scop_info.h"
@@ -54,7 +53,7 @@ constexpr auto GEN_PRIME_NUM = 32;
 constexpr auto VECTORIZE_BYTE = 256;
 constexpr auto MAX_REPEAT = 255;
 constexpr auto MIN_CORE_GRANULARITY = 256;
-constexpr auto DESIRE_CORE_GRANULARITY = 8192;  // 256 Bytes * 64 repeat
+constexpr auto DESIRE_CORE_GRANULARITY = 8192;
 
 // Controlled by custom tiling.
 constexpr auto ALLOCATION_PERCENTAGE = 0.5;  // reserved for double buffer in default
