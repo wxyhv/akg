@@ -13,8 +13,8 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-#ifndef POLY_CCE_ISL_EMITTER_H_
-#define POLY_CCE_ISL_EMITTER_H_
+#ifndef POLY_NPU_ISL_EMITTER_H_
+#define POLY_NPU_ISL_EMITTER_H_
 
 #include "ir_pass.h"
 #include "isl_emitter.h"
@@ -24,26 +24,26 @@ namespace ir {
 namespace poly {
 enum AtomicType { Equ = 0, Add };
 /*!
- * IslEmitter for CCE
+ * IslEmitter for NPU
  */
-class CCEIslEmitter : public IslEmitter {
+class NPUIslEmitter : public IslEmitter {
  public:
-  CCEIslEmitter(ScopInfo &info, const NodeInfoRepo &n, const isl::id_list &i) : IslEmitter(info, n, i) {
+  NPUIslEmitter(ScopInfo &info, const NodeInfoRepo &n, const isl::id_list &i) : IslEmitter(info, n, i) {
     ProcBypathC1(info);
   }
-  ~CCEIslEmitter() override = default;
+  ~NPUIslEmitter() override = default;
 
   Stmt Emit(const isl::ast_node &node) final;
 
  private:
-  // override emitters for CCE
+  // override emitters for NPU
   Stmt EmitFor(const isl::ast_node_for &node) final;
   Stmt EmitMark(const isl::ast_node_mark &node_id) override;
   Stmt EmitBlock(const isl::ast_node_block &node) final;
   Stmt EmitStmt(const isl::ast_node_user &node) final;
   Stmt EmitUserStmt(const isl::ast_node_user &node) override;
 
-  // DMA emitters for CCE
+  // DMA emitters for NPU
   Expr EmitLoad(const isl::ast_expr &lhs, Type type);
   Stmt EmitRead(const isl::ast_node_user &node);
   Stmt EmitWrite(const isl::ast_node_user &node, AtomicType atomic);
@@ -139,4 +139,4 @@ class CCEIslEmitter : public IslEmitter {
 }  // namespace poly
 }  // namespace ir
 }  // namespace akg
-#endif  // POLY_CCE_ISL_EMITTER_H_
+#endif  // POLY_NPU_ISL_EMITTER_H_

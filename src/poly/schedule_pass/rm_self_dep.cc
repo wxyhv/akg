@@ -716,12 +716,12 @@ bool NeedRemoveInvariantDependence(ScopInfo &scop_info) {
     return false;
   }
   // disbale this feature for cube related scenes in NPU
-  if (scop_info.cube_info_.IsGemm() || scop_info.cube_info_.IsSpecGemm() || scop_info.cube_info_.IsConv() ||
-      scop_info.cube_info_.IsConvBackpropFilter() || scop_info.cube_info_.IsConvBackpropInput()) {
+  if (scop_info.mmu_info_.IsGemm() || scop_info.mmu_info_.IsSpecGemm() || scop_info.mmu_info_.IsConv() ||
+      scop_info.mmu_info_.IsConvBackpropFilter() || scop_info.mmu_info_.IsConvBackpropInput()) {
     return false;
   }
   // disbale this feature for load_im2col related scenes in NPU
-  if (scop_info.cube_info_.IsIm2col() || scop_info.cube_info_.IsLoadIm2colC1BUF()) {
+  if (scop_info.mmu_info_.IsIm2col() || scop_info.mmu_info_.IsLoadIm2colC1BUF()) {
     return false;
   }
 

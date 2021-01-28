@@ -233,9 +233,9 @@ class TilingAnalyzer {
         sch_(sch),
         scop_info_(scop_info),
         logger_(TileLogger::GetInstance(scop_info.AddDumpDir("tiling.log"))) {
-    if (scop_info.cube_info_.IsGemm()) {
+    if (scop_info.mmu_info_.IsGemm()) {
       op_type_ = GEMM_OP;
-    } else if (scop_info.cube_info_.IsConv()) {
+    } else if (scop_info.mmu_info_.IsConv()) {
       op_type_ = CONV_OP;
     } else {
       op_type_ = VECTOR_OP;

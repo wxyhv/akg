@@ -29,12 +29,12 @@ namespace poly {
 struct StmtOpInfo {
   std::vector<PolyOpType> ops;
   std::vector<isl::id> readtensors;
-  bool isCube = false;
-  bool isCubeAssign = false;
+  bool isMMU = false;
+  bool isMMUAssign = false;
   bool isWith = false;
   bool isIm2col = false;
   bool is_load_im2col = false;
-  // only used when isCube/isConv = true;
+  // only used when isMMU/isConv = true;
   std::string A_ = "";
   std::string B_ = "";
   std::string C_ = "";

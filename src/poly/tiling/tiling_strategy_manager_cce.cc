@@ -319,7 +319,7 @@ void ModShiftAxisStrategy::AddNpuConstraint() {
 }
 
 void ConvStrategy::AddNpuConstraint() {
-  conv_info_ = analyzer_->scop_info_.cube_info_.GetConvInfoForTiling();
+  conv_info_ = analyzer_->scop_info_.mmu_info_.GetConvInfoForTiling();
   auto interested_info = GetInterestedInfo(interested_attr_key);
   for (auto it : interested_info) {
     TileAxis *axis = it.first;
@@ -331,7 +331,7 @@ void ConvStrategy::AddNpuConstraint() {
       } else if (attr.attr_value == "H") {
         RestrainH(axis);
       } else if (attr.attr_value == "W") {
-        if (analyzer_->scop_info_.cube_info_.IsConvBackpropFilter()) {
+        if (analyzer_->scop_info_.mmu_info_.IsConvBackpropFilter()) {
           axis->TileRestrainEntire(CACHE1);
         } else {
           RestrainW(axis);

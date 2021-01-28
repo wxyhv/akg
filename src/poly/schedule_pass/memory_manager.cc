@@ -116,7 +116,7 @@ isl::schedule_node MemoryManager::HoistTensorClusterFootprint(isl::schedule_node
   }
 
   if (is_bind_tensor && tensor_info.mem_type != MemType::BUF_C0_) {
-    if (!(scop_info_.cube_info_.IsGemm() && tensor_info.IsCubeCL1Write())) {
+    if (!(scop_info_.mmu_info_.IsGemm() && tensor_info.IsCubeCL1Write())) {
       bool insert_ub_to_l1 = false;
       if (!scop_info_.analysis_result_.GetFakeCopyin().is_empty()) {
         scop_info_.analysis_result_.GetFakeCopyin().foreach_map(
@@ -161,7 +161,7 @@ isl::schedule_node MemoryManager::HoistTensorClusterFootprint(isl::schedule_node
   }
 
   if (tensor_info.IsGemmDataL12L0()) {
-    if (scop_info_.cube_info_.IsGemmDataTranspose()) {
+    if (scop_info_.mmu_info_.IsGemmDataTranspose()) {
       const isl::id &trans_id = dst_tensor_id;
       const isl::id &cluster_id = dst_tensor_id;
       tree = PlaceIm2colBelow(scop_info_, tree, *gemm_a_transpose_fp_cluster_, *fp_cluster, trans_id, cluster_id);
@@ -171,7 +171,7 @@ isl::schedule_node MemoryManager::HoistTensorClusterFootprint(isl::schedule_node
   }
 
   if (tensor_info.IsGemmWeightL12L0()) {
-    if (scop_info_.cube_info_.IsGemmWeightTranspose()) {
+    if (scop_info_.mmu_info_.IsGemmWeightTranspose()) {
       const isl::id &trans_id = dst_tensor_id;
       const isl::id &cluster_id = dst_tensor_id;
       tree = PlaceIm2colBelow(scop_info_, tree, *gemm_b_transpose_fp_cluster_, *fp_cluster, trans_id, cluster_id);
@@ -180,7 +180,7 @@ isl::schedule_node MemoryManager::HoistTensorClusterFootprint(isl::schedule_node
     }
   }
   auto scop_cluster = fp_cluster;
-  if (scop_info_.cube_info_.IsGemm() && (tensor_info.IsGemmDataL12L0() || tensor_info.IsGemmWeightL12L0())) {
+  if (scop_info_.mmu_info_.IsGemm() && (tensor_info.IsGemmDataL12L0() || tensor_info.IsGemmWeightL12L0())) {
     scop_cluster = scop_info_.analysis_result_.GetBufferDefInfo(tensor_info.tensor_id).footprints_cluster;
   }
   if (tensor_info.IsPreCubeTile2Write()) {
@@ -192,7 +192,7 @@ isl::schedule_node MemoryManager::HoistTensorClusterFootprint(isl::schedule_node
   }
   tree = PlaceInnerDataCopyBelow(scop_info_, tree, *fp_cluster, *scop_cluster, src_tensor_id, dst_tensor_id,
                                  src_tensor_id, sch_map);
-  if (scop_info_.cube_info_.IsGemm() && !buffer_footprint_queue_.empty() &&
+  if (scop_info_.mmu_info_.IsGemm() && !buffer_footprint_queue_.empty() &&
       buffer_footprint_queue_.front().get_name() == tensor_info.ancester_tensor_id.get_name()) {
     tree = PlaceOuterDataCopyBelow(scop_info_, tree, *fp_cluster, tensor_info.ancester_tensor_id, src_tensor_id,
                                    sch_map, schedule_.get_domain().get_space());
@@ -329,9 +329,9 @@ void MemoryManager::HoistIm2colBufferFootprintCluster(const isl::union_map &sche
   if ((tensor_info.footprints_cluster->foot_print_.box.is_valid()) && (im2col_fp_cluster->foot_print_.box.is_valid())) {
     GatherBufferFootprintDefInfo(node, tensor_info);
     // this update info is used for spec gemm
-    scop_info_.cube_info_.UpdateFractalIntFirstInfo(scop_info_.cube_info_.IsConvBackpropFilter(),
-                                                    im2col_fp_cluster->GetFixedBoxSizes(),
-                                                    tensor_info.footprints_cluster->GetFixedBoxSizes());
+    scop_info_.mmu_info_.UpdateFractalIntFirstInfo(scop_info_.mmu_info_.IsConvBackpropFilter(),
+                                                   im2col_fp_cluster->GetFixedBoxSizes(),
+                                                   tensor_info.footprints_cluster->GetFixedBoxSizes());
   } else {
     int64_t t_ci = 1;
     int64_t k_h = 0;
@@ -345,7 +345,7 @@ void MemoryManager::HoistIm2colBufferFootprintCluster(const isl::union_map &sche
     int64_t c_in = 0;
     LOG(INFO) << "im2col or fractal foot_print_ box is invalid.";
 
-    Map<std::string, NodeRef> attr_info = scop_info_.cube_info_.GetConvAttrInfo();
+    Map<std::string, NodeRef> attr_info = scop_info_.mmu_info_.GetConvAttrInfo();
     auto it = attr_info.find(ATTR_CONV_KERNEL_H);
     if ((it != attr_info.end()) && (*it).second.as<IntImm>()) k_h = (*it).second.as<IntImm>()->value;
     it = attr_info.find(ATTR_CONV_KERNEL_W);
@@ -381,25 +381,25 @@ void MemoryManager::HoistIm2colBufferFootprintCluster(const isl::union_map &sche
     }
 
     std::vector<size_t> sizes;
-    sizes.push_back(1);                                                      // 1
-    sizes.push_back((size_t)((t_ho * t_wo + 15) / 16));                      // 109
-    sizes.push_back((size_t)(t_ci * k_h * k_w));                             // 43648
-    sizes.push_back(16);                                                     // 16
-    sizes.push_back(16);                                                     // 16
-    scop_info_.cube_info_.fractal_int_info_[ATTR_CONV_GMM_M] = t_ho * t_wo;  // 1739
-    scop_info_.cube_info_.fractal_int_info_[ATTR_CONV_BATCH] = (int64_t)sizes[0];
-    scop_info_.cube_info_.fractal_int_info_[ATTR_CONV_TILE_M] = (int64_t)sizes[1];
-    scop_info_.cube_info_.fractal_int_info_[ATTR_CONV_TILE_K] = (int64_t)sizes[2];
-    scop_info_.cube_info_.fractal_int_info_[ATTR_CONV_M_INNER] = (int64_t)sizes[3];
-    scop_info_.cube_info_.fractal_int_info_[ATTR_CONV_K_INNER] = (int64_t)sizes[4];
+    sizes.push_back(1);                                                     // 1
+    sizes.push_back((size_t)((t_ho * t_wo + 15) / 16));                     // 109
+    sizes.push_back((size_t)(t_ci * k_h * k_w));                            // 43648
+    sizes.push_back(16);                                                    // 16
+    sizes.push_back(16);                                                    // 16
+    scop_info_.mmu_info_.fractal_int_info_[ATTR_CONV_GMM_M] = t_ho * t_wo;  // 1739
+    scop_info_.mmu_info_.fractal_int_info_[ATTR_CONV_BATCH] = (int64_t)sizes[0];
+    scop_info_.mmu_info_.fractal_int_info_[ATTR_CONV_TILE_M] = (int64_t)sizes[1];
+    scop_info_.mmu_info_.fractal_int_info_[ATTR_CONV_TILE_K] = (int64_t)sizes[2];
+    scop_info_.mmu_info_.fractal_int_info_[ATTR_CONV_M_INNER] = (int64_t)sizes[3];
+    scop_info_.mmu_info_.fractal_int_info_[ATTR_CONV_K_INNER] = (int64_t)sizes[4];
     GatherFractalDefInfo(node, tensor_info, sizes);
   }
-  scop_info_.cube_info_.fractal_int_info_[ATTR_CONV_FEATURE_W] =
-    scop_info_.cube_info_.ExtractExprFromAttrs(ATTR_CONV_FEATURE_W);
-  scop_info_.cube_info_.fractal_int_info_[ATTR_CONV_PAD_LEFT] =
-    scop_info_.cube_info_.ExtractExprFromAttrs(ATTR_CONV_PAD_LEFT);
-  scop_info_.cube_info_.fractal_int_info_[ATTR_CONV_PAD_RIGHT] =
-    scop_info_.cube_info_.ExtractExprFromAttrs(ATTR_CONV_PAD_RIGHT);
+  scop_info_.mmu_info_.fractal_int_info_[ATTR_CONV_FEATURE_W] =
+    scop_info_.mmu_info_.ExtractExprFromAttrs(ATTR_CONV_FEATURE_W);
+  scop_info_.mmu_info_.fractal_int_info_[ATTR_CONV_PAD_LEFT] =
+    scop_info_.mmu_info_.ExtractExprFromAttrs(ATTR_CONV_PAD_LEFT);
+  scop_info_.mmu_info_.fractal_int_info_[ATTR_CONV_PAD_RIGHT] =
+    scop_info_.mmu_info_.ExtractExprFromAttrs(ATTR_CONV_PAD_RIGHT);
 }
 
 void MemoryManager::MakeMultiBufferFootprint(const isl::union_map &schedule, const isl::schedule_node &node, int &index,
@@ -459,7 +459,7 @@ void MemoryManager::AddStateTensorsDataFlow() {
     if (it != tensor_mem_flows[name].end() && it2 != tensor_mem_flows[name].end()) {
       std::vector<std::string> name_flow1, name_flow2;
       MemFlow mem_flow1, mem_flow2;
-      if (scop_info_.cube_info_.IsConv() || scop_info_.cube_info_.IsGemm()) {
+      if (scop_info_.mmu_info_.IsConv() || scop_info_.mmu_info_.IsGemm()) {
         name_flow1.push_back(tensor_name_flows[name][0]);
         mem_flow1.push_back(tensor_mem_flows[name][0]);
         name_flow1.push_back(tensor_name_flows[name][2]);
@@ -474,7 +474,7 @@ void MemoryManager::AddStateTensorsDataFlow() {
         name_flow2.push_back(tensor_name_flows[name][3]);
         mem_flow2.push_back(tensor_mem_flows[name][3]);
       }
-      if (scop_info_.cube_info_.IsConv() && scop_info_.cube_info_.IsA(name)) {
+      if (scop_info_.mmu_info_.IsConv() && scop_info_.mmu_info_.IsA(name)) {
         name_flow2.push_back(tensor_name_flows[name][4]);
         mem_flow2.push_back(tensor_mem_flows[name][4]);
       }
@@ -577,7 +577,7 @@ void MemoryManager::AddTensorDataFlow(const std::vector<MemType> &memflow, const
     dst_mem_type = data_stream[1].second;
   }
   std::string mark_tag = TensorMarkTag(dst_mem_type, memflow);
-  if (scop_info_.cube_info_.IsIm2col() && mark_tag == REALIZE_C1) {
+  if (scop_info_.mmu_info_.IsIm2col() && mark_tag == REALIZE_C1) {
     mark_tag = REALIZE_BUF;
   }
 
@@ -620,7 +620,7 @@ void MemoryManager::MakeBufferFootprintCluster(BufferDefInfo &tensor_info) {
         AddGemmTransposeFpCluster(schedule);
       }
       MakeMultiBufferFootprint(schedule, node, index, tensor_info);
-      scop_info_.cube_info_.UpdateSpecGemmFractalInfo(tensor_info);
+      scop_info_.mmu_info_.UpdateSpecGemmFractalInfo(tensor_info);
     }
     index++;
   }
@@ -649,12 +649,12 @@ void MemoryManager::ReorderBufferedDefInfos() {
 
 void MemoryManager::AddGemmTransposeFpCluster(const isl::union_map &schedule) {
   auto domain = schedule.domain();
-  if (scop_info_.cube_info_.IsGemmDataTranspose()) {
-    if (scop_info_.cube_info_.IsGemmDataTransposeBlock()) {
+  if (scop_info_.mmu_info_.IsGemmDataTranspose()) {
+    if (scop_info_.mmu_info_.IsGemmDataTransposeBlock()) {
       gemm_a_transpose_fp_cluster_ =
         ConstructAffineFpCluster(scop_info_, scop_info_.analysis_result_.GetReads(), domain, schedule,
                                  ReferenceType::Read, AffineType::AFFINE_GEMMBLOCK, AffineTensor::LEFT_TENSOR);
-    } else if (scop_info_.cube_info_.IsGemmDataTransposeInnerBlock()) {
+    } else if (scop_info_.mmu_info_.IsGemmDataTransposeInnerBlock()) {
       gemm_a_transpose_fp_cluster_ =
         ConstructAffineFpCluster(scop_info_, scop_info_.analysis_result_.GetReads(), domain, schedule,
                                  ReferenceType::Read, AffineType::AFFINE_GEMMBLOCKIN, AffineTensor::LEFT_TENSOR);
@@ -664,12 +664,12 @@ void MemoryManager::AddGemmTransposeFpCluster(const isl::union_map &schedule) {
                                  ReferenceType::Read, AffineType::AFFINE_GEMM, AffineTensor::LEFT_TENSOR);
     }
   }
-  if (scop_info_.cube_info_.IsGemmWeightTranspose()) {
-    if (scop_info_.cube_info_.IsGemmWeightTransposeBlock()) {
+  if (scop_info_.mmu_info_.IsGemmWeightTranspose()) {
+    if (scop_info_.mmu_info_.IsGemmWeightTransposeBlock()) {
       gemm_b_transpose_fp_cluster_ =
         ConstructAffineFpCluster(scop_info_, scop_info_.analysis_result_.GetReads(), domain, schedule,
                                  ReferenceType::Read, AffineType::AFFINE_GEMMBLOCK, AffineTensor::RIGHT_TENSOR);
-    } else if (scop_info_.cube_info_.IsGemmWeightTransposeInnerBlock()) {
+    } else if (scop_info_.mmu_info_.IsGemmWeightTransposeInnerBlock()) {
       gemm_b_transpose_fp_cluster_ =
         ConstructAffineFpCluster(scop_info_, scop_info_.analysis_result_.GetReads(), domain, schedule,
                                  ReferenceType::Read, AffineType::AFFINE_GEMMBLOCKIN, AffineTensor::RIGHT_TENSOR);

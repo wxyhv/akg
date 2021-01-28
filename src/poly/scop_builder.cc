@@ -294,7 +294,7 @@ void ParseStmtOpCall(const isl::id &id, const Call *call, AnalysisResult &result
       ParseStmtOps(id, call->args[0], result, func);
     } else if (0 == strcmp(call->name.c_str(), "mad")) {
       result.GetStmtOpInfoMap().at(id).ops.push_back(PolyOpType::mad);
-      result.GetStmtOpInfoMap().at(id).isCube = true;
+      result.GetStmtOpInfoMap().at(id).isMMU = true;
       // assign + mad
       std::string name = id.get_name();
       size_t index = static_cast<size_t>(WrappedStrtol(name.substr(name.length() - 1)));
@@ -303,7 +303,7 @@ void ParseStmtOpCall(const isl::id &id, const Call *call, AnalysisResult &result
       ss << tmp << index - 1;
       if (result.GetStmtOpInfoMap().count(isl::id(id.ctx(), ss.str())) > 0 &&
           result.GetStmtOpInfoMap().at(isl::id(id.ctx(), ss.str())).ops[0] == PolyOpType::broadcast)
-        result.GetStmtOpInfoMap().at(isl::id(id.ctx(), ss.str())).isCubeAssign = true;
+        result.GetStmtOpInfoMap().at(isl::id(id.ctx(), ss.str())).isMMUAssign = true;
       // end
       result.GetStmtOpInfoMap().at(id).C_ = func->func_name();
       CHECK(call->args.size() == 2) << "invalid args of mad! ";
@@ -344,8 +344,8 @@ void ParseStmtOpCall(const isl::id &id, const Call *call, AnalysisResult &result
 }
 
 void ParseStmtOps(const isl::id &id, const Expr &val, AnalysisResult &result, const FunctionRef &func) {
-  result.GetStmtOpInfoMap().at(id).isCube = false;
-  result.GetStmtOpInfoMap().at(id).isCubeAssign = false;
+  result.GetStmtOpInfoMap().at(id).isMMU = false;
+  result.GetStmtOpInfoMap().at(id).isMMUAssign = false;
   if (auto add = val.as<Add>()) {
     if (isImm(add->a) || isImm(add->b)) {
       if (!isImm(add->a)) {  // if add->a is not a scalar, then put it into recursion

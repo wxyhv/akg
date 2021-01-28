@@ -885,11 +885,11 @@ class CubeInfo {
   void SetSpecGemm(bool is_spec_gemm) { this->is_spec_gemm_ = is_spec_gemm; }
   bool IsSpecGemm() const { return is_spec_gemm_; }
   void CreateConvModel();
-  std::vector<Stmt> GetOldL1Write() { return old_l1_write_; }
+  std::vector<Stmt> GetOldC1Write() { return old_l1_write_; }
   int GetOutReduceInit() const { return out_reduce_init_; }
   TileSizes GetConvMNKDims() { return conv_mnk_dims_; }
   void SetConvMNKDims(const TileSizes &conv_mnk_dims) { conv_mnk_dims_ = conv_mnk_dims; }
-  void OldL1WriteInsert(Stmt &s) { old_l1_write_.emplace_back(s); }
+  void OldC1WriteInsert(Stmt &s) { old_l1_write_.emplace_back(s); }
   std::vector<std::vector<Range>> GetRangeInfo() const { return range_info_; }
   void RecordRangeAt(size_t idx, const Range &range) {
     if (idx < range_info_.size()) {
@@ -976,7 +976,7 @@ class CubeInfo {
 class ScopInfo {
  public:
   explicit ScopInfo(isl::ctx ctx)
-      : ctx_(ctx), cube_info_(CubeInfo(user_config_, analysis_result_)), sync_manager_(ctx) {}
+      : ctx_(ctx), mmu_info_(CubeInfo(user_config_, analysis_result_)), sync_manager_(ctx) {}
   ~ScopInfo() = default;
 
   // dump tools
@@ -1033,7 +1033,7 @@ class ScopInfo {
   isl::ctx ctx_;
   UserConfig user_config_;
   AnalysisResult analysis_result_;
-  CubeInfo cube_info_;
+  CubeInfo mmu_info_;
   TimeRecords time_records_;
   SyncManager sync_manager_;
   UpaNodeMapping upa_node_mapping_;

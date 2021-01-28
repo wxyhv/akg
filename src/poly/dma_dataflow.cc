@@ -254,7 +254,7 @@ void StmtDataFlowInfo::CubeConvC(const std::string &name, TensorDataFlow &datafl
 }
 
 void StmtDataFlowInfo::CubeGEMMA(const std::string &name, TensorDataFlow &dataflow) {
-  std::size_t start1 = name.find(FRACTAL_C1);
+  std::size_t start1 = name.find(_FRACTAL_C1);
   if (start1 != std::string::npos) {
     // spec gemm A
     std::string head = name.substr(0, start1);
@@ -279,7 +279,7 @@ void StmtDataFlowInfo::CubeGEMMB(const std::string &name, TensorDataFlow &datafl
     dataflow.Initial(name, Cube_Spec_Gemm_B);
     return;
   }
-  std::size_t start2 = name.find(FRACTAL_C1);
+  std::size_t start2 = name.find(_FRACTAL_C1);
   if (start2 != std::string::npos) {
     // spec gemm B
     dataflow.Initial(name, Cube_Spec_Gemm_B_);
@@ -432,7 +432,7 @@ void DMADataFlow::CreateStmtDataFlow(STMT_OP_TYPE op_type, const isl::id &stmt_i
    *********************************/
   std::string state = stmt_id.get_name();
   if (op_data_flow_.find(state) == op_data_flow_.end()) {
-    StmtDataFlowInfo stmtDataflow(stmt_id, stmt_op.isCube);
+    StmtDataFlowInfo stmtDataflow(stmt_id, stmt_op.isMMU);
     op_data_flow_[state] = stmtDataflow;
   }
   if (op_type == STMT_OP_TYPE::CUBE_CONV) {

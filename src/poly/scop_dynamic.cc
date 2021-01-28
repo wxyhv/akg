@@ -217,29 +217,29 @@ void InsertPairsSpecGemmTileVar(std::map<int64_t, Expr> &param_map) {
 
 void InsertPairsConvTileVar(Stmt &stmt, ScopInfo &scop_info, std::map<int64_t, Expr> &param_map) {
   // tile size
-  const int t1_c1 = scop_info.cube_info_.GetAttrValue(ATTR_CONV_TILE_CO) / 16;
-  const int h_cut = scop_info.cube_info_.GetAttrValue(ATTR_CONV_TILE_H);
-  const int w_cut = scop_info.cube_info_.GetAttrValue(ATTR_CONV_TILE_W);
+  const int t1_c1 = scop_info.mmu_info_.GetAttrValue(ATTR_CONV_TILE_CO) / 16;
+  const int h_cut = scop_info.mmu_info_.GetAttrValue(ATTR_CONV_TILE_H);
+  const int w_cut = scop_info.mmu_info_.GetAttrValue(ATTR_CONV_TILE_W);
 
-  const int t0_m = scop_info.cube_info_.GetAttrValue(ATTR_CONV_TILE_M);
-  const int t0_k = scop_info.cube_info_.GetAttrValue(ATTR_CONV_TILE_K);
-  const int t0_n = scop_info.cube_info_.GetAttrValue(ATTR_CONV_TILE_N);
+  const int t0_m = scop_info.mmu_info_.GetAttrValue(ATTR_CONV_TILE_M);
+  const int t0_k = scop_info.mmu_info_.GetAttrValue(ATTR_CONV_TILE_K);
+  const int t0_n = scop_info.mmu_info_.GetAttrValue(ATTR_CONV_TILE_N);
 
   const int ci1 = 128;
 
   // kernel
-  const int k_h = scop_info.cube_info_.GetAttrValue(ATTR_CONV_KERNEL_H);
-  const int k_w = scop_info.cube_info_.GetAttrValue(ATTR_CONV_KERNEL_W);
+  const int k_h = scop_info.mmu_info_.GetAttrValue(ATTR_CONV_KERNEL_H);
+  const int k_w = scop_info.mmu_info_.GetAttrValue(ATTR_CONV_KERNEL_W);
 
   // pad
-  const int p_t = scop_info.cube_info_.GetAttrValue(ATTR_CONV_PAD_TOP);
-  const int p_b = scop_info.cube_info_.GetAttrValue(ATTR_CONV_PAD_BOTTOM);
-  const int p_l = scop_info.cube_info_.GetAttrValue(ATTR_CONV_PAD_LEFT);
-  const int p_r = scop_info.cube_info_.GetAttrValue(ATTR_CONV_PAD_RIGHT);
+  const int p_t = scop_info.mmu_info_.GetAttrValue(ATTR_CONV_PAD_TOP);
+  const int p_b = scop_info.mmu_info_.GetAttrValue(ATTR_CONV_PAD_BOTTOM);
+  const int p_l = scop_info.mmu_info_.GetAttrValue(ATTR_CONV_PAD_LEFT);
+  const int p_r = scop_info.mmu_info_.GetAttrValue(ATTR_CONV_PAD_RIGHT);
 
   // stride
-  const int s_h = scop_info.cube_info_.GetAttrValue(ATTR_CONV_STRIDE_H);
-  const int s_w = scop_info.cube_info_.GetAttrValue(ATTR_CONV_STRIDE_W);
+  const int s_h = scop_info.mmu_info_.GetAttrValue(ATTR_CONV_STRIDE_H);
+  const int s_w = scop_info.mmu_info_.GetAttrValue(ATTR_CONV_STRIDE_W);
 
   const int t1_h = (h_cut - k_h) / s_h + 1;
   const int t1_w = (w_cut - k_w) / s_w + 1;
@@ -360,7 +360,7 @@ void InsertPairsSpecGemmOrConv(Stmt &stmt, ScopInfo &scop_info, std::map<int64_t
   Expr m_size_expr = 1;
   int64_t t0_mo = 1;
   Expr t0_mo_expr = 1;
-  auto conv_mnk_dims = scop_info.cube_info_.GetConvMNKDims();
+  auto conv_mnk_dims = scop_info.mmu_info_.GetConvMNKDims();
   for (const auto &dims : conv_mnk_dims) {
     if (dims.axis == ATTR_CONV_TILE_M || dims.axis == ATTR_CONV_TILE_N || dims.axis == ATTR_CONV_TILE_K) {
       if (dims.c0_var.defined()) {
@@ -446,9 +446,9 @@ void InsertPairs(Stmt &stmt, ScopInfo &scop_info, std::map<int64_t, Expr> &param
 
 Stmt ReplacePrimesWithParameters(Stmt stmt, ScopInfo &scop_info) {
   std::map<int64_t, Expr> param_map;
-  if (scop_info.cube_info_.IsSpecGemm() || scop_info.cube_info_.IsConv()) {
+  if (scop_info.mmu_info_.IsSpecGemm() || scop_info.mmu_info_.IsConv()) {
     if (scop_info.user_config_.GetTileSizeIsVar()) {
-      if (scop_info.cube_info_.IsSpecGemm()) {
+      if (scop_info.mmu_info_.IsSpecGemm()) {
         InsertPairsSpecGemmTileVar(param_map);
       } else {
         InsertPairsConvTileVar(stmt, scop_info, param_map);
@@ -465,12 +465,12 @@ Stmt ReplacePrimesWithParameters(Stmt stmt, ScopInfo &scop_info) {
 }
 
 Stmt RestoreCombinedParams(Stmt stmt, ScopInfo &scop_info) {
-  if (scop_info.cube_info_.IsConv() && !scop_info.cube_info_.IsSpecGemm()) {
+  if (scop_info.mmu_info_.IsConv() && !scop_info.mmu_info_.IsSpecGemm()) {
     stmt = RestoreConstToMinMutator().Mutate(stmt);
   }
   stmt = ReplacePrimesWithParameters(stmt, scop_info);
   if (scop_info.user_config_.GetTileSizeIsVar()) {
-    if (scop_info.cube_info_.IsSpecGemm()) {
+    if (scop_info.mmu_info_.IsSpecGemm()) {
       std::unordered_map<std::string, Expr> params_map;
       params_map.insert(std::make_pair(
         "MO", floordiv(min(Var("T1_0_H"), floordiv(Var("H") + Var("PT") + Var("PB") - Var("KH"), Var("SH")) -
@@ -484,7 +484,7 @@ Stmt RestoreCombinedParams(Stmt stmt, ScopInfo &scop_info) {
       stmt = RestoreCombinedParamsMutator(params_map).Mutate(stmt);
     } else if (!scop_info.user_config_.GetDynamicShapeConvFullParametric()) {
       std::unordered_map<std::string, Expr> params_map;
-      Full2PartialDynamic(params_map, scop_info.cube_info_.GetConvAttrInfo());
+      Full2PartialDynamic(params_map, scop_info.mmu_info_.GetConvAttrInfo());
       stmt = RestoreCombinedParamsMutator(params_map).Mutate(stmt);
     }
   }

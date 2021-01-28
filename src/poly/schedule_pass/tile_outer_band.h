@@ -45,7 +45,7 @@ class TileOuterBand : public SchedulePass {
   };
   virtual isl::schedule Run(isl::schedule sch);
   isl::schedule RunCuda(isl::schedule sch);
-  isl::schedule RunCce(isl::schedule sch);
+  isl::schedule RunNpu(isl::schedule sch);
   void InitDimensionInfo(const isl::schedule &);
   void MergeTilingInfo();
   std::vector<std::vector<int>> AddTileInfo(const std::vector<std::vector<int>> &partition_info);
@@ -56,7 +56,7 @@ class TileOuterBand : public SchedulePass {
   isl::schedule_node ReverseTraverseChild(isl::schedule_node node,
                                           const std::function<isl::schedule_node(isl::schedule_node)> f);
   isl::schedule_node MarkOuterPermutableCuda(isl::schedule_node node);
-  isl::schedule_node MarkOuterPermutableCce(isl::schedule_node node);
+  isl::schedule_node MarkOuterPermutableNpu(isl::schedule_node node);
   int IsOuterTilable(const isl::schedule_node &node);
   int IsCandidate(const isl::schedule_node &node);
   bool IsPermutable(const isl::schedule_node &node, bool checkCoincident);

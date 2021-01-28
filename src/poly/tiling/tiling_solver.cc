@@ -873,7 +873,7 @@ TileCandidate *TraverseSolver::Solve() {
   }
 
   if (analyzer_.op_type_ == CONV_OP) {
-    if (analyzer_.scop_info_.cube_info_.IsConvBackpropFilter()) {
+    if (analyzer_.scop_info_.mmu_info_.IsConvBackpropFilter()) {
       AppendConvBackpropPragma();
     } else {
       AppendConvPragma();
@@ -971,7 +971,7 @@ bool TraverseSolver::MemoryVerify(TileLevel level, int band, int64_t *deviation)
   bool C0_valid = (expanded_size[MEM_SCOPE_CACHE0_A] <= mem_limit_[MEM_SCOPE_CACHE0_A]) &&
                   (expanded_size[MEM_SCOPE_CACHE0_B] <= mem_limit_[MEM_SCOPE_CACHE0_B]) &&
                   (expanded_size[MEM_SCOPE_CACHE0_C] <= mem_limit_[MEM_SCOPE_CACHE0_C]);
-  bool cut_reduce = analyzer_.scop_info_.cube_info_.IsConvBackpropFilter();
+  bool cut_reduce = analyzer_.scop_info_.mmu_info_.IsConvBackpropFilter();
 
   std::vector<TileAxis *> batch_axes = analyzer_.GetAxesOfAttr(AttrInfo{AT_CONV, "N"});
   std::vector<TileAxis *> h_axes = analyzer_.GetAxesOfAttr(AttrInfo{AT_CONV, "H"});
@@ -1261,7 +1261,7 @@ void TraverseSolver::AppendConvBackpropPragma() {
 }
 
 void TraverseSolver::RestrainConvBackInputTileK(TileAxis *k_axis) const {
-  std::unordered_map<std::string, Expr> conv_info = analyzer_.scop_info_.cube_info_.GetConvInfoForTiling();
+  std::unordered_map<std::string, Expr> conv_info = analyzer_.scop_info_.mmu_info_.GetConvInfoForTiling();
   CHECK(conv_info.find(ATTR_CONV_KERNEL_H) != conv_info.end());
   CHECK(conv_info.find(ATTR_CONV_KERNEL_W) != conv_info.end());
   Expr k_w = conv_info[ATTR_CONV_KERNEL_W];
@@ -1281,7 +1281,7 @@ void TraverseSolver::CreateSpecgemmTileAxis(Expr mo, Expr no, Expr ko, bool cut_
     mo_axis->TileRestrainEntire(CACHE0);
     no_axis->TileRestrainEntire(CACHE0);
   }
-  if (analyzer_.scop_info_.cube_info_.IsConvBackpropInput()) {
+  if (analyzer_.scop_info_.mmu_info_.IsConvBackpropInput()) {
     RestrainConvBackInputTileK(ko_axis);
   }
   // Append axes to corresponding buffers.
@@ -1327,7 +1327,7 @@ void TraverseSolver::CreateSpecgemmTileAxis(Expr mo, Expr no, Expr ko, bool cut_
 
 void TraverseSolver::CreateConvPragma(const Expr &co_cut, Expr tile_out_h, Expr tile_out_w, Expr kh_cut, Expr kw_cut,
                                       Expr ci_cut, const Expr &batch_cut) {
-  std::unordered_map<std::string, Expr> conv_info = analyzer_.scop_info_.cube_info_.GetConvInfoForTiling();
+  std::unordered_map<std::string, Expr> conv_info = analyzer_.scop_info_.mmu_info_.GetConvInfoForTiling();
   CHECK(conv_info.find(ATTR_CONV_STRIDE_H) != conv_info.end());
   CHECK(conv_info.find(ATTR_CONV_DILATION_H) != conv_info.end());
   CHECK(conv_info.find(ATTR_CONV_KERNEL_H) != conv_info.end());

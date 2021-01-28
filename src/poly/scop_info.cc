@@ -43,7 +43,7 @@ bool CubeInfo::IsConvBackpropFilter() const {
 
 Expr CubeInfo::ExtractExprFromAttrs(const std::string &name) const {
   for (auto i : analysis_result_.GetStmtOpInfoMap()) {
-    if (!i.second.isCube) {
+    if (!i.second.isMMU) {
       continue;
     }
 
@@ -95,7 +95,7 @@ int UserConfig::GetDataType(const std::string &name) const {
 
 std::string CubeInfo::ExtractStringFromAttrs(const std::string &name) const {
   for (auto i : analysis_result_.GetStmtOpInfoMap()) {
-    if (!i.second.isCube) {
+    if (!i.second.isMMU) {
       continue;
     }
 
@@ -118,7 +118,7 @@ std::string CubeInfo::ExtractStringFromAttrs(const std::string &name) const {
 
 std::string CubeInfo::ExtractStringFromAttrsAndInfo(const std::string &name) const {
   for (auto i : analysis_result_.GetStmtOpInfoMap()) {
-    if (!i.second.isCube) {
+    if (!i.second.isMMU) {
       continue;
     }
 
@@ -195,7 +195,7 @@ bool ScopInfo::MayWriteAfterRead(const std::string &name) const {
 
 bool CubeInfo::IsA(const std::string &name) const {
   for (auto &info : analysis_result_.GetStmtOpInfoMap()) {
-    if (info.second.isCube) {
+    if (info.second.isMMU) {
       if (info.second.A_ == name) {
         return true;
       }
@@ -206,7 +206,7 @@ bool CubeInfo::IsA(const std::string &name) const {
 
 bool CubeInfo::IsB(const std::string &name) const {
   for (auto &info : analysis_result_.GetStmtOpInfoMap()) {
-    if (info.second.isCube) {
+    if (info.second.isMMU) {
       if (info.second.B_ == name) {
         return true;
       }
@@ -217,7 +217,7 @@ bool CubeInfo::IsB(const std::string &name) const {
 
 bool CubeInfo::IsC(const std::string &name) const {
   for (auto &info : analysis_result_.GetStmtOpInfoMap()) {
-    if (info.second.isCube) {
+    if (info.second.isMMU) {
       if (info.second.C_ == name) {
         return true;
       }
@@ -228,7 +228,7 @@ bool CubeInfo::IsC(const std::string &name) const {
 
 bool CubeInfo::IsCUB(const std::string &name) const {
   for (auto &info : analysis_result_.GetStmtOpInfoMap()) {
-    if (info.second.isCube) {
+    if (info.second.isMMU) {
       if (info.second.C_ + LOCAL_BUF == name) {
         return true;
       }
@@ -239,7 +239,7 @@ bool CubeInfo::IsCUB(const std::string &name) const {
 
 std::string CubeInfo::GetAName() const {
   for (auto &info : analysis_result_.GetStmtOpInfoMap()) {
-    if (info.second.isCube) {
+    if (info.second.isMMU) {
       return info.second.A_;
     }
   }
@@ -248,7 +248,7 @@ std::string CubeInfo::GetAName() const {
 
 std::string CubeInfo::GetBName() const {
   for (auto &info : analysis_result_.GetStmtOpInfoMap()) {
-    if (info.second.isCube) {
+    if (info.second.isMMU) {
       return info.second.B_;
     }
   }
@@ -257,7 +257,7 @@ std::string CubeInfo::GetBName() const {
 
 std::string CubeInfo::GetCName() const {
   for (auto &info : analysis_result_.GetStmtOpInfoMap()) {
-    if (info.second.isCube) {
+    if (info.second.isMMU) {
       return info.second.C_;
     }
   }
@@ -289,7 +289,7 @@ bool CubeInfo::IsLoadIm2colC1BUFStmt(const std::string &stmt_name) const {
 
 bool CubeInfo::HasCube() const {
   for (auto &info : analysis_result_.GetStmtOpInfoMap()) {
-    if (info.second.isCube) return true;
+    if (info.second.isMMU) return true;
   }
   return false;
 }
@@ -341,7 +341,7 @@ void CubeInfo::UpdateComputeAttrInfo() {
 
 void CubeInfo::FindComputeAttr(const std::vector<std::string> &op_keys) {
   for (auto i : analysis_result_.GetStmtOpInfoMap()) {
-    if (i.second.isCube || i.second.is_load_im2col) {
+    if (i.second.isMMU || i.second.is_load_im2col) {
       const Node *stmt_node = analysis_result_.GetStatementMap().at(i.first);
       if (stmt_node->IsInstance<Provide>()) {
         auto provide = static_cast<const Provide *>(stmt_node);
@@ -361,7 +361,7 @@ void CubeInfo::FindComputeAttr(const std::vector<std::string> &op_keys) {
 
 std::string CubeInfo::ConvOutName() {
   for (auto stmt : analysis_result_.GetStmtOpInfoMap()) {
-    if (stmt.second.isCube) {
+    if (stmt.second.isMMU) {
       return stmt.second.C_;
     }
   }
@@ -432,7 +432,7 @@ bool ScopInfo::IsInBinds(const std::string &name) const {
 
 air::DataType CubeInfo::MadCastType() {
   for (auto stmt : analysis_result_.GetStmtOpInfoMap()) {
-    if (stmt.second.isCube) {
+    if (stmt.second.isMMU) {
       return stmt.second.MadType_;
     }
   }
@@ -1108,7 +1108,7 @@ bool CubeInfo::IsConvHeadTail(const std::string &conv_output, const isl::id &stm
                               const StmtIdHashMap &op_write_map) {
   if (!IsConv()) return false;
 
-  if (op_info.isCube || op_info.isCubeAssign) return false;
+  if (op_info.isMMU || op_info.isMMUAssign) return false;
 
   if (op_info.ops.size() != 1) return false;
 
@@ -1128,8 +1128,8 @@ void ScopInfo::CreateDataFlowInfo() {
   StmtIdHashMap op_write_map = StmtWriteMap();
   StmtIdHashMap op_read_map = StmtReadMap();
   std::string conv_output;
-  if (cube_info_.IsConv()) {
-    conv_output = cube_info_.ConvOutName();
+  if (mmu_info_.IsConv()) {
+    conv_output = mmu_info_.ConvOutName();
   }
   uint64_t stmtNum = analysis_result_.GetStmtOpInfoMap().size();
   analysis_result_.stmt_type_.resize(stmtNum);
@@ -1144,17 +1144,17 @@ void ScopInfo::CreateDataFlowInfo() {
     size_t num = strtol(subNum.c_str(), &endptr, radix);
     if (endptr == nullptr || *endptr != '\0') LOG(FATAL) << "failed to convert string " << subNum << " to number";
 
-    if (cube_info_.IsConv() && cube_info_.IsConvHeadTail(conv_output, stmt.first, stmt.second, op_write_map)) {
+    if (mmu_info_.IsConv() && mmu_info_.IsConvHeadTail(conv_output, stmt.first, stmt.second, op_write_map)) {
       analysis_result_.stmt_type_[num] = std::make_pair(stmt.first.get_name(), STMT_OP_TYPE::VECTOR);
       continue;
     }
 
-    if (stmt.second.isCube && cube_info_.IsConv()) {
+    if (stmt.second.isMMU && mmu_info_.IsConv()) {
       analysis_result_.stmt_type_[num] = std::make_pair(stmt.first.get_name(), STMT_OP_TYPE::CUBE_CONV);
       dma_dataflow.CreateStmtDataFlow(STMT_OP_TYPE::CUBE_CONV, stmt.first, stmt.second, op_read_map, op_write_map);
     }
 
-    if (stmt.second.isCube && !cube_info_.IsConv()) {
+    if (stmt.second.isMMU && !mmu_info_.IsConv()) {
       analysis_result_.stmt_type_[num] = std::make_pair(stmt.first.get_name(), STMT_OP_TYPE::CUBE_GEMM);
       dma_dataflow.CreateStmtDataFlow(STMT_OP_TYPE::CUBE_GEMM, stmt.first, stmt.second, op_read_map, op_write_map);
     }
@@ -1164,12 +1164,12 @@ void ScopInfo::CreateDataFlowInfo() {
       dma_dataflow.CreateStmtDataFlow(STMT_OP_TYPE::IM2COL_UB, stmt.first, stmt.second, op_read_map, op_write_map);
     }
 
-    if (!stmt.second.isCube && !stmt.second.isCubeAssign) {
+    if (!stmt.second.isMMU && !stmt.second.isMMUAssign) {
       analysis_result_.stmt_type_[num] = std::make_pair(stmt.first.get_name(), STMT_OP_TYPE::VECTOR);
       dma_dataflow.CreateStmtDataFlow(STMT_OP_TYPE::VECTOR, stmt.first, stmt.second, op_read_map, op_write_map);
     }
 
-    if (stmt.second.isCubeAssign) {
+    if (stmt.second.isMMUAssign) {
       analysis_result_.stmt_type_[num] = std::make_pair(stmt.first.get_name(), STMT_OP_TYPE::VECTOR);
     }
   }
@@ -1185,10 +1185,10 @@ void ScopInfo::AddPartitionInfoToData(const std::vector<std::vector<int>> &parti
   for (unsigned int i = 0; i < partition_info.size(); i++) {
     std::vector<Range> tmp;
     for (unsigned int j = 1; j < partition_info[i].size(); j++) {
-      cube_info_.RecordRangeAt(i, Range(Expr(partition_info[i][j - 1]), Expr(partition_info[i][j])));
+      mmu_info_.RecordRangeAt(i, Range(Expr(partition_info[i][j - 1]), Expr(partition_info[i][j])));
     }
     if (partition_info[i].size() == 1) {
-      cube_info_.RecordRangeAt(i, Range(Expr(0), Expr(0)));
+      mmu_info_.RecordRangeAt(i, Range(Expr(0), Expr(0)));
     }
   }
 }

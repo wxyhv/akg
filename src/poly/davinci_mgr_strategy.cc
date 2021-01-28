@@ -66,11 +66,11 @@ void DavinciMgrStrategy::RegisterPasses() {
     RegisterPass(std::make_shared<KeepOuterBandOrder>(scop_info_));
   }
   RegisterPass(std::make_shared<UnGroupStatements>(pass_info_));
-  if (scop_info_.user_config_.GetOuterBandNeedSplit() && !scop_info_.cube_info_.IsSpecGemm()) {
+  if (scop_info_.user_config_.GetOuterBandNeedSplit() && !scop_info_.mmu_info_.IsSpecGemm()) {
     RegisterPass(std::make_shared<SplitOuterBand>());
   }
   RegisterPass(std::make_shared<ComputeInnerBandDependency>(scop_info_));
-  if (!scop_info_.cube_info_.IsSpecGemm() && (scop_info_.cube_info_.IsConv() || scop_info_.cube_info_.IsGemm())) {
+  if (!scop_info_.mmu_info_.IsSpecGemm() && (scop_info_.mmu_info_.IsConv() || scop_info_.mmu_info_.IsGemm())) {
     RegisterPass(std::make_shared<ComputeTransferCopyin>(scop_info_, pass_info_));
   }
   if (scop_info_.user_config_.GetIsTuning()) {
@@ -82,24 +82,24 @@ void DavinciMgrStrategy::RegisterPasses() {
   if (scop_info_.user_config_.GetPragmaSetAllCoincident()) {
     RegisterPass(std::make_shared<SetAllCoincidence>());
   }
-  if (!scop_info_.user_config_.GetIsDynamic() || !scop_info_.cube_info_.IsConv()) {
+  if (!scop_info_.user_config_.GetIsDynamic() || !scop_info_.mmu_info_.IsConv()) {
     RegisterPass(std::make_shared<Reschedule>(scop_info_, pass_info_));
   }
   RegisterPass(std::make_shared<ReorderInnerBand>(scop_info_.analysis_result_.GetCondVarsMap()));
   RegisterPass(std::make_shared<ChangeMarkNodePosition>(scop_info_.analysis_result_.ExtractWithStmtId()));
   RegisterPass(std::make_shared<LabelRealizeOutPosition>());
-  if (scop_info_.cube_info_.IsSpecGemm() || scop_info_.cube_info_.IsGemm() ||
-      scop_info_.cube_info_.IsConvBackpropFilter()) {
+  if (scop_info_.mmu_info_.IsSpecGemm() || scop_info_.mmu_info_.IsGemm() ||
+      scop_info_.mmu_info_.IsConvBackpropFilter()) {
     RegisterPass(std::make_shared<InsertNodeForAllocC>());
   }
   RegisterMemPromPasses();
-  if (!scop_info_.cube_info_.IsSpecGemm()) {
+  if (!scop_info_.mmu_info_.IsSpecGemm()) {
     RegisterPass(std::make_shared<TransferStmt>(scop_info_, pass_info_));
   }
   RegisterPass(std::make_shared<ReorderMarkNodes>());
   RegisterPass(std::make_shared<MarkFuseOp>());
   // if coincidence constraints are disabled (due to reschedule), we cannot determine multicore axis reliably
-  bool can_use_multiCore = !scop_info_.cube_info_.IsSpecGemm() && scop_info_.user_config_.GetConsiderCoincidence();
+  bool can_use_multiCore = !scop_info_.mmu_info_.IsSpecGemm() && scop_info_.user_config_.GetConsiderCoincidence();
   if (can_use_multiCore) {
     RegisterPass(std::make_shared<MarkOuterMost>(scop_info_));
   }

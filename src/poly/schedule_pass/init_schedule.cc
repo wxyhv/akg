@@ -38,7 +38,7 @@ void InitSchedule::RemoveUninitializedCopyin(isl::union_map &copy_in, const Bind
 }
 
 void InitSchedule::ModDependencesBeforeGroup(const isl::schedule &schedule) {
-  if (!scop_info_.cube_info_.IsSpecGemm()) {
+  if (!scop_info_.mmu_info_.IsSpecGemm()) {
     if (scop_info_.user_config_.GetRemoveSelfDependence()) {
       pass_info_.dependences_ = RemoveReduceOpSelfDependence(scop_info_, pass_info_);
     }

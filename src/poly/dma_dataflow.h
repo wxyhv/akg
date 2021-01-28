@@ -153,22 +153,17 @@ struct TensorDataFlow {
   void Initial(const std::string &name, const DataFlowAttrs &attrs);
 };
 
-const DataFlowAttrs Cube_Conv_A = {{MemType::DDR, ""},
-                                   {MemType::C1_, LOCAL_C1},
-                                   {MemType::C1_, FRACTAL_C1},
-                                   {MemType::C0A_, LOCAL_C1_LOCAL_C0A}};
-const DataFlowAttrs Cube_Conv_B = {
-  {MemType::DDR, ""}, {MemType::C1_, LOCAL_C1}, {MemType::C0B_, LOCAL_C1_LOCAL_C0B}};
+const DataFlowAttrs Cube_Conv_A = {
+  {MemType::DDR, ""}, {MemType::C1_, LOCAL_C1}, {MemType::C1_, _FRACTAL_C1}, {MemType::C0A_, LOCAL_C1_LOCAL_C0A}};
+const DataFlowAttrs Cube_Conv_B = {{MemType::DDR, ""}, {MemType::C1_, LOCAL_C1}, {MemType::C0B_, LOCAL_C1_LOCAL_C0B}};
 const DataFlowAttrs Cube_Conv_C = {
   {MemType::DDR, ""}, {MemType::BUF_, LOCAL_BUF}, {MemType::C0C_, "_local_UB_local_L0C"}};
-const DataFlowAttrs Cube_Spec_Gemm_A = {{MemType::C1_, FRACTAL_C1}, {MemType::C0A_, FRACTAL_C1_LOCAL_C0A}};
+const DataFlowAttrs Cube_Spec_Gemm_A = {{MemType::C1_, _FRACTAL_C1}, {MemType::C0A_, FRACTAL_C1_LOCAL_C0A}};
 const DataFlowAttrs Cube_Spec_Gemm_A_ = {{MemType::C1_, LOCAL_C1}, {MemType::C0A_, LOCAL_C1_LOCAL_C0A}};
-const DataFlowAttrs Cube_Gemm_A = {
-  {MemType::DDR, ""}, {MemType::C1_, LOCAL_C1}, {MemType::C0A_, LOCAL_C1_LOCAL_C0A}};
+const DataFlowAttrs Cube_Gemm_A = {{MemType::DDR, ""}, {MemType::C1_, LOCAL_C1}, {MemType::C0A_, LOCAL_C1_LOCAL_C0A}};
 const DataFlowAttrs Cube_Spec_Gemm_B = {{MemType::C1_, ""}, {MemType::C0B_, "_local_L0B"}};
 const DataFlowAttrs Cube_Spec_Gemm_B_ = {{MemType::C1_, ""}, {MemType::C0B_, "_local_L0B"}};
-const DataFlowAttrs Cube_Gemm_B = {
-  {MemType::DDR, ""}, {MemType::C1_, LOCAL_C1}, {MemType::C0B_, LOCAL_C1_LOCAL_C0B}};
+const DataFlowAttrs Cube_Gemm_B = {{MemType::DDR, ""}, {MemType::C1_, LOCAL_C1}, {MemType::C0B_, LOCAL_C1_LOCAL_C0B}};
 const DataFlowAttrs Cube_Spec_Gemm_C = {{MemType::BUF_C0_, ""}, {MemType::C0C_, LOCAL_C0C}};
 const DataFlowAttrs Cube_Gemm_C = {
   {MemType::DDR, ""}, {MemType::BUF_, LOCAL_BUF}, {MemType::C0C_, "_local_UB_local_L0C"}};

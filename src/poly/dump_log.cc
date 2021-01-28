@@ -369,12 +369,12 @@ void ScopInfo::DumpScopDataAdvanced(std::ofstream &of) {
   }
 
   PrintHeader(of, "fractal_int_info");
-  for (const auto &info : cube_info_.fractal_int_info_) {
+  for (const auto &info : mmu_info_.fractal_int_info_) {
     of << info.first << " : " << info.second << std::endl;
   }
 
   PrintHeader(of, "fractal_str_info");
-  for (const auto &info : cube_info_.fractal_str_info_) {
+  for (const auto &info : mmu_info_.fractal_str_info_) {
     of << info.first << " : " << info.second << std::endl;
   }
 
@@ -427,7 +427,7 @@ void ScopInfo::DumpScopDataAdvanced(std::ofstream &of) {
   of << std::endl;
 
   PrintHeader(of, "attr_info");
-  for (const auto &info : cube_info_.GetConvAttrInfo()) {
+  for (const auto &info : mmu_info_.GetConvAttrInfo()) {
     of << info.first << " : " << info.second << std::endl;
   }
 }
@@ -489,7 +489,7 @@ bool ScopInfo::DumpScopData(const std::string &file_name) {
 void ScopInfo::DumpSchTree(const std::string &file_name, const isl::schedule &sch_dump) {
   std::stringstream final_file_name;
   final_file_name << std::setw(2) << std::setfill('0') << dump_schtree_count << "_" << file_name
-                  << std::string(cube_info_.IsSpecGemm() ? "_specgemm" : "");
+                  << std::string(mmu_info_.IsSpecGemm() ? "_specgemm" : "");
   if (user_config_.GetDumpPassIr()) {
 #if DUMP_IR
     DumpSchTreeImpl(CreateDumpDir(final_file_name.str()), sch_dump);
