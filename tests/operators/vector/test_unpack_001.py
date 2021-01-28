@@ -62,17 +62,10 @@ class TestUnpack(TestBase):
             ("unpack_f16_8_big", unpack_run, ((8, 127), "float16", "ND", None, 0)),
         ]
 
-    @pytest.mark.rpc_mini
-    @pytest.mark.level1
-    @pytest.mark.env_onecard
-    @pytest.mark.platform_x86_ascend_training
     def test_mini_run(self):
         """mini run case"""
         self.common_run(self.testarg)
 
-    @pytest.mark.rpc_cloud
-    @pytest.mark.env_onecard
-    @pytest.mark.platform_x86_ascend_training
     def test_cloud_run(self):
         """cloud run case"""
         self.common_run(self.testarg_cloud)

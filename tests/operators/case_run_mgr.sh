@@ -259,7 +259,7 @@ function run_unittest_list()
     local case_pipe=$3
     old_path=$(pwd)
     cd "${path}" || return
-    local case_file_list=("cce/test_bias_add.py" "pass/test_promote_if.py" "pass/test_sink_if.py" "pass/test_ir_parser.py" "pass/test_elim_vector_mask.py" "pass/test_copy_propagation.py")
+    local case_file_list=()
     for case_name in "${case_file_list[@]}"
     do
         python "${case_name}" > "${case_name}.log" 2>&1

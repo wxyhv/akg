@@ -87,10 +87,6 @@ class TestBiasAdd(TestBase):
 
         return
 
-    @pytest.mark.rpc_mini
-    @pytest.mark.level0
-    @pytest.mark.env_onecard
-    @pytest.mark.platform_x86_ascend_training
     def test_run(self):
         """
         run case.#
@@ -98,9 +94,6 @@ class TestBiasAdd(TestBase):
         """
         self.common_run(self.testarg)
 
-    @pytest.mark.aicmodel
-    @pytest.mark.env_onecard
-    @pytest.mark.platform_x86_ascend_training
     def test_run_cloud(self):
         """
         run case.#
@@ -108,9 +101,6 @@ class TestBiasAdd(TestBase):
         """
         self.common_run(self.testarg_cloud)
 
-    @pytest.mark.level1
-    @pytest.mark.env_onecard
-    @pytest.mark.platform_x86_ascend_training
     def test_run_level1(self):
         """
         run case.#
@@ -118,9 +108,6 @@ class TestBiasAdd(TestBase):
         """
         self.common_run(self.testarg_level1)
 
-    @pytest.mark.rpc_cloud
-    @pytest.mark.env_onecard
-    @pytest.mark.platform_x86_ascend_training
     def test_run_rpc_cloud(self):
         self.common_run(self.testarg_rpc_cloud)
 

@@ -112,16 +112,9 @@ class TestCase(TestBase):
             ("lstm_rnn_ad_4", lstmcell_h_ad_run, ((1, 16, 32), "float16", "lstm_h_ad_4_fp16"), ((65536, 65536), )),
         ]
 
-    @pytest.mark.rpc_mini
-    @pytest.mark.level1
-    @pytest.mark.env_onecard
-    @pytest.mark.platform_x86_ascend_training
     def test_run(self):
         self.common_run(self.testarg)
 
-    @pytest.mark.level2
-    @pytest.mark.env_onecard
-    @pytest.mark.platform_x86_ascend_training
     def test_run_level2(self):
         self.common_run(self.testarg_level2)
 

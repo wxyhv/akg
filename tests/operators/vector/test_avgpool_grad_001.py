@@ -58,16 +58,9 @@ class TestAvgPoolGrad(TestBase):
         ]
         return
 
-    @pytest.mark.rpc_mini
-    @pytest.mark.level3
-    @pytest.mark.env_onecard
-    @pytest.mark.platform_x86_ascend_training
     def test_run_ci(self):
         self.common_run(self.testarg_ci)
 
-    @pytest.mark.level2
-    @pytest.mark.env_onecard
-    @pytest.mark.platform_x86_ascend_training
     def test_debug(self):
         self.common_run(self.testarg_debug)
 

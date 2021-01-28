@@ -55,10 +55,6 @@ class TestCase(TestBase):
             ("triplet_loss_0", triplet_loss_ad_run, ((4, 5), "float16", 6.0, "triplet_loss_fp16")),
         ]
 
-    @pytest.mark.rpc_mini
-    @pytest.mark.level0
-    @pytest.mark.env_onecard
-    @pytest.mark.platform_x86_ascend_training
     def test_run(self):
         self.common_run(self.testarg)
 

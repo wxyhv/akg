@@ -67,22 +67,12 @@ class TestCase(TestBase):
 
         return
 
-    @pytest.mark.rpc_mini
-    @pytest.mark.level0
-    @pytest.mark.env_onecard
-    @pytest.mark.platform_x86_ascend_training
     def test_run_ci(self):
         self.common_run(self.testarg_ci)
 
-    @pytest.mark.level1
-    @pytest.mark.env_onecard
-    @pytest.mark.platform_x86_ascend_training
     def test_run_nightly(self):
         self.common_run(self.testarg_nightly)
 
-    @pytest.mark.rpc_cloud
-    @pytest.mark.env_onecard
-    @pytest.mark.platform_x86_ascend_training
     def test_run_rpc_cloud(self):
         self.common_run(self.testarg_rpc_cloud)
 

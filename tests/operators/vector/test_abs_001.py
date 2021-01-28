@@ -57,21 +57,12 @@ class TestCase(TestBase):
         self._log.info("TestCase:{0} Setup case".format(self.casename))
         return True
 
-    @pytest.mark.level0
-    @pytest.mark.env_onecard
-    @pytest.mark.platform_x86_ascend_training
     def test_level0(self):
         return self.run_test_arg_func(self.test_args, "level0")
 
-    @pytest.mark.level1
-    @pytest.mark.env_onecard
-    @pytest.mark.platform_x86_ascend_training
     def test_level1(self):
         return self.run_test_arg_func(self.test_args, "level1")
 
-    @pytest.mark.aicmodel
-    @pytest.mark.env_onecard
-    @pytest.mark.platform_x86_ascend_training
     def test_run_cloud(self):
         return self.run_test_arg_func(self.test_args, "aic_cloud")
 

@@ -46,7 +46,6 @@ from test_run.conv_bn1_run import conv_bn1_run
 from test_run.relu_ad_run import relu_ad_run
 from test_run.conv_input_ad_run import conv_input_ad_run
 from test_run.conv_filter_ad_run import conv_filter_ad_run
-from test_run.maxpool_grad_with_argmax_run import maxpool_grad_with_argmax_run
 
 
 class TestLenet(BaseCaseRun):
@@ -251,18 +250,18 @@ class TestLenet(BaseCaseRun):
              ["level1", "rpc", "rpc_cloud", "Unavailable"]),
 
             # maxpool_grad_with_argmax
-            ("test_lenet_maxpool_grad_with_argmax_001", maxpool_grad_with_argmax_run,
-             ((32, 1, 10, 10, 16), (2, 2), (2, 2), "VALID", "float16", False, True),
-             ["level0", "rpc", "rpc_cloud", "Unavailable"]),
-            ("test_lenet_maxpool_grad_with_argmax_002", maxpool_grad_with_argmax_run,
-             ((32, 1, 10, 10, 16), (2, 2), (2, 2), "VALID", "float32", False, True),
-             ["level0", "rpc", "rpc_cloud", "Unavailable"]),
-            ("test_lenet_maxpool_grad_with_argmax_003", maxpool_grad_with_argmax_run,
-             ((32, 1, 28, 28, 16), (2, 2), (2, 2), "VALID", "float16", False, True),
-             ["level0", "rpc", "rpc_cloud", "Unavailable"]),
-            ("test_lenet_maxpool_grad_with_argmax_004", maxpool_grad_with_argmax_run,
-             ((32, 1, 28, 28, 16), (2, 2), (2, 2), "VALID", "float32", False, True),
-             ["level0", "rpc", "rpc_cloud", "Unavailable"]),
+            # ("test_lenet_maxpool_grad_with_argmax_001", maxpool_grad_with_argmax_run,
+            #  ((32, 1, 10, 10, 16), (2, 2), (2, 2), "VALID", "float16", False, True),
+            #  ["level0", "rpc", "rpc_cloud", "Unavailable"]),
+            # ("test_lenet_maxpool_grad_with_argmax_002", maxpool_grad_with_argmax_run,
+            #  ((32, 1, 10, 10, 16), (2, 2), (2, 2), "VALID", "float32", False, True),
+            #  ["level0", "rpc", "rpc_cloud", "Unavailable"]),
+            # ("test_lenet_maxpool_grad_with_argmax_003", maxpool_grad_with_argmax_run,
+            #  ((32, 1, 28, 28, 16), (2, 2), (2, 2), "VALID", "float16", False, True),
+            #  ["level0", "rpc", "rpc_cloud", "Unavailable"]),
+            # ("test_lenet_maxpool_grad_with_argmax_004", maxpool_grad_with_argmax_run,
+            #  ((32, 1, 28, 28, 16), (2, 2), (2, 2), "VALID", "float32", False, True),
+            #  ["level0", "rpc", "rpc_cloud", "Unavailable"]),
 
             # conv_bn1
             ("test_lenet_conv_bn1_32_1_14_14_16", conv_bn1_run,

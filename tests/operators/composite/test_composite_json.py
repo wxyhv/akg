@@ -174,6 +174,7 @@ def get_op_cycles_info(desc, cycle_info_file, old_op_cycles=100000000):
 @pytest.mark.platform_gpu
 def test_ci(profile=False, poly=False):
     ci_path = "./need_adapt/"
+    target_process = ["cuda"]
     if profile:
         need_update = False
         base_json_file = "./need_adapt/base.json"
@@ -189,6 +190,10 @@ def test_ci(profile=False, poly=False):
             if fi == "base.json":
                 continue
             desc = f.read()
+            json_desc = json.loads(desc)
+            if "process" not in json_desc or json_desc["process"] not in target_process:
+                logging.info("------ Skip {}".format(fi))
+                continue
             print("%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%  fi: ", fi)
             flag = get_result(desc, poly)
             if not flag:

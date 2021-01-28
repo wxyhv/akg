@@ -39,10 +39,6 @@ class TestCase(TestBase):
         self._log.info("TestCase:{0} Setup case".format(self.casename))
         return True
 
-    @pytest.mark.level0
-    @pytest.mark.rpc_cloud
-    @pytest.mark.env_onecard
-    @pytest.mark.platform_x86_ascend_training
     def test_level0(self):
         self.common_run(self.test_args)
 

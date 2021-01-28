@@ -49,9 +49,6 @@ class TestCase(TestBase):
         ]
         return
 
-    @pytest.mark.level2
-    @pytest.mark.env_onecard
-    @pytest.mark.platform_x86_ascend_training
     def test_run(self):
         self.common_run(self.testarg)
 

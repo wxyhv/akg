@@ -1,5 +1,5 @@
 /**
- * Copyright 2019 Huawei Technologies Co., Ltd
+ * Copyright 2019-2021 Huawei Technologies Co., Ltd
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -20,7 +20,7 @@
 #include "poly/dma_inject.h"
 #include "pass/utils.h"
 #include "poly/spec_gemm_builder.h"
-#include "poly/davinci_utils.h"
+#include "poly/dsa_utils.h"
 
 namespace akg {
 namespace ir {

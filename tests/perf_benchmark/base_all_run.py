@@ -72,27 +72,15 @@ class BaseCaseRun(TestBase):
                 assert False
         return True
 
-    @pytest.mark.level0
-    @pytest.mark.env_onecard
-    @pytest.mark.platform_x86_ascend_training
     def test_run_level0(self):
         return self.base_case_run_func(attr_flag="level0")
 
-    @pytest.mark.level1
-    @pytest.mark.env_onecard
-    @pytest.mark.platform_x86_ascend_training
     def test_run_level1(self):
         return self.base_case_run_func(attr_flag="level1")
 
-    @pytest.mark.rpc
-    @pytest.mark.env_onecard
-    @pytest.mark.platform_x86_ascend_training
     def test_run_rpc(self):
         return self.base_case_run_func(attr_flag="rpc")
 
-    @pytest.mark.rpc_cloud
-    @pytest.mark.env_onecard
-    @pytest.mark.platform_x86_ascend_training
     def test_run_rpc_cloud(self):
         return self.base_case_run_func(attr_flag="rpc_cloud")
 

@@ -142,9 +142,6 @@ class TestCase(TestBase):
 
         return
 
-    @pytest.mark.aicmodel
-    @pytest.mark.env_onecard
-    @pytest.mark.platform_x86_ascend_training
     def test_run(self):
         """
         run case.#
@@ -152,9 +149,6 @@ class TestCase(TestBase):
         """
         self.common_run(self.testarg)
 
-    @pytest.mark.aicmodel1
-    @pytest.mark.env_onecard
-    @pytest.mark.platform_x86_ascend_training
     def test_runi_night(self):
         """
         run case.#
@@ -162,9 +156,6 @@ class TestCase(TestBase):
         """
         self.common_run(self.testarg_1)
 
-    @pytest.mark.rpc_cloud
-    @pytest.mark.env_onecard
-    @pytest.mark.platform_x86_ascend_training
     def test_rpc_cloud(self):
         """
         run case.#

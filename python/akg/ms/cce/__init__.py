@@ -43,8 +43,6 @@ from .assign_add import AssignAdd
 from .less import Less
 from .equal_count import EqualCount
 from .gather_v2 import GatherV2
-from .max_pool_with_argmax import MaxPoolWithArgmax
-from .max_pool_grad_with_arg_max import MaxPoolGradWithArgmax
 
 from .softmax import Softmax
 from .argmax import Argmax
