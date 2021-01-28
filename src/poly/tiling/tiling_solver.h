@@ -80,6 +80,8 @@ class InequalitySolver : TilingSolver {
   Map<Var, Expr> defined_vars_{};
   bool tile_success_{true};
   std::unique_ptr<TilingMemInfo> tiling_mem_info_{nullptr};
+  std::unordered_map<int, std::string> memory_map_ = {{1, BUF}, {2, C1},       {3, C0A},    {4, C0B},
+                                                      {5, C0C}, {6, "SHARED"}, {7, "LOCAL"}};
 };
 
 class DynamicShapeSolver : TilingSolver {

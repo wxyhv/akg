@@ -1118,7 +1118,7 @@ Stmt CCEIslEmitter::EmitGemmRangeInfo(Stmt stmt) {
    *
       // attr [{"m_size": range(min=0, ext=49), "": range(min=0, ext=1), "no_0": range(min=0, ext=16), "m_lager_size":
   range(min=0, ext=64), "ko_4": range(min=0, ext=10), "mo_": range(min=0, ext=1)}] pragma_gemm_l0 = 0
-      // attr [placeholder(input1_local_L1_local_L0B, 0x5654b8abca60)] realize_scope = "local.L0B"
+      // attr [placeholder(input1_local_L1_local_L0B, 0x5654b8abca60)] realize_scope = DOT_LOCAL_C0B
       realize input1_local_L1_local_L0B([0, 6], [0, 8], [0, 16], [0, 16]) {
         // attr [0] pragma_bypath_filter_l0 = 0
         produce input1_local_L1_local_L0B {
@@ -1316,19 +1316,19 @@ std::string CCEIslEmitter::FindRealizeScopeToString(const isl::id &var) {
     switch (mem_type) {
       case MemType::C1_:
         if (var.get_name().find("fractal_L1") != std::string::npos) return "local.L1_tmp";
-        return "local.L1";
+        return DOT_LOCAL_C1;
       case MemType::C0A_:
-        return "local.L0A";
+        return DOT_LOCAL_C0A;
       case MemType::C0B_:
-        return "local.L0B";
+        return DOT_LOCAL_C0B;
       case MemType::C0C_:
-        return "local.L0C";
+        return DOT_LOCAL_C0C;
       case MemType::BUF_:
-        return "local.UB";
+        return DOT_LOCAL_BUF;
       case MemType::BUF_C0_:
-        return "local.UB";
+        return DOT_LOCAL_BUF;
       case MemType::BUF_C1_:
-        return "local.UB";
+        return DOT_LOCAL_BUF;
       default:
         LOG(FATAL) << "unexpected mem_type of var " << var;
         return "ERROR";
@@ -1336,7 +1336,7 @@ std::string CCEIslEmitter::FindRealizeScopeToString(const isl::id &var) {
   }
   // GEMM C_local_BUF is global
   if (var.get_name().find(LOCAL_BUF) != std::string::npos) {
-    return "local.UB";
+    return DOT_LOCAL_BUF;
   }
 
   return "";
@@ -1983,7 +1983,7 @@ Stmt CCEIslEmitter::EmitMarkMulticore(const isl::ast_node_mark &node) {
         bounds.push_back(Range::make_by_min_extent(Expr(0), j));
       }
       stmt = Realize::make(t->op, t->value_index, t->dtype, bounds, const_true(1), stmt);
-      stmt = AttrStmt::make(t->op, air::ir::attr::realize_scope, Expr("local.L1"), stmt);
+      stmt = AttrStmt::make(t->op, air::ir::attr::realize_scope, Expr(DOT_LOCAL_C1), stmt);
     }
     return stmt;
   } else {

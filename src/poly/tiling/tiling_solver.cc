@@ -100,7 +100,7 @@ void TilingSolver::CollectMemoryLimit() {
     auto error_scope = global_attrs.GetStringAttr(kErrorScope, "");
     for (auto i = 0; i < MEM_SCOPE_BULK; ++i) {
       this->mem_limit_[i] = d_info.GetMemoryLimitInScope(i) * percentage_;
-      if (i == TilingMemScope::MEM_SCOPE_BUFFER && error_scope == "local.UB") {
+      if (i == TilingMemScope::MEM_SCOPE_BUFFER && error_scope == DOT_LOCAL_BUF) {
         this->mem_limit_[i] =
           std::max(static_cast<int>(this->mem_limit_[i] * GetNewAllocRatioWhenRewriteFail(this->mem_limit_[i])), 1);
         global_attrs.Set(kErrorScope, StringImm::make(""));
@@ -132,9 +132,9 @@ void InequalitySolver::InitTileAxis(TileLevel level) {
 
   auto UpdateLevelTile = [this, level](TileAxis *axis, Expr tile) {
     if (level == CACHE1) {
-      this->cand_.UpdateL1Tile(axis, tile);
+      this->cand_.UpdateC1Tile(axis, tile);
     } else {
-      this->cand_.UpdateL0Tile(axis, tile);
+      this->cand_.UpdateC0Tile(axis, tile);
     }
   };
 
@@ -408,9 +408,9 @@ void InequalitySolver::DetermineTileFactor(TileAxis *axis, TileLevel level, cons
     // We can only update const tiling factor to final dim as we will replace those var factor with prime number.
     if (const auto imm = final_factor_expr.as<IntImm>()) {
       if (level == CACHE1) {
-        cand_.UpdateL1Tile(axis, imm->value);
+        cand_.UpdateC1Tile(axis, imm->value);
       } else {
-        cand_.UpdateL0Tile(axis, imm->value);
+        cand_.UpdateC0Tile(axis, imm->value);
       }
     }
   } else if (to_tile.as<IntImm>() == nullptr) {
@@ -742,8 +742,6 @@ void InequalitySolver::UpdateMemInfoWithBufReuse() {
 }
 
 Array<Expr> InequalitySolver::CollectMemoryConstraints() {
-  std::unordered_map<int, std::string> memory_map = {{1, "UB"},  {2, "L1"},     {3, "L0A"},  {4, "L0B"},
-                                                     {5, "L0C"}, {6, "SHARED"}, {7, "LOCAL"}};
   auto mem_info = tiling_mem_info_.get();
   Array<Expr> memory_constraints;
   for (int i = 1; i < MEM_SCOPE_BULK; ++i) {
@@ -760,7 +758,7 @@ Array<Expr> InequalitySolver::CollectMemoryConstraints() {
     }
 
     memory_constraints.push_back(constraint);
-    param_info_.push_back(ParamInfo{"AttrStmt", Expr("[MemoryLimit_" + memory_map[i] + "]"), constraint});
+    param_info_.push_back(ParamInfo{"AttrStmt", Expr("[MemoryLimit_" + memory_map_[i] + "]"), constraint});
   }
   return memory_constraints;
 }
@@ -862,15 +860,15 @@ TileCandidate *TraverseSolver::Solve() {
       std::vector<TileAxis *> mo_axes = this->analyzer_.GetAxesOfAttr(AttrInfo{AT_GEMM, "mo"});
       std::vector<TileAxis *> no_axes = this->analyzer_.GetAxesOfAttr(AttrInfo{AT_GEMM, "no"});
 
-      auto MakeL1L0Consistency = [this](const std::vector<TileAxis *> &axes) {
+      auto MakeC1C0Consistency = [this](const std::vector<TileAxis *> &axes) {
         if (axes.size() == 1U) {
           cand_.UpdateConstTile(axes[0], this->cand_.GetConstTileVal(axes[0]).second);
         }
       };
 
-      MakeL1L0Consistency(ko_axes);
-      MakeL1L0Consistency(mo_axes);
-      MakeL1L0Consistency(no_axes);
+      MakeC1C0Consistency(ko_axes);
+      MakeC1C0Consistency(mo_axes);
+      MakeC1C0Consistency(no_axes);
     }
   }
 
@@ -915,7 +913,7 @@ bool TraverseSolver::IsTilable(TileInfo *info) {
     cand_.UpdateConstTile(axis, min_tile);
   } else {
     if (cand_.GetConstTileVal(info->axis).first == TileVarId::UNDEFINE) {
-      analyzer_.logger_.LogFatalAndSaveLog("Should tile L1 first!");
+      analyzer_.logger_.LogFatalAndSaveLog("Should tile C1 first!");
     }
 
     min_tile = cons.tile_min_.as<IntImm>()->value;
@@ -968,11 +966,11 @@ bool TraverseSolver::MemoryVerify(TileLevel level, int band, int64_t *deviation)
     *deviation = dev;
   }
 
-  bool L1_valid = (expanded_size[MEM_SCOPE_CACHE1] <= mem_limit_[MEM_SCOPE_CACHE1]);
-  bool UB_valid = (expanded_size[MEM_SCOPE_BUFFER] <= mem_limit_[MEM_SCOPE_BUFFER]);
-  bool L0A_valid = (expanded_size[MEM_SCOPE_CACHE0_A] <= mem_limit_[MEM_SCOPE_CACHE0_A]);
-  bool L0B_valid = (expanded_size[MEM_SCOPE_CACHE0_B] <= mem_limit_[MEM_SCOPE_CACHE0_B]);
-  bool L0C_valid = (expanded_size[MEM_SCOPE_CACHE0_C] <= mem_limit_[MEM_SCOPE_CACHE0_C]);
+  bool BUF_valid = (expanded_size[MEM_SCOPE_BUFFER] <= mem_limit_[MEM_SCOPE_BUFFER]);
+  bool C1_valid = (expanded_size[MEM_SCOPE_CACHE1] <= mem_limit_[MEM_SCOPE_CACHE1]);
+  bool C0_valid = (expanded_size[MEM_SCOPE_CACHE0_A] <= mem_limit_[MEM_SCOPE_CACHE0_A]) &&
+                  (expanded_size[MEM_SCOPE_CACHE0_B] <= mem_limit_[MEM_SCOPE_CACHE0_B]) &&
+                  (expanded_size[MEM_SCOPE_CACHE0_C] <= mem_limit_[MEM_SCOPE_CACHE0_C]);
   bool cut_reduce = analyzer_.scop_info_.cube_info_.IsConvBackpropFilter();
 
   std::vector<TileAxis *> batch_axes = analyzer_.GetAxesOfAttr(AttrInfo{AT_CONV, "N"});
@@ -984,8 +982,8 @@ bool TraverseSolver::MemoryVerify(TileLevel level, int band, int64_t *deviation)
                   (h_axes.size() == 1U && h_axes[0]->GetConstExtent() > 1) ||
                   (w_axes.size() == 1U && w_axes[0]->GetConstExtent() > 1));
   }
-  if ((!cut_reduce && level == CACHE1 && (!L1_valid || (!UB_valid && analyzer_.op_type_ == VECTOR_OP))) ||
-      ((cut_reduce || level == CACHE0) && (!L0A_valid || !L0B_valid || !L0C_valid))) {
+  if ((!cut_reduce && level == CACHE1 && (!C1_valid || (!BUF_valid && analyzer_.op_type_ == VECTOR_OP))) ||
+      ((cut_reduce || level == CACHE0) && !C0_valid)) {
     return false;
   }
   return true;
@@ -1011,7 +1009,7 @@ bool TraverseSolver::DoTiling(const TileInfo *info) {
 
   TileAxis::Constraint cons = axis->GetConstConstraint(info->level);
   if (cons.tile_extent_.as<IntImm>()->value < 0) {
-    analyzer_.logger_.LogFatalAndSaveLog("Static shape's L1 max factor should be positive integer");
+    analyzer_.logger_.LogFatalAndSaveLog("Static shape's C1 max factor should be positive integer");
   }
   int64_t init = info->min_tile;
   int64_t dst = info->level == CACHE1 ? cons.tile_extent_.as<IntImm>()->value : this->cand_.GetConstTileVal(axis).first;
@@ -1302,28 +1300,29 @@ void TraverseSolver::CreateSpecgemmTileAxis(Expr mo, Expr no, Expr ko, bool cut_
         for (auto a : axes) {
           CHECK(a);
           buf->tile_axis->emplace_back(a);
-          if (shape.defined())
+          if (shape.defined()) {
             shape *= a->range_extent;
-          else
+          } else {
             shape = a->range_extent;
+          }
         }
         buf->shape = shape;
       }
     }
   };
-  std::unordered_set<TilingAnalyzer::BufferEntry *> L0Buffer;
-  auto process = [&L0Buffer](TilingAnalyzer::BufferEntry *buf) {
-    if (buf == nullptr || buf->name.find("L0") == std::string::npos) return;
+  std::unordered_set<TilingAnalyzer::BufferEntry *> C0Buffer;
+  auto process = [&C0Buffer](TilingAnalyzer::BufferEntry *buf) {
+    if (buf == nullptr || buf->name.find(C0) == std::string::npos) return;
     buf->tile_axis->clear();
     buf->shape = 1;
-    L0Buffer.insert(buf);
+    C0Buffer.insert(buf);
   };
   for (const auto &stmt : analyzer_.linear_seq_) {
     process(stmt.def);
     for (auto b : stmt.ref) process(b);
     for (auto b : stmt.alloc) process(b);
   }
-  for (auto buf : L0Buffer) append_axis(buf);
+  for (auto buf : C0Buffer) append_axis(buf);
 }
 
 void TraverseSolver::CreateConvPragma(const Expr &co_cut, Expr tile_out_h, Expr tile_out_w, Expr kh_cut, Expr kw_cut,

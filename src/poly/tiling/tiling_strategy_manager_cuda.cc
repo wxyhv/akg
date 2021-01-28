@@ -52,7 +52,6 @@ void GemmStrategy::AddGpuConstraint() {
 }
 
 void ReduceStrategy::AddGpuConstraint() {
-  // TODO: compare XLA's reduction tiling/mapping strategy with current strategy
   reduce_axes_ = analyzer_->GetAxesOfAttr(AT_REDUCE_AXIS);
   size_t depth = 0;
   analyzer_->ForEachAxisTopDown([this, &depth](TileAxis *axis) {

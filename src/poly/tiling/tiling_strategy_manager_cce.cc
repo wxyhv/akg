@@ -23,7 +23,7 @@ namespace akg {
 namespace ir {
 namespace poly {
 
-void CustomTilingStrategy::AddDavinciConstraint() {
+void CustomTilingStrategy::AddNpuConstraint() {
   auto interested_info = GetInterestedInfo(interested_attr_key, false);
   for (auto it : interested_info) {
     TileAxis *axis = it.first;
@@ -98,7 +98,7 @@ void CustomTilingStrategy::AddDavinciConstraint() {
   }
 }
 
-void ConflictTreeRangeStrategy::AddDavinciConstraint() {
+void ConflictTreeRangeStrategy::AddNpuConstraint() {
   auto ApplyConflictStrategy = [](TileAxis *axis) {
     int64_t const_extent = axis->GetConstExtent();
     if (const_extent == -1) {
@@ -159,7 +159,7 @@ void ConflictTreeRangeStrategy::AddDavinciConstraint() {
   analyzer_->ForEachAxisTopDown(CheckRange);
 }
 
-void ModStrategy::AddDavinciConstraint() {
+void ModStrategy::AddNpuConstraint() {
   auto interested_info = GetInterestedInfo(interested_attr_key);
   for (auto it : interested_info) {
     TileAxis *axis = it.first;
@@ -171,9 +171,9 @@ void ModStrategy::AddDavinciConstraint() {
   }
 }
 
-void CastStrategy::AddDavinciConstraint() { MarkDataSize(); }
+void CastStrategy::AddNpuConstraint() { MarkDataSize(); }
 
-void ReduceStrategy::AddDavinciConstraint() {
+void ReduceStrategy::AddNpuConstraint() {
   if (analyzer_->scop_info_.user_config_.GetIsDynamic() || !global_attrs.GetStringAttr(kErrorInfo, "").empty()) {
     return;
   }
@@ -186,7 +186,7 @@ void ReduceStrategy::AddDavinciConstraint() {
   }
 }
 
-void VectorizedStrategy::AddDavinciConstraint() {
+void VectorizedStrategy::AddNpuConstraint() {
   if (analyzer_->op_type_ != VECTOR_OP) {
     return;
   }
@@ -209,7 +209,7 @@ void VectorizedStrategy::AddDavinciConstraint() {
   }
 }
 
-void DmaAlignStrategy::AddDavinciConstraint() {
+void DmaAlignStrategy::AddNpuConstraint() {
   if (analyzer_->scop_info_.user_config_.GetIsDynamic() || !global_attrs.GetStringAttr(kErrorInfo, "").empty()) {
     return;
   }
@@ -240,20 +240,20 @@ void DmaAlignStrategy::AddDavinciConstraint() {
   }
 }
 
-void TensorOfTensorStrategy::AddDavinciConstraint() {
+void TensorOfTensorStrategy::AddNpuConstraint() {
   for (auto axis : analyzer_->GetAxesOfAttr(AT_TOT)) {
     if (!axis->HasAttr("ALIGN:DMA")) continue;
     axis->TileRestrainToSingleValue(CastIntToExpr(MIN_TILE), CACHE1);
   }
 }
 
-void PassDownAttrStrategy::AddDavinciConstraint() {
+void PassDownAttrStrategy::AddNpuConstraint() {
   for (auto axis : analyzer_->GetAxesOfAttr(AttrInfo{"ATTR", "pass_down"})) {
     axis->TileRestrainEntire(CACHE1);
   }
 }
 
-void DynamicShapeLimitStrategy::AddDavinciConstraint() {
+void DynamicShapeLimitStrategy::AddNpuConstraint() {
   auto interested_info = GetInterestedInfo(interested_attr_key);
   for (auto it : interested_info) {
     TileAxis *axis = it.first;
@@ -264,7 +264,7 @@ void DynamicShapeLimitStrategy::AddDavinciConstraint() {
   }
 }
 
-void DynamicBoundStrategy::AddDavinciConstraint() {
+void DynamicBoundStrategy::AddNpuConstraint() {
   auto interested_info = GetInterestedInfo(interested_attr_key);
   for (auto it : interested_info) {
     TileAxis *axis = it.first;
@@ -277,7 +277,7 @@ void DynamicBoundStrategy::AddDavinciConstraint() {
   }
 }
 
-void ShiftAxisStrategy::AddDavinciConstraint() {
+void ShiftAxisStrategy::AddNpuConstraint() {
   auto interested_info = GetInterestedInfo(interested_attr_key);
   for (auto it : interested_info) {
     TileAxis *axis = it.first;
@@ -294,7 +294,7 @@ void ShiftAxisStrategy::AddDavinciConstraint() {
   }
 }
 
-void ModShiftAxisStrategy::AddDavinciConstraint() {
+void ModShiftAxisStrategy::AddNpuConstraint() {
   auto interested_info = GetInterestedInfo(interested_attr_key);
   for (auto it : interested_info) {
     TileAxis *axis = it.first;
@@ -318,7 +318,7 @@ void ModShiftAxisStrategy::AddDavinciConstraint() {
   }
 }
 
-void ConvStrategy::AddDavinciConstraint() {
+void ConvStrategy::AddNpuConstraint() {
   conv_info_ = analyzer_->scop_info_.cube_info_.GetConvInfoForTiling();
   auto interested_info = GetInterestedInfo(interested_attr_key);
   for (auto it : interested_info) {
@@ -397,7 +397,7 @@ void ConvStrategy::RestrainW(TileAxis *axis) {
   axis->c1_constraints.tile_min_ = CastIntToExpr(tile_out_w);
 }
 
-void GemmStrategy::AddDavinciConstraint() {
+void GemmStrategy::AddNpuConstraint() {
   auto interested_info = GetInterestedInfo(interested_attr_key);
   for (auto it : interested_info) {
     TileAxis *axis = it.first;
@@ -457,17 +457,17 @@ std::pair<int, int> MulticoreStrategy::GetProposalRangeForFullMulticore(TileAxis
   for (auto other_axis : this->cand_.GetTileAxis()) {
     if (other_axis == multicore_axis) break;
     if (other_axis->index != multicore_axis->index || other_axis->HasAttr(AT_REDUCE_AXIS)) continue;
-    int64_t l1_val = TileVarId::UNDEFINE;
-    std::tie(l1_val, std::ignore) = cand_.GetConstTileVal(other_axis);
-    if (l1_val == TileVarId::VAR) return proposal_range;
-    if (l1_val == TileVarId::UNDEFINE) {
+    int64_t c1_val = TileVarId::UNDEFINE;
+    std::tie(c1_val, std::ignore) = cand_.GetConstTileVal(other_axis);
+    if (c1_val == TileVarId::VAR) return proposal_range;
+    if (c1_val == TileVarId::UNDEFINE) {
       CHECK(other_axis->c1_constraints.tile_min_.as<IntImm>())
         << "Static shape " << shape << " should have const tile min, while got "
         << other_axis->c1_constraints.tile_min_;
-      l1_val = other_axis->c1_constraints.tile_min_.as<IntImm>()->value;
+      c1_val = other_axis->c1_constraints.tile_min_.as<IntImm>()->value;
     }
-    auto block_extent = std::max(static_cast<int>(other_axis->range_extent.as<IntImm>()->value / l1_val), 1);
-    ss << "range " << multicore_axis->range_extent << " l1 tile " << l1_val << " -> block extent " << block_extent
+    auto block_extent = std::max(static_cast<int>(other_axis->range_extent.as<IntImm>()->value / c1_val), 1);
+    ss << "range " << multicore_axis->range_extent << " l1 tile " << c1_val << " -> block extent " << block_extent
        << " this level " << this_level_core;
     logger_.AppendLog(DO_TILING, ss);
     ss.str("");
@@ -668,11 +668,11 @@ std::vector<double> TilingPriorityScorer::ComputeVectorization(std::vector<TileA
   return scores;
 }
 
-// constraint not used in cce
+// constraint not used in npu
 
-void GpuStrategy::AddDavinciConstraint() {}
+void GpuStrategy::AddNpuConstraint() {}
 
-void GpuDmaAnalysisStrategy::AddDavinciConstraint() {}
+void GpuDmaAnalysisStrategy::AddNpuConstraint() {}
 
 }  // namespace poly
 }  // namespace ir
