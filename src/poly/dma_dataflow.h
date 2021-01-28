@@ -1,5 +1,5 @@
 /**
- * Copyright 2019 Huawei Technologies Co., Ltd
+ * Copyright 2019-2021 Huawei Technologies Co., Ltd
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -76,17 +76,17 @@ struct BufferDefInfo {
   std::vector<size_t> TensorSize(const isl::schedule_node &node);
 
   /* ************************************************
-   * A -> A_local_L1 -> A_fractal_L1
+   * A -> A_local_C1 -> A_fractal_C1
    * input is BufferDefInfo about tensor A
-   * output is isl::id A_fractal_L1
+   * output is isl::id A_fractal_C1
    * return the next tensor id in dataflow
    **************************************************/
   isl::id NextTensorDstId();
-  bool IsCubeCL1Write();
-  bool IsPreCubeL1Write();
-  bool IsPreCubeTile2Write();
-  bool IsGemmDataL12L0();
-  bool IsGemmWeightL12L0();
+  bool IsMmuCC1Write();
+  bool IsPreMmuC1Write();
+  bool IsPreMmuTile2Write();
+  bool IsGemmDataC12C0();
+  bool IsGemmWeightC12C0();
   bool IsIm2col();
   MemType SrcMemType();
   MemType DstMemType();
@@ -134,16 +134,16 @@ inline std::ostream &operator<<(std::ostream &os, const StmtIdHashMap &sthash) {
   return os;
 }
 
-enum STMT_OP_TYPE { CUBE_CONV = 1, CUBE_GEMM, VECTOR, IM2COL_UB };
+enum STMT_OP_TYPE { MMU_CONV = 1, MMU_GEMM, INST, IM2COL_BUF };
 enum TENSOR_DATAFLOW_TYPE {
-  CUBE_CONV_A = 1,
-  CUBE_CONV_B,
-  CUBE_CONV_C,
-  CUBE_GEMM_A,
-  CUBE_GEMM_B,
-  CUBE_GEMM_C,
-  IM2COL_L1,
-  VECTOR_UB
+  MMU_CONV_A = 1,
+  MMU_CONV_B,
+  MMU_CONV_C,
+  MMU_GEMM_A,
+  MMU_GEMM_B,
+  MMU_GEMM_C,
+  IM2COL_C1,
+  INST_BUF
 };
 
 struct TensorDataFlow {
@@ -153,22 +153,20 @@ struct TensorDataFlow {
   void Initial(const std::string &name, const DataFlowAttrs &attrs);
 };
 
-const DataFlowAttrs Cube_Conv_A = {
+const DataFlowAttrs Mmu_Conv_A = {
   {MemType::DDR, ""}, {MemType::C1_, LOCAL_C1}, {MemType::C1_, _FRACTAL_C1}, {MemType::C0A_, LOCAL_C1_LOCAL_C0A}};
-const DataFlowAttrs Cube_Conv_B = {{MemType::DDR, ""}, {MemType::C1_, LOCAL_C1}, {MemType::C0B_, LOCAL_C1_LOCAL_C0B}};
-const DataFlowAttrs Cube_Conv_C = {
-  {MemType::DDR, ""}, {MemType::BUF_, LOCAL_BUF}, {MemType::C0C_, "_local_UB_local_L0C"}};
-const DataFlowAttrs Cube_Spec_Gemm_A = {{MemType::C1_, _FRACTAL_C1}, {MemType::C0A_, FRACTAL_C1_LOCAL_C0A}};
-const DataFlowAttrs Cube_Spec_Gemm_A_ = {{MemType::C1_, LOCAL_C1}, {MemType::C0A_, LOCAL_C1_LOCAL_C0A}};
-const DataFlowAttrs Cube_Gemm_A = {{MemType::DDR, ""}, {MemType::C1_, LOCAL_C1}, {MemType::C0A_, LOCAL_C1_LOCAL_C0A}};
-const DataFlowAttrs Cube_Spec_Gemm_B = {{MemType::C1_, ""}, {MemType::C0B_, "_local_L0B"}};
-const DataFlowAttrs Cube_Spec_Gemm_B_ = {{MemType::C1_, ""}, {MemType::C0B_, "_local_L0B"}};
-const DataFlowAttrs Cube_Gemm_B = {{MemType::DDR, ""}, {MemType::C1_, LOCAL_C1}, {MemType::C0B_, LOCAL_C1_LOCAL_C0B}};
-const DataFlowAttrs Cube_Spec_Gemm_C = {{MemType::BUF_C0_, ""}, {MemType::C0C_, LOCAL_C0C}};
-const DataFlowAttrs Cube_Gemm_C = {
-  {MemType::DDR, ""}, {MemType::BUF_, LOCAL_BUF}, {MemType::C0C_, "_local_UB_local_L0C"}};
-const DataFlowAttrs Vector_UB = {{MemType::DDR, ""}, {MemType::BUF_, LOCAL_BUF}};
-const DataFlowAttrs Im2Col_L1 = {{MemType::DDR, ""}, {MemType::C1_, LOCAL_C1}};
+const DataFlowAttrs Mmu_Conv_B = {{MemType::DDR, ""}, {MemType::C1_, LOCAL_C1}, {MemType::C0B_, LOCAL_C1_LOCAL_C0B}};
+const DataFlowAttrs Mmu_Conv_C = {{MemType::DDR, ""}, {MemType::BUF_, LOCAL_BUF}, {MemType::C0C_, LOCAL_BUF_LOCAL_C0C}};
+const DataFlowAttrs Mmu_Spec_Gemm_A = {{MemType::C1_, _FRACTAL_C1}, {MemType::C0A_, FRACTAL_C1_LOCAL_C0A}};
+const DataFlowAttrs Mmu_Spec_Gemm_A_ = {{MemType::C1_, LOCAL_C1}, {MemType::C0A_, LOCAL_C1_LOCAL_C0A}};
+const DataFlowAttrs Mmu_Gemm_A = {{MemType::DDR, ""}, {MemType::C1_, LOCAL_C1}, {MemType::C0A_, LOCAL_C1_LOCAL_C0A}};
+const DataFlowAttrs Mmu_Spec_Gemm_B = {{MemType::C1_, ""}, {MemType::C0B_, LOCAL_C0B}};
+const DataFlowAttrs Mmu_Spec_Gemm_B_ = {{MemType::C1_, ""}, {MemType::C0B_, LOCAL_C0B}};
+const DataFlowAttrs Mmu_Gemm_B = {{MemType::DDR, ""}, {MemType::C1_, LOCAL_C1}, {MemType::C0B_, LOCAL_C1_LOCAL_C0B}};
+const DataFlowAttrs Mmu_Spec_Gemm_C = {{MemType::BUF_C0_, ""}, {MemType::C0C_, LOCAL_C0C}};
+const DataFlowAttrs Mmu_Gemm_C = {{MemType::DDR, ""}, {MemType::BUF_, LOCAL_BUF}, {MemType::C0C_, LOCAL_BUF_LOCAL_C0C}};
+const DataFlowAttrs Inst_BUF = {{MemType::DDR, ""}, {MemType::BUF_, LOCAL_BUF}};
+const DataFlowAttrs Im2Col_C1 = {{MemType::DDR, ""}, {MemType::C1_, LOCAL_C1}};
 
 class StmtDataFlowInfo {
  public:
@@ -181,17 +179,17 @@ class StmtDataFlowInfo {
 
   void CreateTensorDataFlow(TENSOR_DATAFLOW_TYPE type, const std::string &name, TensorDataFlow &dataflow);
 
-  void CubeConvA(const std::string &name, TensorDataFlow &dataflow);
-  void CubeConvB(const std::string &name, TensorDataFlow &dataflow);
-  void CubeConvC(const std::string &name, TensorDataFlow &dataflow);
-  void CubeGEMMA(const std::string &name, TensorDataFlow &dataflow);
-  void CubeGEMMB(const std::string &name, TensorDataFlow &dataflow);
-  void CubeGEMMC(const std::string &name, TensorDataFlow &dataflow);
-  void VectorUB(const std::string &name, TensorDataFlow &dataflow);
-  void Im2colL1(const std::string &name, TensorDataFlow &dataflow);
+  void MmuConvA(const std::string &name, TensorDataFlow &dataflow);
+  void MmuConvB(const std::string &name, TensorDataFlow &dataflow);
+  void MmuConvC(const std::string &name, TensorDataFlow &dataflow);
+  void MmuGEMMA(const std::string &name, TensorDataFlow &dataflow);
+  void MmuGEMMB(const std::string &name, TensorDataFlow &dataflow);
+  void MmuGEMMC(const std::string &name, TensorDataFlow &dataflow);
+  void InstBUF(const std::string &name, TensorDataFlow &dataflow);
+  void Im2colC1(const std::string &name, TensorDataFlow &dataflow);
 
   /******************************************
-   *  update all memType UB to updateType
+   *  update all memType BUF to updateType
    ******************************************/
   void UpdateTensorMemType(MemType upateType);
 
@@ -199,15 +197,15 @@ class StmtDataFlowInfo {
    * push reads_/writes_ tensor info to nameflow and memflow
    * if tensor exists in map merge two flow:
    * conv pre fusion case
-   *      DDR -> UBL1
-   *      DDR -> L1 -> L1 -> L0A
+   *      DDR -> BUFC1
+   *      DDR -> C1 -> C1 -> C0A
    * merged to:
-   *      DDR -> UBL1 -> L1 -> L1 -> L0A
+   *      DDR -> BUFC1 -> C1 -> C1 -> C0A
    * conv post fusion case
-   *      DDR -> UBL0 -> L0C
-   *      DDR -> UBL0
+   *      DDR -> BUFC0 -> C0C
+   *      DDR -> BUFC0
    * merged to:
-   *      DDR -> UBL0 -> L0C
+   *      DDR -> BUFC0 -> C0C
    * if two flow is same, not changed.
    * ****************************************/
   void UpdateFlowInfo(std::map<std::string, std::vector<std::string>> &nameflow,

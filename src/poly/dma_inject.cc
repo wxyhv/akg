@@ -1542,10 +1542,10 @@ void PlaceDataCopyBelowImplReadWrite(ScopInfo &scop_info, isl::schedule_node &tr
   if (writes) {
     auto tensor_info = scop_info.analysis_result_.GetBufferDefInfo(cluster_id);
     if (MemType::BUF_C0_ == tensor_info.DstMemType() || MemType::BUF_ == tensor_info.DstMemType() ||
-        tensor_info.IsPreCubeL1Write()) {
+        tensor_info.IsPreMmuC1Write()) {
       if (!scop_info.IsInBinds(tensor_id)) writes = false;
     }
-    if (tensor_info.IsPreCubeL1Write()) {
+    if (tensor_info.IsPreMmuC1Write()) {
       if (!scop_info.IsInBinds(tensor_id)) reads = false;
     }
   }
