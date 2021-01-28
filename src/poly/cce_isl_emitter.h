@@ -29,7 +29,7 @@ enum AtomicType { Equ = 0, Add };
 class CCEIslEmitter : public IslEmitter {
  public:
   CCEIslEmitter(ScopInfo &info, const NodeInfoRepo &n, const isl::id_list &i) : IslEmitter(info, n, i) {
-    ProcBypassL1(info);
+    ProcBypathL1(info);
   }
   ~CCEIslEmitter() override = default;
 
@@ -51,7 +51,7 @@ class CCEIslEmitter : public IslEmitter {
 
   // emit mark node
   Stmt EmitMarkMulticore(const isl::ast_node_mark &node);
-  Stmt EmitMarkFuseVector(const isl::ast_node_mark &node);
+  Stmt EmitMarkFuseInst(const isl::ast_node_mark &node);
   Stmt EmitMarkAllocRealizeOut(const isl::ast_node_mark &node);
   Stmt EmitMarkAllocC(const isl::ast_node_mark &node);
   Stmt EmitMarkSpecGemm(const isl::ast_node_mark &node);
@@ -91,8 +91,8 @@ class CCEIslEmitter : public IslEmitter {
   void RealizeOut();
 
   Stmt RemoveCond(const Stmt &stmt);
-  void ProcBypassL1(const ScopInfo &info);
-  void SetCube(const isl::id &stmt_id);
+  void ProcBypathL1(const ScopInfo &info);
+  void SetMMU(const isl::id &stmt_id);
   std::string ReplaceAxis(const std::string &oldAxis);
   static std::vector<std::string> ConstructPrefix();
   void GemmTranspose(std::vector<Stmt> &stmts);
@@ -111,8 +111,8 @@ class CCEIslEmitter : public IslEmitter {
   IslIdSet hoisted_read_;
   IslIdSet hoisted_write_;
 
-  int bypassL1_{0};
-  bool is_cube_{false};
+  int bypathL1_{0};
+  bool is_mmu_{false};
   StmtOpInfo opinfo_;
 
   // range info index
@@ -121,7 +121,7 @@ class CCEIslEmitter : public IslEmitter {
   int isolate_idx_{-1};
 
   bool is_old_gemm_l1write_{false};
-  std::vector<Stmt> cube_l0write_;
+  std::vector<Stmt> mmu_l0write_;
   int gemm_transpose_index_{0};
   std::set<const Variable *> rmif_;
 

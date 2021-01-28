@@ -449,7 +449,7 @@ void UserConfig::DumpScopDataScheduleAttrs(std::ofstream &of) {
   of << "pragma_modshift : " << GetModScheduleShift() << std::endl;
   of << "pragma_reorder_schedule : " << GetReorderSchedule() << std::endl;
   of << "pragma_checkcoincident : " << GetTileCheckCoincident() << std::endl;
-  of << "pragma_opt_for_davinci : " << GetOptimizeForDavinci() << std::endl;
+  of << "pragma_opt_for_davinci : " << GetOptimizeForNPU() << std::endl;
   of << "pragma_sink_last_axis : " << GetSinkLastAxis() << std::endl;
   of << "pragma_keep_outer_band_order : " << GetKeepOuterBandOrder() << std::endl;
   of << "pragma_disable_group : " << GetDisableGroup() << std::endl;
@@ -464,7 +464,7 @@ void UserConfig::DumpScopDataScheduleAttrs(std::ofstream &of) {
   of << "kernel_h : " << GetMatBDimH() << std::endl;
   of << "kernel_w : " << GetMatBDimW() << std::endl;
   of << "conv_backprop_filter : " << GetConvBackPropFilter() << std::endl;
-  of << "bypassL1 : " << GetByPassL1() << std::endl;
+  of << "bypassL1 : " << GetByPathL1() << std::endl;
   of << "pragma_is_conv : " << GetPragmaIsConv() << std::endl;
   of << "pragma_conv_special_dma : " << GetConvSpecialDma() << std::endl;
 }

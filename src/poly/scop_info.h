@@ -326,14 +326,14 @@ class UserConfig {
   bool GetIsTuning() { return is_tuning_; }
 
   // getter for specialized optimization config
-  bool GetOptimizeForDavinci() const { return optimize_for_davinci_; }
+  bool GetOptimizeForNPU() const { return optimize_for_davinci_; }
   bool GetEnableFeatureLib() const { return enable_feature_library_; }
   bool GetEnableHoistCondWrite() const { return enable_hoist_cond_write_; }
 
   // getter for conv config
   int GetMatBDimH() const { return matB_dim_h_; }
   int GetMatBDimW() const { return matB_dim_w_; }
-  int GetByPassL1() const { return bypassL1_; }
+  int GetByPathL1() const { return bypassL1_; }
   int GetIsolatedIdx() const { return isolated_idx_; }
   std::string GetKernelName() { return kernel_name_; }
   int GetPragmaIsConv() const { return pragma_is_conv_; }
