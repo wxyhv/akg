@@ -464,7 +464,7 @@ void UserConfig::DumpScopDataScheduleAttrs(std::ofstream &of) {
   of << "kernel_h : " << GetMatBDimH() << std::endl;
   of << "kernel_w : " << GetMatBDimW() << std::endl;
   of << "conv_backprop_filter : " << GetConvBackPropFilter() << std::endl;
-  of << "bypassL1 : " << GetByPathL1() << std::endl;
+  of << "bypassL1 : " << GetByPathC1() << std::endl;
   of << "pragma_is_conv : " << GetPragmaIsConv() << std::endl;
   of << "pragma_conv_special_dma : " << GetConvSpecialDma() << std::endl;
 }
