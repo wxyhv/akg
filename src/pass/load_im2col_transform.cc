@@ -1,5 +1,5 @@
 /**
- * Copyright 2019 Huawei Technologies Co., Ltd
+ * Copyright 2019-2021 Huawei Technologies Co., Ltd
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -298,7 +298,7 @@ class LoadIm2colTransform : public IRMutator {
   }
 
   explicit LoadIm2colTransform(const ConvolutionBackpropFilterModel conv) : conv_(conv) {
-    isolate_idx_max_ = conv_.infer_L1_tile();
+    isolate_idx_max_ = conv_.infer_CA1_tile();
     axis_map_["m"] = GemmAxis();
     axis_map_["k"] = GemmAxis();
     axis_map_["n"] = GemmAxis();
@@ -529,7 +529,7 @@ class LoadIm2colTransform : public IRMutator {
     if (op->attr_key == "isolated_idx") {
       isolate_idx_++;
       if (is_conv_backprop_filter_) {
-        gemm_idx_max_ = conv_.infer_L0_tile(isolate_idx_);
+        gemm_idx_max_ = conv_.infer_CA0_tile(isolate_idx_);
       }
       gemm_idx_ = -1;
     } else if (op->attr_key == "pragma_attrs") {
@@ -561,7 +561,7 @@ class LoadIm2colTransform : public IRMutator {
       Expr srcStrideFrom = Expr(floordiv(win_h * win_w + BLOCK_INDEX - 1, BLOCK_INDEX) * BLOCK_INDEX - 1);
       Expr srcStrideTo = Expr(win_h * win_w - 1);
 
-      // filter_local_L1[Batch, Mo, Ko, Mi, Ki]
+      // filter_local_CA1[Batch, Mo, Ko, Mi, Ki]
       FindOuterAxis axisMO(outerlv_map_, filter_ + LOCAL_C1, 1);
       axisMO.Visit(s);
 
@@ -745,7 +745,7 @@ class LoadIm2colTransform : public IRMutator {
           CHECK_LT(isolate_idx_, isolate_idx_max_);
           CHECK_LT(gemm_idx_, gemm_idx_max_);
 
-          if (!conv_.reduce_at_l1 || isolate_idx_ % (b_base * h_base * w_base) == 0) {
+          if (!conv_.reduce_at_ca1 || isolate_idx_ % (b_base * h_base * w_base) == 0) {
             mad_init_ = 1;
           } else {
             mad_init_ = 0;
@@ -761,7 +761,7 @@ class LoadIm2colTransform : public IRMutator {
 
           CHECK(info.outer.as<IntImm>());
           if (info.outer.as<IntImm>()->value > 1) {
-            // feature_fractal_L1_local_L0B[Batch, Mo, Ko, Ki, Mi]
+            // feature_fractal_CA1_local_L0B[Batch, Mo, Ko, Ki, Mi]
             FindOuterAxis axisK(outerlv_map_, feature_ + FRACTAL_C1_LOCAL_C0B, 2);
             axisK.Visit(s);
             idx_k += axisK.var_ * Expr(info.inner);
@@ -779,7 +779,7 @@ class LoadIm2colTransform : public IRMutator {
 
           CHECK(info.outer.as<IntImm>());
           if (info.outer.as<IntImm>()->value > 1) {
-            // feature_fractal_L1_local_L0B[Batch, Mo, Ko, Ki, Mi]
+            // feature_fractal_CA1_local_L0B[Batch, Mo, Ko, Ki, Mi]
             idx_m += axisM.var_ * info.inner;
           }
           outK_ = axisM.var_;
@@ -1424,7 +1424,7 @@ class RealizeRescope : public IRMutator {
  public:
   RealizeRescope(ConvolutionBackpropFilterModel &conv, std::string &output_name)
       : conv_(conv), output_name_(output_name) {
-    isolate_num_ = conv_.infer_L1_tile();
+    isolate_num_ = conv_.infer_CA1_tile();
     isolated_idx_level_ = 0;
 
     CHECK(conv_.b_info[0].outer.as<IntImm>());
@@ -1479,7 +1479,7 @@ class RealizeRescope : public IRMutator {
       RealizeCount count;
       count.Visit(op->body);
 
-      if (conv_.reduce_at_l1 && count.isolate_num_ == conv_.l1_reduce_base) {
+      if (conv_.reduce_at_ca1 && count.isolate_num_ == conv_.ca1_reduce_base) {
         if (count.isolated_idx_level_ == isolated_idx_level_) {
           mutate_ = true;
           Stmt stmt = this->Mutate(op->body);
@@ -1500,7 +1500,7 @@ class RealizeRescope : public IRMutator {
         }
       }
 
-      if (!conv_.reduce_at_l1 && count.gemm_num_ == conv_.l0_reduce_base) {
+      if (!conv_.reduce_at_ca1 && count.gemm_num_ == conv_.ca0_reduce_base) {
         if (count.gemm_idx_level_ == gemm_idx_level_) {
           mutate_ = true;
           Stmt stmt = this->Mutate(op->body);
@@ -1545,9 +1545,9 @@ class RealizeRescope : public IRMutator {
       RealizeCount count;
       count.Visit(s);
 
-      if ((conv_.reduce_at_l1 && count.isolate_num_ == conv_.l1_reduce_base &&
+      if ((conv_.reduce_at_ca1 && count.isolate_num_ == conv_.ca1_reduce_base &&
            count.isolated_idx_level_ == isolated_idx_level_) ||
-          (!conv_.reduce_at_l1 && count.gemm_num_ == conv_.l0_reduce_base &&
+          (!conv_.reduce_at_ca1 && count.gemm_num_ == conv_.ca0_reduce_base &&
            count.gemm_idx_level_ == gemm_idx_level_)) {
         mutate_ = true;
         Stmt stmt = IRMutator::Mutate_(op, s);
@@ -1565,7 +1565,7 @@ class RealizeRescope : public IRMutator {
 
   Stmt Mutate_(const AttrStmt *op, const Stmt &s) final {
     if (!mutate_ && op->attr_key == "isolated_idx") {
-      (void)conv_.infer_L0_tile(isolate_idx_++);
+      (void)conv_.infer_CA0_tile(isolate_idx_++);
       gemm_idx_level_ = 0;
       CHECK(conv_.k_info[0].outer.as<IntImm>());
       if (conv_.k_info[0].outer.as<IntImm>()->value > 1) {
