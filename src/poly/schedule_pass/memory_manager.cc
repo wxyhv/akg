@@ -577,13 +577,13 @@ void MemoryManager::AddTensorDataFlow(const std::vector<MemType> &memflow, const
     dst_mem_type = data_stream[1].second;
   }
   std::string mark_tag = TensorMarkTag(dst_mem_type, memflow);
-  if (scop_info_.cube_info_.IsIm2col() && mark_tag == REALIZE_L1) {
-    mark_tag = REALIZE_UB;
+  if (scop_info_.cube_info_.IsIm2col() && mark_tag == REALIZE_C1) {
+    mark_tag = REALIZE_BUF;
   }
 
   bool isCopyin = scop_info_.IsCopyinTensor(tensor_id.get_name());
   if (!isCopyin && dst_mem_type == MemType::BUF_C1_) {
-    mark_tag = REALIZE_L1UBL1;
+    mark_tag = REALIZE_C1BUFC1;
   }
 
   std::vector<size_t> sizes;
@@ -636,7 +636,7 @@ void MemoryManager::ReorderBufferedDefInfos() {
     [&tensors](const isl::map &m) -> void { tensors.insert(m.get_tuple_id(isl_dim_out).get_name()); });
 
   for (size_t index = 1; index < scop_info_.analysis_result_.buffer_def_infos_.size(); index++) {
-    if ((scop_info_.analysis_result_.buffer_def_infos_[index].mark_tag == REALIZE_L1) &&
+    if ((scop_info_.analysis_result_.buffer_def_infos_[index].mark_tag == REALIZE_C1) &&
         (tensors.find(scop_info_.analysis_result_.buffer_def_infos_[index].tensor_id.get_name()) != tensors.end())) {
       BufferDefInfo promoted_info = scop_info_.analysis_result_.buffer_def_infos_[index];
       scop_info_.analysis_result_.buffer_def_infos_.erase(scop_info_.analysis_result_.buffer_def_infos_.begin() +

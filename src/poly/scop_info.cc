@@ -610,14 +610,14 @@ void CubeInfo::SetConvMNKInfo() {
   auto conv_mnk_dims = GetConvMNKDims();
   if (user_config_.GetIsDynamic()) {
     for (const auto &dim : conv_mnk_dims) {
-      fractal_int_info_[dim.axis] = IntImm::make(Int(32), dim.l1_tiling_size);
-      attr_info_.Set(dim.axis, IntImm::make(Int(32), dim.l1_tiling_size));
+      fractal_int_info_[dim.axis] = IntImm::make(Int(32), dim.c1_tiling_size);
+      attr_info_.Set(dim.axis, IntImm::make(Int(32), dim.c1_tiling_size));
     }
   } else {
     const int c0_size = 16;
     const int int_imm_num_bits = 32;
     for (const auto &dim : conv_mnk_dims) {
-      int l0tile = static_cast<int>(dim.l0_tiling_size);
+      int l0tile = static_cast<int>(dim.c0_tiling_size);
       if (dim.axis == ATTR_CONV_TILE_M || dim.axis == ATTR_CONV_TILE_N || dim.axis == ATTR_CONV_TILE_K) {
         // multiply outer tile size with inner size
         l0tile *= c0_size;
@@ -1512,32 +1512,32 @@ std::string TensorMarkTag(MemType mem_type, MemFlow mem_flow) {
   /******************************
    *  This interface is used to convert tensor MemType to isl schedule tree mark_tag,
    *  used to record the extension position for each tensor in isl schedule tree.
-   *  Now REALIZE_L1/REALIZE_L0/REALIZE_UB mark_tag is equal to its MemType.
+   *  Now REALIZE_C1/REALIZE_C0/REALIZE_BUF mark_tag is equal to its MemType.
    *  For mem_type is DDR, mark_tag is empty string "".
    * */
   switch (mem_type) {
     case MemType::C1_:
       if (mem_flow.size() == 3 && mem_flow[0] == MemType::DDR && mem_flow[1] == MemType::C1_ &&
           mem_flow[2] == MemType::BUF_C1_)
-        return REALIZE_L1UBL1;
-      return REALIZE_L1;
+        return REALIZE_C1BUFC1;
+      return REALIZE_C1;
     case MemType::BUF_:
       // ordinary conv condition no fusion
       if (mem_flow.size() == 3 && mem_flow[0] == MemType::DDR && mem_flow[1] == mem_type &&
           mem_flow[2] == MemType::C0C_)
-        return REALIZE_L0;
-      return REALIZE_UB;
+        return REALIZE_C0;
+      return REALIZE_BUF;
     case MemType::C0A_:
-      return REALIZE_L0;
+      return REALIZE_C0;
     case MemType::C0B_:
-      return REALIZE_L0;
+      return REALIZE_C0;
     case MemType::C0C_:
-      return REALIZE_L0;
+      return REALIZE_C0;
     case MemType::BUF_C0_:
-      return REALIZE_UBL0;
+      return REALIZE_BUFC0;
     case MemType::BUF_C1_:
-      if (mem_flow.size() == 2 && mem_flow[0] == MemType::DDR && mem_flow[1] == MemType::BUF_C1_) return REALIZE_L1;
-      return REALIZE_UBL1;
+      if (mem_flow.size() == 2 && mem_flow[0] == MemType::DDR && mem_flow[1] == MemType::BUF_C1_) return REALIZE_C1;
+      return REALIZE_BUFC1;
     case MemType::DDR:
       return "";
     default:

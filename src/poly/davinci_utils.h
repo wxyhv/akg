@@ -46,6 +46,12 @@ constexpr auto DOT_LOCAL_C0B = "local.L0B";
 constexpr auto DOT_LOCAL_C0C = "local.L0C";
 
 constexpr auto LOAD_IM2COL = "load_3d";
+constexpr auto REALIZE_C1 = "realize_L1";
+constexpr auto REALIZE_C0 = "realize_L0";
+constexpr auto REALIZE_BUF = "realize_UB";
+constexpr auto REALIZE_BUFC0 = "realize_UBL0";
+constexpr auto REALIZE_BUFC1 = "realize_UBL1";
+constexpr auto REALIZE_C1BUFC1 = "realize_L1UBL1";
 
 }  // namespace poly
 }  // namespace ir

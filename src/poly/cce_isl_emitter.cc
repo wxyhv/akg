@@ -1974,9 +1974,9 @@ Stmt CCEIslEmitter::EmitMarkMulticore(const isl::ast_node_mark &node) {
   }
 
   if (auto block_node = node.get_node().as<isl::ast_node_block>()) {
-    bool is_C0 = (node.get_id().get_name() == REALIZE_L0);
-    bool is_C1 = (node.get_id().get_name() == REALIZE_L1);
-    bool is_BUF = (node.get_id().get_name() == REALIZE_UB);
+    bool is_C0 = (node.get_id().get_name() == REALIZE_C0);
+    bool is_C1 = (node.get_id().get_name() == REALIZE_C1);
+    bool is_BUF = (node.get_id().get_name() == REALIZE_BUF);
     std::unique_ptr<bool[]> args_tmp(new bool[3]{is_C0, is_C1, is_BUF});
     args_ = args_tmp.get();
     return EmitBlock(block_node);

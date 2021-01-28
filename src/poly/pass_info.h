@@ -30,11 +30,11 @@ namespace poly {
 struct DimensionInfo {
   int64_t index;
   std::string axis;
-  int64_t l1_tiling_size;
-  int64_t l0_tiling_size;
+  int64_t c1_tiling_size;
+  int64_t c0_tiling_size;
   int64_t dim_seq;
-  air::Expr l1_var;
-  air::Expr l0_var;
+  air::Expr c1_var;
+  air::Expr c0_var;
   air::Expr pragma;
   bool is_inner{false};
 };

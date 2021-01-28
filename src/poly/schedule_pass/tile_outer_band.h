@@ -38,9 +38,9 @@ class TileOuterBand : public SchedulePass {
     C0 = 0,
     C1,
     BUF,
-    BUF_C1,
-    BUF_C0,
-    C1_BUF_C1,
+    BUFC1,
+    BUFC0,
+    C1BUFC1,
     Invalid,
   };
   virtual isl::schedule Run(isl::schedule sch);

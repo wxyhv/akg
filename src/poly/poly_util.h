@@ -327,9 +327,9 @@ constexpr auto B2 = "b2";
 constexpr auto T0 = "t0";
 constexpr auto T1 = "t1";
 constexpr auto T2 = "t2";
-constexpr auto L1 = "l1";
-constexpr auto L0 = "l0";
-constexpr auto L0_L1 = "l0_l1";
+constexpr auto TILE_WITH_C1 = "C1";
+constexpr auto TILE_WITH_C0 = "C0";
+constexpr auto TILE_WITH_C0_C1 = "C0_C1";
 constexpr auto REPLACE = "replace_";
 constexpr auto COMPUTE = "compute";
 constexpr auto PROMOTE = "promote_";
@@ -355,12 +355,6 @@ constexpr auto COL_MAJOR = "col_major";
  * Following const is the mark tags for schedule tree
  ******************************************************/
 constexpr auto REALIZE = "realize";
-constexpr auto REALIZE_L1 = "realize_L1";
-constexpr auto REALIZE_L0 = "realize_L0";
-constexpr auto REALIZE_UB = "realize_UB";
-constexpr auto REALIZE_UBL0 = "realize_UBL0";
-constexpr auto REALIZE_UBL1 = "realize_UBL1";
-constexpr auto REALIZE_L1UBL1 = "realize_L1UBL1";
 constexpr auto CONV_GEMM = "conv_gemm";
 constexpr auto FUSE_VECTOR = "fuse_vector";
 constexpr auto MULTICORE_COINCIDENT = "multicore_coincident_";
