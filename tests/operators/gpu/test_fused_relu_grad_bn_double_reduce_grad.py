@@ -1,4 +1,4 @@
-# Copyright 2020 Huawei Technologies Co., Ltd
+# Copyright 2020-2021 Huawei Technologies Co., Ltd
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -18,8 +18,8 @@ from akg.utils import kernel_exec as utils
 from gen_random import random_gaussian
 from akg.utils.result_analysis import gpu_profiling
 from akg.utils.format_transform import to_tvm_nd_array
-from akg.ops.poly_gpu import fused_relu_grad_bn_double_reduce_grad_manual, fused_relu_grad_bn_double_reduce_grad_auto
 from test_fused_pattern_grad import relu_grad_np
+from test_op.resnet.fused_relu_grad_bn_double_reduce_grad import fused_relu_grad_bn_double_reduce_grad
 
 def compute_expect(inshp_data, outshp_data):
     out_shape = outshp_data.shape
@@ -67,15 +67,13 @@ def test_fused_relu_grad_bn_double_reduce_grad(shape, out_shape, dtype="float32"
     op_attrs = [layout, out_dtype]
     if poly_sch:
         mod = utils.op_build_test(
-            fused_relu_grad_bn_double_reduce_grad_auto,
+            fused_relu_grad_bn_double_reduce_grad,
             shape_list,
             dtype_list,
             op_attrs=op_attrs,
-            kernel_name="fused_relu_grad_bn_double_reduce_grad_auto",
+            kernel_name="fused_relu_grad_bn_double_reduce_grad",
             attrs={
                 "target": "cuda"})
-    else:
-        mod = utils.op_build_test(fused_relu_grad_bn_double_reduce_grad_manual, shape_list, dtype_list, kernel_name="fused_relu_grad_bn_double_reduce_grad_manual", op_attrs=op_attrs)
 
     inshp_data, outshp_data, output, expect = gen_data(shape, out_shape, dtype, out_dtype)
     inputs = [inshp_data] * 5 + [outshp_data] + [inshp_data] * 3 + [outshp_data] + [inshp_data] * 3 + [outshp_data] * 3

@@ -1,4 +1,4 @@
-# Copyright 2020 Huawei Technologies Co., Ltd
+# Copyright 2020-2021 Huawei Technologies Co., Ltd
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -12,12 +12,9 @@
 # See the License for the specific language governing permissions and
 # limitations under the License
 import numpy as np
-from akg.ops.poly_gpu import cast_manual, cast_auto
 from gen_random import random_gaussian
 from akg.utils import kernel_exec as utils
-from akg.utils.result_analysis import gpu_profiling
-from akg.utils.format_transform import to_tvm_nd_array
-
+from akg.ops.math_gpu.cast import cast
 
 def gen_data(shape, srcType, dstType):
     # Result_Numpy
@@ -42,10 +39,9 @@ def gen_data(shape, srcType, dstType):
 
 def test_ms_cast(shape, srcType, dstType, poly_sch=False):
     if poly_sch:
-        mod = utils.op_build_test(cast_auto, [shape], [
-            srcType], [dstType], attrs={"target": "cuda"}, kernel_name="cast_auto")
-    else:
-        mod = utils.op_build_test(cast_manual, [shape], [srcType], [dstType], kernel_name="cast_manual")
+        mod = utils.op_build_test(cast, [shape], [
+            srcType], [dstType], attrs={"target": "cuda"}, kernel_name="cast")
+            
     output, expect, inputs = gen_data(shape, srcType, dstType)
     output = utils.mod_launch(mod, (inputs, output), expect=expect)
     res = np.allclose(output, expect, rtol=5e-03, atol=1.e-8)
@@ -55,5 +51,4 @@ def test_ms_cast(shape, srcType, dstType, poly_sch=False):
         print(mod.imported_modules[0].get_source())
         raise AssertionError("Test fail")
 
-    inputs, expect = to_tvm_nd_array([inputs, expect])
     return True

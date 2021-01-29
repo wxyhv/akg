@@ -17,7 +17,6 @@ import pytest
 import logging
 from akg import composite
 from akg.utils import kernel_exec as utils
-from akg.utils.format_transform import to_tvm_nd_array
 from gen_json_data import gen_json_data
 from base import get_rtol_atol
 from tensorio import compare_tensor

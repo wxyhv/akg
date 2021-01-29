@@ -1,4 +1,4 @@
-# Copyright 2020 Huawei Technologies Co., Ltd
+# Copyright 2020-2021 Huawei Technologies Co., Ltd
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -15,9 +15,7 @@
 import numpy as np
 from gen_random import random_gaussian
 from akg.utils import kernel_exec as utils
-from akg.utils.result_analysis import gpu_profiling
-from akg.utils.format_transform import to_tvm_nd_array
-from akg.ops.poly_gpu import fused_relu_grad_bn_double_update_grad_manual, fused_relu_grad_bn_double_update_grad_auto
+from test_op.resnet.fused_relu_grad_bn_double_update_grad import fused_relu_grad_bn_double_update_grad
 
 def gen_data(data_shape, dtype):
     data = random_gaussian(data_shape, miu=1, sigma=0.1).astype(dtype)
@@ -33,7 +31,7 @@ def compute_py(data_1, data_2, data_3, data_4, data_5, data_6, data_7, layout='N
 
     n, h, w, c = np.shape(data_7)
     data_tmp8 = data_2.astype('float32')
-    data_tmp9 = np.array([1.0 / (n * h * w)]).astype('float32')
+    data_tmp9 = np.array([1.0/(n*h*w)]).astype('float32')
     data_tmp10 = np.multiply(data_1, data_tmp9)
     data_tmp11 = np.broadcast_to(data_tmp10, data_tmp8.shape)
     data_tmp12 = np.subtract(data_tmp8, data_tmp11)
@@ -62,32 +60,15 @@ def test_fused_relu_grad_bn_double_update_grad(shape_f16, shape_f32, layout='NHW
     shape_list = [shape_f32, shape_f16, shape_f32, shape_f16, shape_f16, shape_f16, shape_f16]
     dtype_list = ['float32', 'float16', 'float32', 'float16', 'float16', 'float16', 'float16']
     data_list = [data_1, data_2, data_3, data_4, data_5, data_6, data_7]
-    data_tmp7, data_tmp15, data_tmp22, out_shape = compute_py(
-        data_1, data_2, data_3, data_4, data_5, data_6, data_7, layout)
+    data_tmp7, data_tmp15, data_tmp22, out_shape = compute_py(data_1, data_2, data_3, data_4, data_5, data_6, data_7, layout)
     expect = [data_tmp7, data_tmp15, data_tmp22]
-    output = np.full(out_shape, np.nan, 'float32')
+    output = np.full(out_shape, 0.0, 'float32')
     output = [output, output, output]
 
     if poly_sch:
-        mod = utils.op_build(
-            fused_relu_grad_bn_double_update_grad_auto,
-            shape_list,
-            dtype_list,
-            op_attrs=[layout],
-            kernel_name="fused_relu_grad_bn_double_update_grad_auto",
-            attrs={
-                "target": "cuda",
-                "enable_akg_reduce_lib": True})
-    else:
-        mod = utils.op_build_test(
-            fused_relu_grad_bn_double_update_grad_manual,
-            shape_list,
-            dtype_list,
-            kernel_name="fused_relu_grad_bn_double_update_grad_manual",
-            op_attrs=[layout])
+        mod = utils.op_build(fused_relu_grad_bn_double_update_grad, shape_list, dtype_list, op_attrs=[layout], kernel_name="fused_relu_grad_bn_double_update_grad", attrs={"target": "cuda"})
 
-    output = utils.mod_launch(mod, (data_1, data_2, data_3, data_4, data_5, data_6, data_7,
-                                    *output), outputs=tuple(range(-len(output), 0)), expect=expect)
+    output = utils.mod_launch(mod, (data_1, data_2, data_3, data_4, data_5, data_6, data_7, *output), outputs=tuple(range(-len(output),0)), expect = expect)
 
     res = True
     res &= np.allclose(output[0], expect[0], rtol=5e-03, atol=1e-8)
@@ -98,7 +79,5 @@ def test_fused_relu_grad_bn_double_update_grad(shape_f16, shape_f32, layout='NHW
         print("Error cuda:========================")
         print(mod.imported_modules[0].get_source())
         raise AssertionError("Test fail")
-
-    data_list = to_tvm_nd_array(data_list)
-    expect = to_tvm_nd_array(expect)
+    
     return True

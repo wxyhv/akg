@@ -1,4 +1,4 @@
-# Copyright 2020 Huawei Technologies Co., Ltd
+# Copyright 2020-2021 Huawei Technologies Co., Ltd
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -17,7 +17,7 @@ from gen_random import random_gaussian
 from akg.utils import kernel_exec as utils
 from akg.utils.result_analysis import gpu_profiling
 from akg.utils.format_transform import to_tvm_nd_array
-from akg.ops.poly_gpu import fused_relu_grad_bn_double_update_grad_manual, fused_relu_grad_bn_double_update_grad_auto
+from test_op.resnet.fused_relu_grad_bn_double_update_grad import fused_relu_grad_bn_double_update_grad
 
 def gen_data(data_shape, dtype):
     data = random_gaussian(data_shape, miu=1, sigma=0.1).astype(dtype)
@@ -68,9 +68,7 @@ def test_fused_relu_grad_bn_double_update_grad(shape_f16, shape_f32, layout='NHW
     output = [output, output, output]
 
     if poly_sch:
-        mod = utils.op_build(fused_relu_grad_bn_double_update_grad_auto, shape_list, dtype_list, op_attrs=[layout], kernel_name="fused_relu_grad_bn_double_update_grad_auto", attrs={"target": "cuda"})
-    else:
-        mod = utils.op_build_test(fused_relu_grad_bn_double_update_grad_manual, shape_list, dtype_list, kernel_name="fused_relu_grad_bn_double_update_grad_manual", op_attrs=[layout])
+        mod = utils.op_build(fused_relu_grad_bn_double_update_grad, shape_list, dtype_list, op_attrs=[layout], kernel_name="fused_relu_grad_bn_double_update_grad", attrs={"target": "cuda"})
 
     output = utils.mod_launch(mod, (data_1, data_2, data_3, data_4, data_5, data_6, data_7, *output), outputs=tuple(range(-len(output),0)), expect = expect)
 
