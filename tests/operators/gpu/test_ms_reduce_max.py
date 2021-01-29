@@ -1,4 +1,4 @@
-# Copyright 2020 Huawei Technologies Co., Ltd
+# Copyright 2020-2021 Huawei Technologies Co., Ltd
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -12,12 +12,11 @@
 # See the License for the specific language governing permissions and
 # limitations under the License
 import numpy as np
-from akg.ops.poly_gpu import reduce_max_manual, reduce_max_auto
 from gen_random import random_gaussian
 from akg.utils import kernel_exec as utils
 from akg.utils.result_analysis import gpu_profiling
 from akg.utils.format_transform import to_tvm_nd_array
-
+from akg.ops.math_gpu.reduce_max import reduce_max
 
 def gen_data(in_shape, in_dtype, axis, keepdims):
     support_list = {"float16": np.float16, "float32": np.float32}
@@ -32,11 +31,9 @@ def gen_data(in_shape, in_dtype, axis, keepdims):
 
 def test_ms_reduce_max(in_shape, in_dtype, axis=None, keepdims=False, poly_sch=False):
     if poly_sch:
-        mod = utils.op_build_test(reduce_max_auto, (in_shape, ), (in_dtype, ), op_attrs=[
-                             axis, keepdims], kernel_name="reduce_max_auto", attrs={"target": "cuda"})
-    else:
-        mod = utils.op_build_test(reduce_max_manual, (in_shape, ),
-                             (in_dtype, ), kernel_name="reduce_max_manual", op_attrs=[axis, keepdims])
+        mod = utils.op_build_test(reduce_max, (in_shape, ), (in_dtype, ), op_attrs=[
+                             axis, keepdims], kernel_name="reduce_max", attrs={"target": "cuda"})
+
     data, output, expect = gen_data(in_shape, in_dtype, axis, keepdims)
     args = (data, output)
     output = utils.mod_launch(mod, args, expect=expect)

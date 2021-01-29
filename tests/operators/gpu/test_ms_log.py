@@ -1,4 +1,4 @@
-# Copyright 2020 Huawei Technologies Co., Ltd
+# Copyright 2020-2021 Huawei Technologies Co., Ltd
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -12,11 +12,11 @@
 # See the License for the specific language governing permissions and
 # limitations under the License
 import numpy as np
-from akg.ops.poly_gpu import log_manual, log_auto
 from gen_random import random_gaussian
 from akg.utils import kernel_exec as utils
 from akg.utils.result_analysis import gpu_profiling
 from akg.utils.format_transform import to_tvm_nd_array
+from akg.ops.math_gpu.log import log
 
 def gen_data(in_shape, in_dtype):
     support_list = {"float16": np.float16, "float32": np.float32}
@@ -27,9 +27,8 @@ def gen_data(in_shape, in_dtype):
 
 def test_ms_log(in_shape, in_dtype, poly_sch=False):
     if poly_sch:
-        mod = utils.op_build_test(log_auto, (in_shape, ), (in_dtype, ), kernel_name="log_auto", attrs={"target":"cuda"})
-    else:
-        mod = utils.op_build_test(log_manual, (in_shape, ), (in_dtype, ), kernel_name="log_manual")
+        mod = utils.op_build_test(log, (in_shape, ), (in_dtype, ), kernel_name="log", attrs={"target":"cuda"})
+
     data, output, expect = gen_data(in_shape, in_dtype)
     args = (data, output)
     output = utils.mod_launch(mod, args, expect=expect)

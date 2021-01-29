@@ -1,4 +1,4 @@
-# Copyright 2020 Huawei Technologies Co., Ltd
+# Copyright 2020-2021 Huawei Technologies Co., Ltd
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -15,12 +15,9 @@
 """ test_fused_bn_update """
 from __future__ import absolute_import
 import numpy as np
-from akg.ops.poly_gpu import fused_bn_update_manual, fused_bn_update_auto
 from gen_random import random_gaussian
 from akg.utils import kernel_exec as utils
-from akg.utils.result_analysis import gpu_profiling
-from akg.utils.format_transform import to_tvm_nd_array
-from tensorio import compare_tensor
+from test_op.resnet.fused_bn_update import fused_bn_update
 
 def gen_data(shape, dtype):
     data1 = random_gaussian(shape, miu=3, sigma=0.1).astype(dtype)
@@ -43,36 +40,17 @@ def compute_expect(input, c1, c2, c3, c4):
 
     return [out1, out2, out3]
 
-def test_fused_bn_update(shape,
-                         dtype="float32",
-                         c1=(1 / (256 * 7 * 7)),
-                         c2=1.001e-05,
-                         c3=1.00007975,
-                         c4=0.100000024,
-                         poly_sch=False):
+def test_fused_bn_update(shape, dtype="float32", c1=(1 / (256 * 7 * 7)), c2=1.001e-05, c3=1.00007975, c4=0.100000024, poly_sch=False):
     input = gen_data(shape, dtype)
     expect = compute_expect(input, c1, c2, c3, c4)
     attrs = [dtype, c1, c2, c3, c4]
     shapes = [input[0].shape] * 4
     dtypes = [dtype] * 4
     if poly_sch:
-        mod = utils.op_build_test(
-            fused_bn_update_auto,
-            shapes,
-            dtypes,
-            kernel_name="fused_bn_update_auto",
-            op_attrs=attrs,
-            attrs={
-                "target": "cuda"})
-    else:
-        mod = utils.op_build_test(
-            fused_bn_update_manual,
-            shapes,
-            dtypes,
-            kernel_name="fused_bn_update_manual",
-            op_attrs=attrs)
-    outputs = [np.full(shape, np.nan, dtype)] * 3
-    attrs_list = input + outputs
+        mod = utils.op_build_test(fused_bn_update, shapes, dtypes, kernel_name="fused_bn_update", op_attrs=attrs, attrs={"target": "cuda"})
+
+    outputs =  [np.full(shape, np.nan, dtype)] * 3
+    attrs_list =  input + outputs
     output = utils.mod_launch(mod, attrs_list, outputs=(range(-len(outputs), 0)), expect=expect)
     res = np.allclose(output, expect, rtol=5e-03, atol=1.e-8)
     print("Test {}".format("Pass" if res else "Failed"))
@@ -81,6 +59,4 @@ def test_fused_bn_update(shape,
         print(mod.imported_modules[0].get_source())
         raise AssertionError("Test fail")
 
-    data = to_tvm_nd_array(input)
-    expect = to_tvm_nd_array(expect)
     return True

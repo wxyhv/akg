@@ -1,4 +1,4 @@
-# Copyright 2020 Huawei Technologies Co., Ltd
+# Copyright 2020-2021 Huawei Technologies Co., Ltd
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -15,12 +15,9 @@
 """ test_fused_relu_grad """
 from __future__ import absolute_import
 import numpy as np
-from akg.ops.poly_gpu import fused_relu_grad_manual, fused_relu_grad_auto
 from gen_random import random_gaussian
 from akg.utils import kernel_exec as utils
-from akg.utils.result_analysis import gpu_profiling
-from akg.utils.format_transform import to_tvm_nd_array
-from tensorio import compare_tensor
+from test_op.resnet.fused_relu_grad import fused_relu_grad
 
 def gen_data(shape, dtype):
     data1 = random_gaussian(shape, miu=1, sigma=0.1).astype(dtype)
@@ -39,28 +36,15 @@ def compute_expect(input, c1):
     return np.where(cmp_zero, data_add, data_zero)
 
 def test_fused_relu_grad(shape, c1=0, poly_sch=False):
-    dtype = 'float16'
+    dtype='float16'
     input = gen_data(shape, dtype)
     expect = compute_expect(input, c1)
     shapes = [shape] * 3
     dtypes = [dtype] * 3
     attrs = [c1]
     if poly_sch:
-        mod = utils.op_build_test(
-            fused_relu_grad_auto,
-            shapes,
-            dtypes,
-            op_attrs=attrs,
-            kernel_name="fused_relu_grad_auto",
-            attrs={
-                "target": "cuda"})
-    else:
-        mod = utils.op_build_test(
-            fused_relu_grad_manual,
-            shapes,
-            dtypes,
-            op_attrs=attrs,
-            kernel_name="fused_relu_grad_manual")
+        mod = utils.op_build_test(fused_relu_grad, shapes, dtypes, op_attrs=attrs, kernel_name="fused_relu_grad", attrs={"target": "cuda"})
+
     output = np.full(shape, np.nan, dtype)
     output = utils.mod_launch(mod, (*input, output), expect=expect)
     res = np.allclose(output, expect, rtol=5e-3, atol=1e-8)
@@ -70,6 +54,4 @@ def test_fused_relu_grad(shape, c1=0, poly_sch=False):
         print(mod.imported_modules[0].get_source())
         raise AssertionError("Test fail")
 
-    data = to_tvm_nd_array(input)
-    expect = to_tvm_nd_array(expect)
     return True

@@ -1,4 +1,4 @@
-# Copyright 2020 Huawei Technologies Co., Ltd
+# Copyright 2020-2021 Huawei Technologies Co., Ltd
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -10,13 +10,11 @@
 # distributed under the License is distributed on an "AS IS" BASIS,
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
-# limitations under the License
+# limitations under the License 
 import numpy as np
-from akg.ops.poly_gpu import equal_manual, equal_auto
 from gen_random import random_gaussian
 from akg.utils import kernel_exec as utils
-from akg.utils.result_analysis import gpu_profiling
-from akg.utils.format_transform import to_tvm_nd_array
+from akg.ops.math_gpu.equal import equal
 
 def gen_data(shapes, dtype):
     support_list = {"float16": np.float16, "float32": np.float32}
@@ -33,14 +31,11 @@ def gen_data(shapes, dtype):
     return inputs, output, expect
 
 
+
 def test_ms_equal(shapes, dtype, poly_sch=False):
     if poly_sch:
-        mod = utils.op_build_test(
-            equal_auto, shapes, [
-                dtype, dtype], kernel_name="equal_auto", attrs={
-                "target": "cuda"})
-    else:
-        mod = utils.op_build_test(equal_manual, shapes, [dtype, dtype], kernel_name="equal_manual")
+        mod = utils.op_build_test(equal, shapes, [dtype, dtype], kernel_name="equal", attrs={"target": "cuda"})
+        
     inputs1, output1, expect1 = gen_data(shapes, dtype)
     output1 = utils.mod_launch(mod, (*inputs1, output1), expect=expect1)
 
@@ -52,23 +47,14 @@ def test_ms_equal(shapes, dtype, poly_sch=False):
         output2 = np.full(expect2.shape, 0, bool)
         output2 = utils.mod_launch(mod, (*inputs2, output2), expect=expect1)
 
-        res = np.allclose(output1,
-                          expect1,
-                          rtol=5e-03,
-                          atol=1.e-8) and np.allclose(output2,
-                                                      expect2,
-                                                      rtol=5e-03,
-                                                      atol=1.e-8)
+        res = np.allclose(output1, expect1, rtol=5e-03, atol=1.e-8) and np.allclose(output2, expect2, rtol=5e-03, atol=1.e-8)
         print("Test {}".format("Pass" if res else "Fail"))
         if not res:
             print("Error cuda:========================")
             print(mod.imported_modules[0].get_source())
             raise AssertionError("Test fail")
-
-        inputs1 = to_tvm_nd_array(inputs1)
-        inputs2 = to_tvm_nd_array(inputs2)
-        expect1 = to_tvm_nd_array(expect1)
-        expect2 = to_tvm_nd_array(expect2)
+        return True
+        
     else:
         res = np.allclose(output1, expect1, rtol=5e-03, atol=1.e-8)
         print("Test {}".format("Pass" if res else "Fail"))
@@ -76,7 +62,5 @@ def test_ms_equal(shapes, dtype, poly_sch=False):
             print("Error cuda:========================")
             print(mod.imported_modules[0].get_source())
             raise AssertionError("Test fail")
-
-        inputs1 = to_tvm_nd_array(inputs1)
-        expect1 = to_tvm_nd_array(expect1)
-    return True
+        
+        return True

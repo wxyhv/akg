@@ -1,4 +1,4 @@
-# Copyright 2020 Huawei Technologies Co., Ltd
+# Copyright 2020-2021 Huawei Technologies Co., Ltd
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -15,9 +15,7 @@
 import numpy as np
 from gen_random import random_gaussian
 from akg.utils import kernel_exec as utils
-from akg.utils.result_analysis import gpu_profiling
-from akg.utils.format_transform import to_tvm_nd_array
-from akg.ops.poly_gpu import fused_l2loss_grad_manual, fused_l2loss_grad_auto
+from test_op.resnet.fused_l2loss_grad import fused_l2loss_grad
 
 def gen_data(data_shape, dtype):
     data = random_gaussian(data_shape, miu=1, sigma=0.1).astype(dtype)
@@ -45,22 +43,8 @@ def test_fused_l2loss_grad(shape, layout, fill_data=4e-05, poly_sch=False):
     dtype_list = ['float16', 'float32']
     op_attrs = [layout, fill_data]
     if poly_sch:
-        mod = utils.op_build_test(
-            fused_l2loss_grad_auto,
-            input_list,
-            dtype_list,
-            kernel_name="fused_l2loss_grad_auto",
-            op_attrs=op_attrs,
-            attrs={
-                "target": "cuda"})
-    else:
-        mod = utils.op_build_test(
-            fused_l2loss_grad_manual,
-            input_list,
-            dtype_list,
-            kernel_name="fused_l2loss_grad_manual",
-            op_attrs=op_attrs)
-
+        mod = utils.op_build_test(fused_l2loss_grad, input_list, dtype_list, kernel_name="fused_l2loss_grad", op_attrs=op_attrs, attrs={"target": "cuda"})
+    
     args = [data_1, data_2, output]
     output = utils.mod_launch(mod, args, expect=expect)
     res = np.allclose(output, expect, rtol=5e-03, atol=1e-8)
@@ -69,7 +53,5 @@ def test_fused_l2loss_grad(shape, layout, fill_data=4e-05, poly_sch=False):
         print("Error cuda:========================")
         print(mod.imported_modules[0].get_source())
         raise AssertionError("Test fail")
-
-    data = to_tvm_nd_array([data_1, data_2])
-    expect = to_tvm_nd_array(expect)
+    
     return True

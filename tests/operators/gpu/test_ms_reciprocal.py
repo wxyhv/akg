@@ -1,4 +1,4 @@
-# Copyright 2020 Huawei Technologies Co., Ltd
+# Copyright 2020-2021 Huawei Technologies Co., Ltd
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -12,11 +12,11 @@
 # See the License for the specific language governing permissions and
 # limitations under the License
 import numpy as np
-from akg.ops.poly_gpu import reciprocal_manual, reciprocal_auto
 from gen_random import random_gaussian
 from akg.utils import kernel_exec as utils
 from akg.utils.result_analysis import gpu_profiling
 from akg.utils.format_transform import to_tvm_nd_array
+from akg.ops.math.reciprocal import reciprocal
 
 def gen_data(shape1, in_dtype):
     support_list = {"float16": np.float16, "float32": np.float32}
@@ -27,9 +27,8 @@ def gen_data(shape1, in_dtype):
 
 def test_ms_reciprocal(shape1, in_dtype, poly_sch=False):
     if poly_sch:
-        mod = utils.op_build_test(reciprocal_auto, [shape1], [in_dtype], kernel_name="reciprocal_auto", attrs={"target":"cuda"})
-    else:
-        mod = utils.op_build_test(reciprocal_manual, [shape1], [in_dtype], kernel_name="reciprocal_manual")
+        mod = utils.op_build_test(reciprocal, [shape1], [in_dtype], kernel_name="reciprocal", attrs={"target":"cuda"})
+
     input1, output, expect = gen_data(shape1, in_dtype)
     args = (input1, output)
     output = utils.mod_launch(mod, args, expect=expect)

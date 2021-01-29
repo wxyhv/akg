@@ -1,4 +1,4 @@
-# Copyright 2020 Huawei Technologies Co., Ltd
+# Copyright 2020-2021 Huawei Technologies Co., Ltd
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -19,7 +19,7 @@ from gen_random import random_gaussian
 from akg.utils.result_analysis import gpu_profiling
 from akg.utils.format_transform import to_tvm_nd_array
 from test_fused_pattern_grad import relu_grad_np, bn_beta_grad_np, bn_gamma_grad_np
-from akg.ops.poly_gpu import fused_relu_grad_bn_update_grad_manual, fused_relu_grad_bn_update_grad_auto
+from test_op.resnet.fused_relu_grad_bn_update_grad import fused_relu_grad_bn_update_grad
 
 def compute_expect(data_sum, in_bn, head_active, in_active, layout):
     out_dtype = data_sum.dtype
@@ -46,16 +46,14 @@ def test_fused_relu_grad_bn_update_grad(shape, out_shape, dtype="float16", layou
     op_attrs = [layout]
     if poly_sch:
         mod = utils.op_build_test(
-            fused_relu_grad_bn_update_grad_auto,
+            fused_relu_grad_bn_update_grad,
             shape_list,
             dtype_list,
             op_attrs=op_attrs,
-            kernel_name="fused_relu_grad_bn_update_grad_auto",
+            kernel_name="fused_relu_grad_bn_update_grad",
             attrs={
                 "target": "cuda"})
-    else:
-        mod = utils.op_build_test(fused_relu_grad_bn_update_grad_manual, shape_list, dtype_list, kernel_name="fused_relu_grad_bn_update_grad_manual", op_attrs=op_attrs)
-    
+ 
     head, data_sum, in_bn, in_active, output, expect = gen_data(shape, out_shape, dtype, out_dtype, layout)
     outputs = [output, output]
     inputs = [data_sum, in_bn, head, in_active]

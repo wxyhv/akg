@@ -1,4 +1,4 @@
-# Copyright 2020 Huawei Technologies Co., Ltd
+# Copyright 2020-2021 Huawei Technologies Co., Ltd
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -12,12 +12,11 @@
 # See the License for the specific language governing permissions and
 # limitations under the License
 import numpy as np
-from akg.ops.poly_gpu import sqrt_manual, sqrt_auto
 from gen_random import random_gaussian
 from akg.utils import kernel_exec as utils
 from akg.utils.result_analysis import gpu_profiling
 from akg.utils.format_transform import to_tvm_nd_array
-
+from akg.ops.math_gpu.sqrt import sqrt
 
 def gen_data(shape, dtype):
     support_list = {"float16": np.float16, "float32": np.float32}
@@ -31,10 +30,9 @@ def gen_data(shape, dtype):
 
 def test_ms_sqrt(shape, dtype, poly_sch=False):
     if poly_sch:
-        mod = utils.op_build_test(sqrt_auto, [shape], [
-                             dtype], kernel_name="sqrt_auto", attrs={"target": "cuda"})
-    else:
-        mod = utils.op_build_test(sqrt_manual, [shape], [dtype], kernel_name="sqrt_manual")
+        mod = utils.op_build_test(sqrt, [shape], [
+                             dtype], kernel_name="sqrt", attrs={"target": "cuda"})
+
     output, expect, inputs = gen_data(shape, dtype)
     output = utils.mod_launch(mod, (inputs, output), expect=expect)
     res = np.allclose(output, expect, rtol=5e-03, atol=1.e-8)

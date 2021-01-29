@@ -1,4 +1,4 @@
-# Copyright 2020 Huawei Technologies Co., Ltd
+# Copyright 2020-2021 Huawei Technologies Co., Ltd
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -15,9 +15,7 @@
 import numpy as np
 from gen_random import random_gaussian
 from akg.utils import kernel_exec as utils
-from akg.utils.result_analysis import gpu_profiling
-from akg.utils.format_transform import to_tvm_nd_array
-from akg.ops.poly_gpu import fused_relu_grad_bn_reduce_grad_manual, fused_relu_grad_bn_reduce_grad_auto
+from test_op.resnet.fused_relu_grad_bn_reduce_grad import fused_relu_grad_bn_reduce_grad
 
 
 def gen_data(shape, dtype):
@@ -26,7 +24,7 @@ def gen_data(shape, dtype):
 def compute_py(data_1, data_2, data_3, data_4, data_5, data_6, data_7, data_8, data_9, layout):
     data_tmp1 = np.multiply(data_4, data_5)
     n, h, w, c = np.shape(data_9)
-    data_tmp2 = np.full(np.shape(data_tmp1), 1.0 / (n * h * w), 'float32')
+    data_tmp2 = np.full(np.shape(data_tmp1), 1.0/(n*h*w), 'float32')
     data_tmp3 = np.multiply(data_tmp1, data_tmp2)
 
     data_tmp5 = np.full(np.shape(data_9), 0.0, 'float16')
@@ -34,7 +32,7 @@ def compute_py(data_1, data_2, data_3, data_4, data_5, data_6, data_7, data_8, d
     data_tmp7 = np.where(data_tmp6, data_8, data_tmp5)
 
     data_tmp8 = data_tmp7.astype('float32')
-    data_tmp9 = np.full(np.shape(data_9), n * h * w, 'float32')
+    data_tmp9 = np.full(np.shape(data_9), n*h*w, 'float32')
     data_tmp10 = np.multiply(data_tmp8, data_tmp9)
 
     data_tmp12 = np.subtract(data_tmp10, data_3)
@@ -68,21 +66,8 @@ def test_fused_relu_grad_bn_reduce_grad(shape_1, shape_2, layout='NHWC', poly_sc
     dtype_list = ['float32', 'float32', 'float32', 'float32', 'float32', 'float32', 'float16', 'float16', 'float16']
     op_attrs = [layout]
     if poly_sch:
-        mod = utils.op_build_test(
-            fused_relu_grad_bn_reduce_grad_auto,
-            input_list,
-            dtype_list,
-            kernel_name="fused_relu_grad_bn_reduce_grad_auto",
-            op_attrs=op_attrs,
-            attrs={
-                "target": "cuda"})
-    else:
-        mod = utils.op_build_test(
-            fused_relu_grad_bn_reduce_grad_manual,
-            input_list,
-            dtype_list,
-            kernel_name="fused_relu_grad_bn_reduce_grad_manual",
-            op_attrs=op_attrs)
+        mod = utils.op_build_test(fused_relu_grad_bn_reduce_grad, input_list, dtype_list, kernel_name="fused_relu_grad_bn_reduce_grad", op_attrs=op_attrs, attrs={"target": "cuda"})
+
     args = [data_1, data_2, data_3, data_4, data_5, data_6, data_7, data_8, data_9, output]
     output = utils.mod_launch(mod, args, expect=expect)
     res = np.allclose(output, expect, rtol=5e-03, atol=1e-08)
@@ -92,6 +77,5 @@ def test_fused_relu_grad_bn_reduce_grad(shape_1, shape_2, layout='NHWC', poly_sc
         print(mod.imported_modules[0].get_source())
         raise AssertionError("Test fail")
 
-    inputs = to_tvm_nd_array([data_1, data_2, data_3, data_4, data_5, data_6, data_7, data_8, data_9])
-    expect = to_tvm_nd_array(expect)
     return True
+            

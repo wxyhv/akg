@@ -1,4 +1,4 @@
-# Copyright 2020 Huawei Technologies Co., Ltd
+# Copyright 2020-2021 Huawei Technologies Co., Ltd
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -12,31 +12,26 @@
 # See the License for the specific language governing permissions and
 # limitations under the License
 import numpy as np
-from akg.ops.poly_gpu import reduce_max_manual, reduce_max_auto
 from gen_random import random_gaussian
 from akg.utils import kernel_exec as utils
-from akg.utils.result_analysis import gpu_profiling
-from akg.utils.format_transform import to_tvm_nd_array
-
+from akg.ops.math_gpu.reduce_max import reduce_max
 
 def gen_data(in_shape, in_dtype, axis, keepdims):
     support_list = {"float16": np.float16, "float32": np.float32}
     data = random_gaussian(in_shape, miu=1, sigma=0.1).astype(
         support_list[in_dtype])
     expect = np.amax(data, axis=axis, keepdims=keepdims)
-    if axis is None and keepdims == False:
+    if axis == None and keepdims == False:
         expect = np.broadcast_to(expect, (1,))
-    output = np.full(expect.shape, np.nan, in_dtype)
+    output = np.full(expect.shape, -3.402823e38, in_dtype)
     return data, output, expect
 
 
 def test_ms_reduce_max(in_shape, in_dtype, axis=None, keepdims=False, poly_sch=False):
     if poly_sch:
-        mod = utils.op_build_test(reduce_max_auto, (in_shape, ), (in_dtype, ), op_attrs=[
-            axis, keepdims], kernel_name="reduce_max_auto", attrs={"target": "cuda", "enable_akg_reduce_lib": True})
-    else:
-        mod = utils.op_build_test(reduce_max_manual, (in_shape, ),
-                                  (in_dtype, ), kernel_name="reduce_max_manual", op_attrs=[axis, keepdims])
+        mod = utils.op_build_test(reduce_max, (in_shape, ), (in_dtype, ), op_attrs=[
+                             axis, keepdims], kernel_name="reduce_max", attrs={"target": "cuda"})
+
     data, output, expect = gen_data(in_shape, in_dtype, axis, keepdims)
     args = (data, output)
     output = utils.mod_launch(mod, args, expect=expect)
@@ -46,5 +41,4 @@ def test_ms_reduce_max(in_shape, in_dtype, axis=None, keepdims=False, poly_sch=F
         print("Error cuda:========================")
         print(mod.imported_modules[0].get_source())
         raise AssertionError("Test fail")
-    data, expect = to_tvm_nd_array([data, expect])
     return True

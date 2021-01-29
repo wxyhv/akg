@@ -490,14 +490,9 @@ if __name__ == '__main__':
         sys.exit()
 
     options, args = getopt.getopt(
-        sys.argv[1:], "amf:", ["auto", "manual", "fuzz="])
-    schedule_method = 'both'
+        sys.argv[1:], "f:", ["fuzz="])
     fuzz_dim = 0
     for name, value in options:
-        if name in ("-a", "--auto"):
-            schedule_method = "auto"
-        if name in ("-m", "--manual"):
-            schedule_method = "manual"
         if name in ("-f", "--fuzz"):
             fuzz_dim = int(value)
 
@@ -518,35 +513,21 @@ if __name__ == '__main__':
     sys.stdout = Logger(filename, sys.stdout)
     sys.stderr = Logger(filename, sys.stderr)
 
-    print("Schedule method: ", schedule_method)
     for op in run_op_list:
         print("Operater: ", op.__name__)
         fuzz_shape = gen_random_shape(fuzz_dim) if fuzz_dim > 0 else None
         if fuzz_shape:
             print("Fuzz shape: {}".format(fuzz_shape))
-        if schedule_method in ["both", "manual"]:
-            try:
-                print(" Time of manual schedule:")
-                op(poly_sch=False, fuzz_shape=fuzz_shape)
-            except:
-                if op.__name__ in fail_op_list:
-                    fail_op_list[op.__name__].extend(
-                        ["using manual schedule:", traceback.format_exc()])
-                else:
-                    fail_op_list[op.__name__] = [
-                        "using manual schedule:", traceback.format_exc()]
-
-        if schedule_method in ["both", "auto"]:
-            try:
-                print("Time of auto schedule:")
-                op(poly_sch=True, fuzz_shape=fuzz_shape)
-            except:
-                if op.__name__ in fail_op_list:
-                    fail_op_list[op.__name__].extend(
-                        ["using auto schedule:", traceback.format_exc()])
-                else:
-                    fail_op_list[op.__name__] = [
-                        "using auto schedule:", traceback.format_exc()]
+        try:
+            print("Time of auto schedule:")
+            op(poly_sch=True, fuzz_shape=fuzz_shape)
+        except:
+            if op.__name__ in fail_op_list:
+                fail_op_list[op.__name__].extend(
+                    ["using auto schedule:", traceback.format_exc()])
+            else:
+                fail_op_list[op.__name__] = [
+                    "using auto schedule:", traceback.format_exc()]
 
     if len(fail_op_list) == 0:
         print("All test pass!")
