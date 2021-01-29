@@ -1,5 +1,5 @@
 /**
- * Copyright 2019 Huawei Technologies Co., Ltd
+ * Copyright 2019-2021 Huawei Technologies Co., Ltd
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -116,18 +116,18 @@ isl::schedule_node MemoryManager::HoistTensorClusterFootprint(isl::schedule_node
   }
 
   if (is_bind_tensor && tensor_info.mem_type != MemType::BUF_C0_) {
-    if (!(scop_info_.mmu_info_.IsGemm() && tensor_info.IsCubeCL1Write())) {
-      bool insert_ub_to_l1 = false;
+    if (!(scop_info_.mmu_info_.IsGemm() && tensor_info.IsMmuCC1Write())) {
+      bool insert_buf_to_c1 = false;
       if (!scop_info_.analysis_result_.GetFakeCopyin().is_empty()) {
         scop_info_.analysis_result_.GetFakeCopyin().foreach_map(
-          [&insert_ub_to_l1, &src_tensor_id, &dst_tensor_id](const isl::map &m) -> void {
+          [&insert_buf_to_c1, &src_tensor_id, &dst_tensor_id](const isl::map &m) -> void {
             if ((m.get_tuple_id(isl_dim_out).get_name() == src_tensor_id.get_name()) &&
                 (src_tensor_id.get_name() + LOCAL_C1 == dst_tensor_id.get_name())) {
-              insert_ub_to_l1 = true;
+              insert_buf_to_c1 = true;
             }
           });
       }
-      if (insert_ub_to_l1) {
+      if (insert_buf_to_c1) {
         isl::id outer_tensorId = isl::id(src_tensor_id.ctx(), src_tensor_id.get_name() + LOCAL_BUF);
         tree = PlaceInnerDataCopyBelow(scop_info_, tree, *fp_cluster, *fp_cluster, src_tensor_id, dst_tensor_id,
                                        outer_tensorId, sch_map);
@@ -160,7 +160,7 @@ isl::schedule_node MemoryManager::HoistTensorClusterFootprint(isl::schedule_node
     return tree;
   }
 
-  if (tensor_info.IsGemmDataL12L0()) {
+  if (tensor_info.IsGemmDataC12C0()) {
     if (scop_info_.mmu_info_.IsGemmDataTranspose()) {
       const isl::id &trans_id = dst_tensor_id;
       const isl::id &cluster_id = dst_tensor_id;
@@ -170,7 +170,7 @@ isl::schedule_node MemoryManager::HoistTensorClusterFootprint(isl::schedule_node
     }
   }
 
-  if (tensor_info.IsGemmWeightL12L0()) {
+  if (tensor_info.IsGemmWeightC12C0()) {
     if (scop_info_.mmu_info_.IsGemmWeightTranspose()) {
       const isl::id &trans_id = dst_tensor_id;
       const isl::id &cluster_id = dst_tensor_id;
@@ -180,10 +180,10 @@ isl::schedule_node MemoryManager::HoistTensorClusterFootprint(isl::schedule_node
     }
   }
   auto scop_cluster = fp_cluster;
-  if (scop_info_.mmu_info_.IsGemm() && (tensor_info.IsGemmDataL12L0() || tensor_info.IsGemmWeightL12L0())) {
+  if (scop_info_.mmu_info_.IsGemm() && (tensor_info.IsGemmDataC12C0() || tensor_info.IsGemmWeightC12C0())) {
     scop_cluster = scop_info_.analysis_result_.GetBufferDefInfo(tensor_info.tensor_id).footprints_cluster;
   }
-  if (tensor_info.IsPreCubeTile2Write()) {
+  if (tensor_info.IsPreMmuTile2Write()) {
     auto info = scop_info_.analysis_result_.GetBufferDefInfo(tensor_info.tensor_id);
     auto new_scop_group = info.GetFootPrintCluster(mark_node);
     if (new_scop_group != nullptr) {
@@ -432,21 +432,21 @@ void MemoryManager::MakeMultiBufferFootprint(const isl::union_map &schedule, con
 
 void MemoryManager::AddStateTensorsDataFlow() {
   // build init list
-  // init list   TensorID   input0      DDR --> L1 --> L1 --> L0A
-  //             TensorID   input1      DDR --> L0B
-  //             TensorID   input2      DDR --> UB
-  //             TensorID   output0     DDR <-- UB <-- L0C
-  //             TensorID   max_1       UB  --> DDR
+  // init list   TensorID   input0      DDR --> C1 --> C1 --> C0A
+  //             TensorID   input1      DDR --> C0B
+  //             TensorID   input2      DDR --> BUF
+  //             TensorID   output0     DDR <-- BUF <-- C0C
+  //             TensorID   max_1       BUF  --> DDR
   // build whole list
   // add below node
-  //   TensorID  input0_local_L1               L1 --> L1 --> L0A
-  //   TensorID  input0_fractal_L1             L1 --> L0A
-  //   TensorID  input0_fractal_L1_local_L0A   L0A
-  //   TensorID  input1_local_L1_local_L0B     L0B
-  //   TensorID  output0_local_UB               UB <-- L0C
-  //   TensorID  output0_local_UB_local_L0C     L0C
-  //   TensorID  input2_local_UB               UB
-  //   TensorID   max_1_local_UB               UB
+  //   TensorID  input0_local_C1               C1 --> C1 --> C0A
+  //   TensorID  input0_fractal_C1             C1 --> C0A
+  //   TensorID  input0_fractal_C1_local_C0A   C0A
+  //   TensorID  input1_local_C1_local_C0B     C0B
+  //   TensorID  output0_local_BUF               BUF <-- C0C
+  //   TensorID  output0_local_BUF_local_C0C     C0C
+  //   TensorID  input2_local_BUF               BUF
+  //   TensorID   max_1_local_BUF               BUF
   auto tensor_name_flows = scop_info_.analysis_result_.GetTensorNameFlows();
   auto tensor_mem_flows = scop_info_.analysis_result_.GetTensorMemFlows();
   CHECK_EQ(tensor_mem_flows.size(), tensor_name_flows.size());
@@ -548,11 +548,11 @@ void MemoryManager::AddTensorDataFlow(const std::vector<MemType> &memflow, const
    *
    * init mem_type:        DDR
    * init tensor_id:       input0
-   * init dst_tensorId:    input0_local_L1
+   * init dst_tensorId:    input0_local_C1
    * init ancestor_id:     input0
    *
-   * init mark_tag:        base on dst_tensorId mem_type, realize_L1
-   * init data_stream:     input0 --> input0_local_L1 --> input0_fractal_L1 --> input0_fractal_L1_local_L0A
+   * init mark_tag:        base on dst_tensorId mem_type, realize_C1
+   * init data_stream:     input0 --> input0_local_C1 --> input0_fractal_C1 --> input0_fractal_C1_local_C0A
    **********************************************/
   std::string tensor_name = nameflow[i];
   MemType mem_type = memflow[i];
@@ -616,7 +616,7 @@ void MemoryManager::MakeBufferFootprintCluster(BufferDefInfo &tensor_info) {
     if (tensor_info.IsIm2col()) {
       HoistIm2colBufferFootprintCluster(schedule, node, index, tensor_info);
     } else {
-      if (tensor_info.IsGemmDataL12L0() || tensor_info.IsGemmWeightL12L0()) {
+      if (tensor_info.IsGemmDataC12C0() || tensor_info.IsGemmWeightC12C0()) {
         AddGemmTransposeFpCluster(schedule);
       }
       MakeMultiBufferFootprint(schedule, node, index, tensor_info);

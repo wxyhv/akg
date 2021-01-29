@@ -173,7 +173,7 @@ class DFVisitor : public IRVisitor {
           extent = AlignExtent(extent, op->args[0].type());
         }
 
-        // align extent of VECTOR pipe to whole block memory size(32B). This is because we found
+        // align extent of INST pipe to whole block memory size(32B). This is because we found
         // Vector and Scalar are conflicted if they access same block memory, even with vector mask.
         // for example:
         //   Vector(mask 0x3ffffff): tvm_access_ptr(int(8), res_local_UB, 0, 26)

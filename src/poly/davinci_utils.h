@@ -35,6 +35,7 @@ constexpr auto FRACTAL_C1_LOCAL_C0B = "_fractal_L1_local_L0B";
 
 constexpr auto C1_LOCAL_C0A = "_L1_local_L0A";
 constexpr auto C1_LOCAL_C0B = "_L1_local_L0B";
+constexpr auto LOCAL_C0B = "_local_L0B";
 
 constexpr auto BUF = "UB";
 constexpr auto C1 = "L1";

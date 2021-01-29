@@ -574,9 +574,9 @@ void TileOuterBand::TileTypeC0(isl::schedule_node &node, int *full_tile_min, int
 
   unsigned int mmu_index = 0;
   for (; mmu_index < scop_info_.analysis_result_.stmt_type_.size() - 1; ++mmu_index) {
-    if (scop_info_.analysis_result_.stmt_type_[mmu_index].second == STMT_OP_TYPE::CUBE_CONV ||
-        scop_info_.analysis_result_.stmt_type_[mmu_index].second == STMT_OP_TYPE::CUBE_GEMM ||
-        scop_info_.analysis_result_.stmt_type_[mmu_index].second == STMT_OP_TYPE::IM2COL_UB) {
+    if (scop_info_.analysis_result_.stmt_type_[mmu_index].second == STMT_OP_TYPE::MMU_CONV ||
+        scop_info_.analysis_result_.stmt_type_[mmu_index].second == STMT_OP_TYPE::MMU_GEMM ||
+        scop_info_.analysis_result_.stmt_type_[mmu_index].second == STMT_OP_TYPE::IM2COL_BUF) {
       break;
     }
   }
@@ -1060,7 +1060,7 @@ isl::schedule_node TileOuterBand::MarkOuterPermutableNpu(isl::schedule_node node
   bool is_in_mmu = false;
   unsigned int i = 0;
   for (; i < scop_info_.analysis_result_.stmt_type_.size() - 1; ++i) {
-    if (scop_info_.analysis_result_.stmt_type_[i].second == STMT_OP_TYPE::CUBE_CONV) {
+    if (scop_info_.analysis_result_.stmt_type_[i].second == STMT_OP_TYPE::MMU_CONV) {
       break;
     }
   }

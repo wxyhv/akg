@@ -1145,32 +1145,32 @@ void ScopInfo::CreateDataFlowInfo() {
     if (endptr == nullptr || *endptr != '\0') LOG(FATAL) << "failed to convert string " << subNum << " to number";
 
     if (mmu_info_.IsConv() && mmu_info_.IsConvHeadTail(conv_output, stmt.first, stmt.second, op_write_map)) {
-      analysis_result_.stmt_type_[num] = std::make_pair(stmt.first.get_name(), STMT_OP_TYPE::VECTOR);
+      analysis_result_.stmt_type_[num] = std::make_pair(stmt.first.get_name(), STMT_OP_TYPE::INST);
       continue;
     }
 
     if (stmt.second.isMMU && mmu_info_.IsConv()) {
-      analysis_result_.stmt_type_[num] = std::make_pair(stmt.first.get_name(), STMT_OP_TYPE::CUBE_CONV);
-      dma_dataflow.CreateStmtDataFlow(STMT_OP_TYPE::CUBE_CONV, stmt.first, stmt.second, op_read_map, op_write_map);
+      analysis_result_.stmt_type_[num] = std::make_pair(stmt.first.get_name(), STMT_OP_TYPE::MMU_CONV);
+      dma_dataflow.CreateStmtDataFlow(STMT_OP_TYPE::MMU_CONV, stmt.first, stmt.second, op_read_map, op_write_map);
     }
 
     if (stmt.second.isMMU && !mmu_info_.IsConv()) {
-      analysis_result_.stmt_type_[num] = std::make_pair(stmt.first.get_name(), STMT_OP_TYPE::CUBE_GEMM);
-      dma_dataflow.CreateStmtDataFlow(STMT_OP_TYPE::CUBE_GEMM, stmt.first, stmt.second, op_read_map, op_write_map);
+      analysis_result_.stmt_type_[num] = std::make_pair(stmt.first.get_name(), STMT_OP_TYPE::MMU_GEMM);
+      dma_dataflow.CreateStmtDataFlow(STMT_OP_TYPE::MMU_GEMM, stmt.first, stmt.second, op_read_map, op_write_map);
     }
 
     if (stmt.second.isIm2col || stmt.second.is_load_im2col) {
-      analysis_result_.stmt_type_[num] = std::make_pair(stmt.first.get_name(), STMT_OP_TYPE::IM2COL_UB);
-      dma_dataflow.CreateStmtDataFlow(STMT_OP_TYPE::IM2COL_UB, stmt.first, stmt.second, op_read_map, op_write_map);
+      analysis_result_.stmt_type_[num] = std::make_pair(stmt.first.get_name(), STMT_OP_TYPE::IM2COL_BUF);
+      dma_dataflow.CreateStmtDataFlow(STMT_OP_TYPE::IM2COL_BUF, stmt.first, stmt.second, op_read_map, op_write_map);
     }
 
     if (!stmt.second.isMMU && !stmt.second.isMMUAssign) {
-      analysis_result_.stmt_type_[num] = std::make_pair(stmt.first.get_name(), STMT_OP_TYPE::VECTOR);
-      dma_dataflow.CreateStmtDataFlow(STMT_OP_TYPE::VECTOR, stmt.first, stmt.second, op_read_map, op_write_map);
+      analysis_result_.stmt_type_[num] = std::make_pair(stmt.first.get_name(), STMT_OP_TYPE::INST);
+      dma_dataflow.CreateStmtDataFlow(STMT_OP_TYPE::INST, stmt.first, stmt.second, op_read_map, op_write_map);
     }
 
     if (stmt.second.isMMUAssign) {
-      analysis_result_.stmt_type_[num] = std::make_pair(stmt.first.get_name(), STMT_OP_TYPE::VECTOR);
+      analysis_result_.stmt_type_[num] = std::make_pair(stmt.first.get_name(), STMT_OP_TYPE::INST);
     }
   }
   dma_dataflow.FusionAnalysis();
