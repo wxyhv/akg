@@ -72,7 +72,7 @@ void TileOuterBand::InitDimensionInfo(const isl::schedule &sch_init) {
     auto tiling_res = GenerateTiling(sch_init, scop_info_, GenHalide(scop_info_, sch_init, true));
     scop_info_.analysis_result_.SetTileSizes(tiling_res.first);
     scop_info_.analysis_result_.SetTileConstraints(tiling_res.second);
-    if (scop_info_.cube_info_.IsConv()) scop_info_.cube_info_.SetConvMNKInfo();
+    if (scop_info_.mmu_info_.IsConv()) scop_info_.mmu_info_.SetConvMNKInfo();
     return;
   }
 
@@ -146,7 +146,7 @@ isl::schedule TileOuterBand::Run(isl::schedule sch) {
   if (scop_info_.user_config_.GetTarget() == TARGET_CUDA) {
     return RunCuda(sch);
   } else {
-    return RunCce(sch);
+    return RunNpu(sch);
   }
 }
 
@@ -208,15 +208,15 @@ isl::schedule TileOuterBand::RunCuda(isl::schedule sch) {
   return final_schedule;
 }
 
-isl::schedule TileOuterBand::RunCce(isl::schedule sch) {
+isl::schedule TileOuterBand::RunNpu(isl::schedule sch) {
   auto map_before_tile = sch.get_map();
   // TransferStmt pass
   isl::schedule tiling_schedule = sch;
-  if (!scop_info_.cube_info_.IsSpecGemm()) {
+  if (!scop_info_.mmu_info_.IsSpecGemm()) {
     tiling_schedule = TransferStmt(scop_info_, pass_info_).Run(tiling_schedule);
   }
   scop_info_.analysis_result_.InitScheduleMapBeforeTile(scop_info_.GetCtx());
-  if (!scop_info_.cube_info_.IsSpecGemm() && (scop_info_.cube_info_.IsConv() || scop_info_.cube_info_.IsGemm())) {
+  if (!scop_info_.mmu_info_.IsSpecGemm() && (scop_info_.mmu_info_.IsConv() || scop_info_.mmu_info_.IsGemm())) {
     scop_info_.analysis_result_.SetScheduleMapBeforeTile(sch.get_map());
   }
   InitDimensionInfo(tiling_schedule);
@@ -233,7 +233,7 @@ isl::schedule TileOuterBand::RunCce(isl::schedule sch) {
   // in depth first postorder via the callback function.
   using std::placeholders::_1;
   const std::function<isl::schedule_node(isl::schedule_node)> f =
-    std::bind(&TileOuterBand::MarkOuterPermutableCce, this, _1);
+    std::bind(&TileOuterBand::MarkOuterPermutableNpu, this, _1);
   node = ReverseTraverseChild(node, f);
 
   scop_info_.AddPartitionInfoToData(AddTileInfo(partition_info_));
@@ -337,7 +337,7 @@ isl::schedule_node TileOuterBand::MarkTileBand(isl::schedule_node node, TileType
     markTag = REALIZE_C0;
     node = node.insert_mark(isl::id(node.ctx(), markTag));
 #if SPEC_GEMM
-    if (scop_info_.cube_info_.IsConv()) {
+    if (scop_info_.mmu_info_.IsConv()) {
       std::string mark_tag_gmm = CONV_GEMM;
       node = node.insert_mark(isl::id(node.ctx(), mark_tag_gmm));
     }
@@ -486,7 +486,7 @@ isl::schedule_node TileOuterBand::SetIsolateLoopType(isl::schedule_node node) {
 isl::schedule_node TileOuterBand::IsolateTiles(const isl::schedule_node &original_node, isl::schedule_node tiled_node,
                                                TileType tile_type, const int *full_tile_min, const int *full_tile_max,
                                                bool isolation) {
-  if ((scop_info_.user_config_.GetIsDynamic()) && (!scop_info_.cube_info_.IsSpecGemm())) {
+  if ((scop_info_.user_config_.GetIsDynamic()) && (!scop_info_.mmu_info_.IsSpecGemm())) {
     return tiled_node;
   } else {
     if (scop_info_.user_config_.GetTileSizeIsVar() || (!isolation)) {
@@ -610,7 +610,7 @@ void TileOuterBand::TileTypeC0(isl::schedule_node &node, int *full_tile_min, int
 
   isl::schedule_node before_tile_node = node;
 
-  if (scop_info_.cube_info_.IsLoadIm2colC1BUF()) {
+  if (scop_info_.mmu_info_.IsLoadIm2colC1BUF()) {
     node = TileBand(node, sizes);
     node = IsolateTiles(before_tile_node, node, TileType::BUF, full_tile_min, full_tile_max, isolate);
     node = MarkTileBand(node, TileType::BUF);
@@ -670,30 +670,28 @@ isl::schedule_node TileOuterBand::TileC0(isl::schedule_node node) {
   return node;
 }
 
-bool TileOuterBand::NeedIsolate() {
-  return scop_info_.cube_info_.IsConv() || scop_info_.cube_info_.IsLoadIm2colC1BUF();
-}
+bool TileOuterBand::NeedIsolate() { return scop_info_.mmu_info_.IsConv() || scop_info_.mmu_info_.IsLoadIm2colC1BUF(); }
 
 void TileOuterBand::PaddingIsolate(int &h_head, int &h_tail, int &w_head, int &w_tail) {
   h_head = 0;
   h_tail = 0;
   w_head = 0;
   w_tail = 0;
-  if (scop_info_.cube_info_.GetConvAttrInfo().empty()) return;
-  int pad_top = scop_info_.cube_info_.GetAttrValue(ATTR_CONV_PAD_TOP);
-  int pad_bottom = scop_info_.cube_info_.GetAttrValue(ATTR_CONV_PAD_BOTTOM);
-  int pad_left = scop_info_.cube_info_.GetAttrValue(ATTR_CONV_PAD_LEFT);
-  int pad_right = scop_info_.cube_info_.GetAttrValue(ATTR_CONV_PAD_RIGHT);
-  int h = scop_info_.cube_info_.GetAttrValue(ATTR_CONV_FEATURE_H);
-  int w = scop_info_.cube_info_.GetAttrValue(ATTR_CONV_FEATURE_W);
-  int kh = scop_info_.cube_info_.GetAttrValue(ATTR_CONV_KERNEL_H);
-  int kw = scop_info_.cube_info_.GetAttrValue(ATTR_CONV_KERNEL_W);
-  int stride_h = scop_info_.cube_info_.GetAttrValue(ATTR_CONV_STRIDE_H);
-  int stride_w = scop_info_.cube_info_.GetAttrValue(ATTR_CONV_STRIDE_W);
-  int dilation_h = scop_info_.cube_info_.GetAttrValue(ATTR_CONV_DILATION_H);
-  int dilation_w = scop_info_.cube_info_.GetAttrValue(ATTR_CONV_DILATION_W);
-  int h_cut = scop_info_.cube_info_.GetAttrValue(ATTR_CONV_TILE_H);
-  int w_cut = scop_info_.cube_info_.GetAttrValue(ATTR_CONV_TILE_W);
+  if (scop_info_.mmu_info_.GetConvAttrInfo().empty()) return;
+  int pad_top = scop_info_.mmu_info_.GetAttrValue(ATTR_CONV_PAD_TOP);
+  int pad_bottom = scop_info_.mmu_info_.GetAttrValue(ATTR_CONV_PAD_BOTTOM);
+  int pad_left = scop_info_.mmu_info_.GetAttrValue(ATTR_CONV_PAD_LEFT);
+  int pad_right = scop_info_.mmu_info_.GetAttrValue(ATTR_CONV_PAD_RIGHT);
+  int h = scop_info_.mmu_info_.GetAttrValue(ATTR_CONV_FEATURE_H);
+  int w = scop_info_.mmu_info_.GetAttrValue(ATTR_CONV_FEATURE_W);
+  int kh = scop_info_.mmu_info_.GetAttrValue(ATTR_CONV_KERNEL_H);
+  int kw = scop_info_.mmu_info_.GetAttrValue(ATTR_CONV_KERNEL_W);
+  int stride_h = scop_info_.mmu_info_.GetAttrValue(ATTR_CONV_STRIDE_H);
+  int stride_w = scop_info_.mmu_info_.GetAttrValue(ATTR_CONV_STRIDE_W);
+  int dilation_h = scop_info_.mmu_info_.GetAttrValue(ATTR_CONV_DILATION_H);
+  int dilation_w = scop_info_.mmu_info_.GetAttrValue(ATTR_CONV_DILATION_W);
+  int h_cut = scop_info_.mmu_info_.GetAttrValue(ATTR_CONV_TILE_H);
+  int w_cut = scop_info_.mmu_info_.GetAttrValue(ATTR_CONV_TILE_W);
   int d_kh = (kh - 1) * dilation_h + 1;
   CHECK_NE(stride_h, 0);
   int win_h = (h + pad_top + pad_bottom - d_kh) / stride_h + 1;
@@ -1016,7 +1014,7 @@ isl::schedule_node TileOuterBand::SetTileSizeAndTile(const isl::schedule_node &n
  * 1. get tile size.
  * 2. tiling
  ***************************************************************************/
-isl::schedule_node TileOuterBand::MarkOuterPermutableCce(isl::schedule_node node) {
+isl::schedule_node TileOuterBand::MarkOuterPermutableNpu(isl::schedule_node node) {
   // check tilable or not, and return the node if not
   if (IsOuterTilable(node) <= 0) return node;
 
@@ -1052,7 +1050,7 @@ isl::schedule_node TileOuterBand::MarkOuterPermutableCce(isl::schedule_node node
 
   bool is_mmu = false;
   for (auto &info : scop_info_.analysis_result_.GetStmtOpInfoMap()) {
-    if (info.second.isCube) {
+    if (info.second.isMMU) {
       is_mmu = true;
       break;
     }
@@ -1066,7 +1064,7 @@ isl::schedule_node TileOuterBand::MarkOuterPermutableCce(isl::schedule_node node
       break;
     }
   }
-  bool is_in_load_im2col = scop_info_.user_config_.GetIsDynamic() ? false : scop_info_.cube_info_.IsLoadIm2colC1BUF();
+  bool is_in_load_im2col = scop_info_.user_config_.GetIsDynamic() ? false : scop_info_.mmu_info_.IsLoadIm2colC1BUF();
   isl::set_list domain_list = node.get_domain().get_set_list();
   for (unsigned int set_index = 0; set_index < domain_list.size(); ++set_index) {
     isl::set set_i = domain_list.get_at(set_index);
@@ -1076,14 +1074,14 @@ isl::schedule_node TileOuterBand::MarkOuterPermutableCce(isl::schedule_node node
     }
     unsigned int index = WrappedStrtol(name.substr(name.find('_') + 1));
     is_before_mmu = false;
-    if ((index + 1 < i) && !scop_info_.cube_info_.IsSpecGemm()) {
+    if ((index + 1 < i) && !scop_info_.mmu_info_.IsSpecGemm()) {
       is_before_mmu = true;
     }
     if (index + 1 == i) {
       is_in_mmu = true;
     }
     if (scop_info_.user_config_.GetIsDynamic()) {
-      if (scop_info_.cube_info_.IsLoadIm2colC1BUFStmt(set_i.get_tuple_name())) {
+      if (scop_info_.mmu_info_.IsLoadIm2colC1BUFStmt(set_i.get_tuple_name())) {
         is_in_load_im2col = true;
       }
     }

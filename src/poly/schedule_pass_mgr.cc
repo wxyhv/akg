@@ -20,9 +20,11 @@ namespace akg {
 namespace ir {
 namespace poly {
 
-const std::vector<std::shared_ptr<SchedulePass>> &SchedulePassMgr::GetSchedulePasses() const { return schedule_passes_; }
+const std::vector<std::shared_ptr<SchedulePass>> &SchedulePassMgr::GetSchedulePasses() const {
+  return schedule_passes_;
+}
 
-void SchedulePassMgr::RegisterPass(std::shared_ptr<SchedulePass>pass) {
+void SchedulePassMgr::RegisterPass(std::shared_ptr<SchedulePass> pass) {
   CHECK(pass);
   schedule_passes_.push_back(pass);
 }
@@ -53,7 +55,7 @@ isl::schedule SchedulePassMgr::Run(const isl::schedule &sch, const std::vector<s
     std::stringstream time_log;
     TIMER_START;
     final_sch = pass->Run(final_sch);
-    time_log << "[ Polyhedral exec time" << (scop_info_.cube_info_.IsSpecGemm() ? "_specgemm" : "") << " ], "
+    time_log << "[ Polyhedral exec time" << (scop_info_.mmu_info_.IsSpecGemm() ? "_specgemm" : "") << " ], "
              << pass->GetPassName() << " spent " << TIMER_DURATION << " ms";
 
     LOG(INFO) << time_log.str();

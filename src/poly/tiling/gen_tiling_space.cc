@@ -377,7 +377,7 @@ class TileSpaceCollector {
 };
 
 NodeRef GenerateTilingSpace(const isl::schedule &sch, ScopInfo &scop_info, Stmt body, int dump_level) {
-  CHECK(!scop_info.cube_info_.HasCube()) << "cube op is not supported by auto tiling generator now!";
+  CHECK(!scop_info.mmu_info_.HasCube()) << "cube op is not supported by auto tiling generator now!";
   TilingAnalyzer analyzer(sch, scop_info, body);
   bool need_tiling = analyzer.Prepare();
   std::stringstream ss;

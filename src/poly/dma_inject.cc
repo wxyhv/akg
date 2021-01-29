@@ -1102,19 +1102,19 @@ std::unique_ptr<TensorFootprintCluster> ConstructAffineFpCluster(ScopInfo &scop_
     case AffineType::AFFINE_IM2COL: {
       auto affine = static_cast<Im2colAffine *>(constructor.affine_);
       if (affine != nullptr) {
-        affine->attrInfo_ = scop_info.cube_info_.GetConvAttrInfo();
+        affine->attrInfo_ = scop_info.mmu_info_.GetConvAttrInfo();
       }
     } break;
     case AffineType::AFFINE_WEIGHTTRANS: {
       auto affine = static_cast<WeightAffine *>(constructor.affine_);
       if (affine != nullptr) {
-        affine->attrInfo_ = scop_info.cube_info_.GetConvAttrInfo();
+        affine->attrInfo_ = scop_info.mmu_info_.GetConvAttrInfo();
       }
     } break;
     case AffineType::AFFINE_FRACTAL: {
       auto affine = static_cast<FractalAffine *>(constructor.affine_);
       if (affine != nullptr) {
-        affine->attrInfo_ = scop_info.cube_info_.GetConvAttrInfo();
+        affine->attrInfo_ = scop_info.mmu_info_.GetConvAttrInfo();
       }
     } break;
     default:
@@ -1210,7 +1210,7 @@ isl::schedule_node InsertExtensionToFirstAccessedFilters(const ScopInfo &scop_in
                                                          const isl::schedule_node &graft, isl_bool before,
                                                          bool &found_extension_in_schedule) {
   found_extension_in_schedule = false;
-  if (scop_info.cube_info_.IsConv() || !tree.isa<isl::schedule_node_sequence>()) {
+  if (scop_info.mmu_info_.IsConv() || !tree.isa<isl::schedule_node_sequence>()) {
     return tree;
   }
 
@@ -1560,7 +1560,7 @@ void PlaceDataCopyBelowImplReadWrite(ScopInfo &scop_info, isl::schedule_node &tr
   }
   if (writes) {
     isl::schedule_node tree_write = tree.get_child(0);
-    if (scop_info.user_config_.GetParams().empty() && scop_info.cube_info_.IsLoadIm2colC1BUF()) {
+    if (scop_info.user_config_.GetParams().empty() && scop_info.mmu_info_.IsLoadIm2colC1BUF()) {
       tree_write = tree;
     }
     isl::set writes_set = exact_writes.intersect_range(original_elements).wrap().product(buffered_footprint);
@@ -1620,19 +1620,19 @@ isl::schedule_node PlaceDataCopyBelowImpl(ScopInfo &scop_info, isl::schedule_nod
                                           const isl::union_map &sch) {
   auto cluster_id = footprint.get_tuple_id(isl_dim_out);
 
-  if (!scop_info.cube_info_.IsConv()) CheckOutOfBoundAccess(exact_reads, original_elements, "read");
+  if (!scop_info.mmu_info_.IsConv()) CheckOutOfBoundAccess(exact_reads, original_elements, "read");
 
   bool special_dma = false;
   if (scop_info.user_config_.GetConvSpecialDma() ||
-      (scop_info.cube_info_.GetConvAttrInfo().count(ATTR_CONV_SPECIAL_DMA) > 0)) {
-    if (scop_info.cube_info_.GetConvAttrInfo().count(ATTR_CONV_BACKPROP_FILTER) > 0 &&
-        scop_info.cube_info_.GetConvAttrInfo().count(ATTR_CONV_KERNEL_H) > 0 &&
-        scop_info.cube_info_.GetConvAttrInfo().count(ATTR_CONV_KERNEL_W) > 0 &&
-        scop_info.cube_info_.GetConvAttrInfo().count(ATTR_CONV_FEATURE_C) > 0) {
-      std::string featureName = scop_info.cube_info_.ExtractStringFromAttrs(ATTR_CONV_FEATURE_NAME) + LOCAL_C1;
-      int kh = scop_info.cube_info_.ExtractIntFromAttrs(ATTR_CONV_KERNEL_H);
-      int kw = scop_info.cube_info_.ExtractIntFromAttrs(ATTR_CONV_KERNEL_W);
-      int ci = scop_info.cube_info_.ExtractIntFromAttrs(ATTR_CONV_FEATURE_C);
+      (scop_info.mmu_info_.GetConvAttrInfo().count(ATTR_CONV_SPECIAL_DMA) > 0)) {
+    if (scop_info.mmu_info_.GetConvAttrInfo().count(ATTR_CONV_BACKPROP_FILTER) > 0 &&
+        scop_info.mmu_info_.GetConvAttrInfo().count(ATTR_CONV_KERNEL_H) > 0 &&
+        scop_info.mmu_info_.GetConvAttrInfo().count(ATTR_CONV_KERNEL_W) > 0 &&
+        scop_info.mmu_info_.GetConvAttrInfo().count(ATTR_CONV_FEATURE_C) > 0) {
+      std::string featureName = scop_info.mmu_info_.ExtractStringFromAttrs(ATTR_CONV_FEATURE_NAME) + LOCAL_C1;
+      int kh = scop_info.mmu_info_.ExtractIntFromAttrs(ATTR_CONV_KERNEL_H);
+      int kw = scop_info.mmu_info_.ExtractIntFromAttrs(ATTR_CONV_KERNEL_W);
+      int ci = scop_info.mmu_info_.ExtractIntFromAttrs(ATTR_CONV_FEATURE_C);
       if (featureName == cluster_id.get_name() && kh == 7 && kw == 7 && ci == 16) {
         special_dma = true;
       }
@@ -1661,7 +1661,7 @@ isl::schedule_node PlaceDataCopyBelowImpl(ScopInfo &scop_info, isl::schedule_nod
     read_extension =
       read_set_map.wrap().identity().domain_factor_domain().domain_factor_domain().set_tuple_id(isl_dim_out, read_id);
   }
-  if (!scop_info.cube_info_.IsConv()) CheckOutOfBoundAccess(exact_writes, original_elements, "write");
+  if (!scop_info.mmu_info_.IsConv()) CheckOutOfBoundAccess(exact_writes, original_elements, "write");
 
   PlaceDataCopyBelowImplReadWrite(scop_info, tree, cluster, footprint, tensor_id, original_elements, exact_writes,
                                   read_extension, buffered_footprint, cluster_id, extension_map, read_id);
