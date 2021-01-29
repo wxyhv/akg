@@ -366,15 +366,8 @@ Stmt GpuIslEmitter::EmitReduceInit(const isl::ast_node_user &node) {
   args.push_back(Expr(0));
   Stmt scalar_stmt = Provide::make(reduce_info_.scalar_tensor_->op, 0, init_value, args);
 
-  auto p = reduce_info_.reduce_compute_stmt_.as<Provide>();
-  CHECK(p);
-  reduce_info_.reduce_compute_stmt_ = Provide::make(p->func, 0, init_value, p->args);
-
   CHECK(reduce_info_.reduce_area_stmt_.defined());
   reduce_info_.stmts_.insert(reduce_info_.stmts_.begin(), reduce_info_.reduce_area_stmt_);
-
-  CHECK(reduce_info_.reduce_compute_stmt_.defined());
-  reduce_info_.stmts_.insert(reduce_info_.stmts_.begin(), reduce_info_.reduce_compute_stmt_);
 
   CHECK(scalar_stmt.defined());
   reduce_info_.stmts_.insert(reduce_info_.stmts_.begin(), scalar_stmt);
@@ -389,9 +382,39 @@ Stmt GpuIslEmitter::EmitReduceInit(const isl::ast_node_user &node) {
   return stmt;
 }
 
+Stmt GpuIslEmitter::EmitUserStmt(const isl::ast_node_user &node) {
+  CHECK(node.get_expr().isa<isl::ast_expr_op>());
+  isl::ast_expr_op usr_expr = node.get_expr().as<isl::ast_expr_op>();
+  stmt_id_ = usr_expr.get_arg(0).as<isl::ast_expr_id>().get_id();
+  node_id_ = node.get_annotation();
+  const Node *stmt_node = info_.analysis_result_.GetStatementMap().at(stmt_id_);
+  CHECK(stmt_node);
+  // compute VarMap to replace old iterators
+  auto build = node_info_map_.at(node_id_).build;
+  auto tuple = info_.analysis_result_.GetOperatorDomainMap().at(stmt_id_).tuple;
+  auto iterator_map = node_info_map_.at(node_id_).iterator_map;
+
+  auto ids = info_.analysis_result_.GetReduceInitIds();
+  for (auto &i : ids) {
+    if (i.get_name() == stmt_id_.get_name()) {
+      reduce_info_.init_stmt_emit_ = true;
+      break;
+    }
+  }
+
+  var_map_.clear();
+  for (unsigned int i = 0; i < tuple.size(); ++i) {
+    isl::id isl_old_iter = tuple.get_id(i);
+    auto isl_expr = build.expr_from(iterator_map.get_pw_aff(i));
+    Expr halide_new_iter = Interpret(isl_expr);
+    var_map_.emplace(isl_old_iter, halide_new_iter);
+  }
+
+  return EmitUserStmtContent(stmt_node);
+}
+
 void GpuIslEmitter::ResetStatus() {
   reduce_info_.stmts_.clear();
-  reduce_info_.reduce_compute_stmt_ = Stmt();
   reduce_info_.reduce_area_stmt_ = Stmt();
   reduce_info_.origin_reduce_stmt_ = Stmt();
   reduce_info_.gm_write_stmt_ = Stmt();
@@ -555,7 +578,6 @@ Stmt GpuIslEmitter::EmitReduceArea(const isl::ast_node_user &node) {
 
   Stmt stmt = EmitUserStmtContent(stmt_node);
 
-  reduce_info_.reduce_compute_stmt_ = stmt;
   CHECK(!reduce_info_.promoted_tensor_name_for_reduce_.empty())
     << "promoted_tensor_name_for_reduce_ should not be empty";
   reduce_info_.reduce_stmt_[reduce_info_.promoted_tensor_name_for_reduce_] = stmt;
