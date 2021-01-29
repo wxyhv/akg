@@ -19,6 +19,8 @@
 #include <tvm.h>
 #include <dmlc/common.h>
 
+#include <emit_insn/insn_info.h>
+
 struct FuncIndex {
   air::ir::FunctionRef f;
   size_t arg_index;
@@ -385,7 +387,6 @@ class FuseCheck {
         }
       }
     }
-    // ComputeAtRoot(compute_at_pair);
   }
 
   void GetOpInputOps() {
@@ -499,6 +500,7 @@ class ComputeInfo : public IRVisitor {
   std::unordered_set<const Variable *> reduce_axis_var_;
   std::unordered_set<const Variable *> axis_var_;
   std::unordered_map<const Variable *, IterVar> all_axis_var_axis_;
+  Map<Var, Range> simplify_info_;
   std::vector<FuncIndex> func_index_keys_;
   std::unordered_map<FuncIndex, std::unordered_set<IterVar>> func_index_axis_;
   std::unordered_map<FuncIndex, std::unordered_set<size_t>> func_index_reduce_group_ids_;
@@ -514,6 +516,7 @@ class ComputeInfo : public IRVisitor {
       }
       func_index_axis_[func_index].insert(compute_op->axis[i]);
     }
+    GetSimplifyInfo(compute_op->axis);
     for (auto expr : compute_op->body) {
       Visit(expr);
     }
@@ -528,7 +531,20 @@ class ComputeInfo : public IRVisitor {
     for (size_t i = 0; i < func_dim; ++i) {
       auto func_index = FuncIndex{func, i};
       auto arg = op->args[i];
-      if (auto var = arg.as<Variable>()) {
+      if (!arg.as<Variable>()) {
+        arg = Simplify(arg, simplify_info_);
+      }
+      std::vector<const Variable*> arg_vars;
+      if (!arg.as<Variable>()) {
+        auto arg_var_refs = GetVarsInExpr(arg);
+        for (auto var_ref : arg_var_refs) {
+          arg_vars.push_back(var_ref.get());
+        }
+      } else {
+        arg_vars.push_back(arg.as<Variable>());
+      }
+
+      for (auto var : arg_vars) {
         if (reduce_axis_var_.count(var) || axis_var_.count(var)) {
           CHECK(all_axis_var_axis_.count(var));
           auto ax = all_axis_var_axis_.at(var);
@@ -634,6 +650,14 @@ class ComputeInfo : public IRVisitor {
         axis_reduce_group_ids_[ax] = reduce_group_ids;
       }
     }
+  }
+
+  void GetSimplifyInfo(const Array<IterVar> &axis) {
+    Map<Var, Range> simplify_info;
+    for (const auto &iter_var : axis) {
+      simplify_info.Set(iter_var->var, iter_var->dom);
+    }
+    simplify_info_ = simplify_info;
   }
 };
 
