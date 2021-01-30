@@ -33,10 +33,6 @@ class TestCase(TestBase):
             ("apply_adagrad_004", "apply_adagrad_run", ((16, 16), "float32", False)),
         ]
 
-    @pytest.mark.rpc_mini
-    @pytest.mark.level0
-    @pytest.mark.env_onecard
-    @pytest.mark.platform_x86_ascend_training
     def test_run(self):
         self.common_run(self.testarg)
 

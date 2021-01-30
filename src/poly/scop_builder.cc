@@ -22,7 +22,7 @@
 
 #include "pass/utils.h"
 #include "construct_poly_accesses.h"
-#include "poly/davinci_utils.h"
+#include "poly/dsa_utils.h"
 
 namespace akg {
 namespace ir {

@@ -33,10 +33,6 @@ class TestCase(TestBase):
             ("apply_centered_rms_prop_002", "apply_centered_rms_prop_run", ((16, 16), "float32", 0.5, 0.9, 0.6, 1e-6)),
         ]
 
-    @pytest.mark.rpc_mini
-    @pytest.mark.level1
-    @pytest.mark.env_onecard
-    @pytest.mark.platform_x86_ascend_training
     def test_run_level1(self):
         self.common_run(self.testarg_level1)
 

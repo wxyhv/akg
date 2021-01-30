@@ -53,9 +53,6 @@ class TestCase(TestBase):
         return
 
     # these cases are covered in test_resize_nearest_001
-    @pytest.mark.level2
-    @pytest.mark.env_onecard
-    @pytest.mark.platform_x86_ascend_training
     def test_run(self):
         self.common_run(self.testarg)
 

@@ -63,9 +63,6 @@ class TestCase(TestBase):
         ]
         return
 
-    @pytest.mark.level2
-    @pytest.mark.env_onecard
-    @pytest.mark.platform_x86_ascend_training
     def test_run(self):
         """
         run case.#
@@ -73,16 +70,10 @@ class TestCase(TestBase):
         """
         self.common_run(self.testarg)
 
-    @pytest.mark.rpc_cloud
-    @pytest.mark.env_onecard
-    @pytest.mark.platform_x86_ascend_training
     def test_run_rpc_cloud(self):
         if len(self.testarg_rpc_cloud) > 0:
             self.common_run([self.testarg_rpc_cloud[0]])
 
-    @pytest.mark.level2
-    @pytest.mark.env_onecard
-    @pytest.mark.platform_x86_ascend_training
     def test_run_level1(self):
         self.common_run(self.testarg_level)
 

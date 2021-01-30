@@ -1,5 +1,5 @@
 /**
- * Copyright 2019 Huawei Technologies Co., Ltd
+ * Copyright 2019-2021 Huawei Technologies Co., Ltd
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -26,7 +26,7 @@
 #include "common/common_util.h"
 #include "pass/utils.h"
 #include "tvm.h"
-#include "poly/davinci_utils.h"
+#include "poly/dsa_utils.h"
 
 namespace akg {
 namespace ir {

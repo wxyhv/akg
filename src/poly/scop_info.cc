@@ -17,7 +17,7 @@
 #include "scop_info.h"
 #include <regex>
 #include "poly/dma_inject.h"
-#include "poly/davinci_utils.h"
+#include "poly/dsa_utils.h"
 
 namespace akg {
 namespace ir {

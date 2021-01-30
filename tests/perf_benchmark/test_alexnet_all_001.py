@@ -44,7 +44,6 @@ from test_run.cast_run import cast_run
 from test_run.conv_bn1_run import conv_bn1_run
 from test_run.conv_input_ad_run import conv_input_ad_run
 from test_run.conv_filter_ad_run import conv_filter_ad_run
-from test_run.maxpool_grad_with_argmax_run import maxpool_grad_with_argmax_run
 
 
 class TestAlexnet(BaseCaseRun):
@@ -376,24 +375,24 @@ class TestAlexnet(BaseCaseRun):
              ((32, 384, 13, 13), (384, 384, 3, 3), (1, 1, 1, 1), (1, 1), (1, 1)), ["level0", "rpc", "rpc_cloud"]),
 
             # maxpool_grad_with_argmax
-            ("test_alexnet_maxpool_grad_with_argmax_001", maxpool_grad_with_argmax_run,
-             ([32, 16, 13, 13, 16], (3, 3), (2, 2), "VALID", "float16", False, True),
-             ["level0", "rpc", "rpc_cloud", "Unavailable"]),
-            ("test_alexnet_maxpool_grad_with_argmax_002", maxpool_grad_with_argmax_run,
-             ([32, 16, 27, 27, 16], (3, 3), (2, 2), "VALID", "float16", False, True),
-             ["level0", "rpc", "rpc_cloud", "Unavailable"]),
-            ("test_alexnet_maxpool_grad_with_argmax_003", maxpool_grad_with_argmax_run,
-             ([32, 6, 55, 55, 16], (3, 3), (2, 2), "VALID", "float16", False, True),
-             ["level0", "rpc", "rpc_cloud", "Unavailable"]),
-            ("test_alexnet_maxpool_grad_with_argmax_004", maxpool_grad_with_argmax_run,
-             ((32, 16, 13, 13, 16), (3, 3), (2, 2), "VALID", "float32", False, True),
-             ["level0", "rpc", "rpc_cloud", "Unavailable"]),
-            ("test_alexnet_maxpool_grad_with_argmax_005", maxpool_grad_with_argmax_run,
-             ((32, 16, 27, 27, 16), (3, 3), (2, 2), "VALID", "float32", False, True),
-             ["level0", "rpc", "rpc_cloud", "Unavailable"]),
-            ("test_alexnet_maxpool_grad_with_argmax_006", maxpool_grad_with_argmax_run,
-             ((32, 6, 55, 55, 16), (3, 3), (2, 2), "VALID", "float32", False, True),
-             ["level0", "rpc", "rpc_cloud", "Unavailable"]),
+            # ("test_alexnet_maxpool_grad_with_argmax_001", maxpool_grad_with_argmax_run,
+            #  ([32, 16, 13, 13, 16], (3, 3), (2, 2), "VALID", "float16", False, True),
+            #  ["level0", "rpc", "rpc_cloud", "Unavailable"]),
+            # ("test_alexnet_maxpool_grad_with_argmax_002", maxpool_grad_with_argmax_run,
+            #  ([32, 16, 27, 27, 16], (3, 3), (2, 2), "VALID", "float16", False, True),
+            #  ["level0", "rpc", "rpc_cloud", "Unavailable"]),
+            # ("test_alexnet_maxpool_grad_with_argmax_003", maxpool_grad_with_argmax_run,
+            #  ([32, 6, 55, 55, 16], (3, 3), (2, 2), "VALID", "float16", False, True),
+            #  ["level0", "rpc", "rpc_cloud", "Unavailable"]),
+            # ("test_alexnet_maxpool_grad_with_argmax_004", maxpool_grad_with_argmax_run,
+            #  ((32, 16, 13, 13, 16), (3, 3), (2, 2), "VALID", "float32", False, True),
+            #  ["level0", "rpc", "rpc_cloud", "Unavailable"]),
+            # ("test_alexnet_maxpool_grad_with_argmax_005", maxpool_grad_with_argmax_run,
+            #  ((32, 16, 27, 27, 16), (3, 3), (2, 2), "VALID", "float32", False, True),
+            #  ["level0", "rpc", "rpc_cloud", "Unavailable"]),
+            # ("test_alexnet_maxpool_grad_with_argmax_006", maxpool_grad_with_argmax_run,
+            #  ((32, 6, 55, 55, 16), (3, 3), (2, 2), "VALID", "float32", False, True),
+            #  ["level0", "rpc", "rpc_cloud", "Unavailable"]),
 
             # conv_bn1
             ("Alexnet_conv_bn1_32_1_227_227_16", conv_bn1_run,

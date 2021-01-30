@@ -67,10 +67,6 @@ class TestCase(TestBase):
             ("batch_to_space_nd_run14", batch_to_space_nd_run, ((576, 5, 5, 2048), "float16", (12, 12), ((27, 0), (0, 27)), "batch_to_space_nd_output")),
         ]
 
-    @pytest.mark.rpc_mini
-    @pytest.mark.level0
-    @pytest.mark.env_onecard
-    @pytest.mark.platform_x86_ascend_training
     def test_run_ci(self):
         """
         run case.#
@@ -78,10 +74,6 @@ class TestCase(TestBase):
         """
         self.common_run(self.test_level0)
 
-    @pytest.mark.rpc_mini
-    @pytest.mark.level1
-    @pytest.mark.env_onecard
-    @pytest.mark.platform_x86_ascend_training
     def test_run_daily_ci(self):
         """
         run case.#

@@ -36,9 +36,6 @@ class TestCase(TestBase):
         return
 
 
-    @pytest.mark.rpc_cloud
-    @pytest.mark.env_onecard
-    @pytest.mark.platform_x86_ascend_training
     def test_rpc_cloud(self):
         """
         run case.#

@@ -1,5 +1,5 @@
 /**
- * Copyright 2019 Huawei Technologies Co., Ltd
+ * Copyright 2019-2021 Huawei Technologies Co., Ltd
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -29,12 +29,11 @@
 #include <utility>
 
 #include "build_module.h"
-#include "contrib/cce_parm/cceconf.h"
 #include "pass/expr_alg_simplify.h"
 #include "pass/utils.h"
 #include "poly/scop_info.h"
 #include "poly/tiling/tiling_utils.h"
-#include "poly/davinci_utils.h"
+#include "poly/dsa_utils.h"
 
 namespace akg {
 namespace ir {

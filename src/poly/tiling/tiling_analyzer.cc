@@ -1,5 +1,5 @@
 /**
- * Copyright 2019 Huawei Technologies Co., Ltd
+ * Copyright 2019-2021 Huawei Technologies Co., Ltd
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -26,6 +26,7 @@
 #include "poly/tiling/schtree_analyzer.h"
 #include "poly/tiling/space_analyzer.h"
 #include "poly/tiling/tiling_strategy_manager.h"
+#include "poly/dsa_utils.h"
 
 namespace akg {
 namespace ir {
@@ -1599,9 +1600,7 @@ void TilingAnalyzer::DumpBufferUsageTimeable() {
 }
 
 int TileCandidate::GetCoreNumConf() {
-  cceconf::CceConf *conf = cceconf::CceConf::getInstance();
-  CHECK(conf);
-  int product_block = conf->getCoreValue("Core_num");
+  int product_block = GetCoreValue("Core_num");
   int user_defined_block = global_attrs.GetIntAttr(kEnableMulticore, -1);
   if (user_defined_block == -1) {
     // User is not defining core num, assume we can use maximal number.

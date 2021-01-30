@@ -28,7 +28,7 @@
 #include "ir_pass.h"
 #include "poly/isl.h"
 #include "poly/stmt_parse.h"
-#include "poly/davinci_utils.h"
+#include "poly/dsa_utils.h"
 
 namespace akg {
 namespace ir {
