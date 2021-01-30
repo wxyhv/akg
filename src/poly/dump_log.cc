@@ -449,7 +449,7 @@ void UserConfig::DumpScopDataScheduleAttrs(std::ofstream &of) {
   of << "pragma_modshift : " << GetModScheduleShift() << std::endl;
   of << "pragma_reorder_schedule : " << GetReorderSchedule() << std::endl;
   of << "pragma_checkcoincident : " << GetTileCheckCoincident() << std::endl;
-  of << "pragma_opt_for_davinci : " << GetOptimizeForNPU() << std::endl;
+  of << "pragma_opt_for_dsa : " << GetOptimizeForNPU() << std::endl;
   of << "pragma_sink_last_axis : " << GetSinkLastAxis() << std::endl;
   of << "pragma_keep_outer_band_order : " << GetKeepOuterBandOrder() << std::endl;
   of << "pragma_disable_group : " << GetDisableGroup() << std::endl;

@@ -637,8 +637,8 @@ void TileCandidate::DoMemInfer() {
 }
 
 /*
- * This function returns current data size moved from local buffer (UB in Davinci)
- * to main memory (GM in Davinci) within target axis.
+ * This function returns current data size moved from local buffer
+ * to main memory within target axis.
  *  e.g.1: target is not inner-most axis
  * Input ir:
  *  for (cc0) <--- axis, dtype = float16
@@ -719,7 +719,7 @@ int TileCandidate::GetDmaCopySizeWithinAxis(TileAxis *target_axis) {
 /*
  * This function returns the minimal tile size of axis that can enable multi-core function.
  * If inner-most data granularity of DMA from local buffer to main memory is less than align bytes,
- * which is 32 in Davinci Core, it will disable multi-core function.
+ * it will disable multi-core function.
  */
 int TileCandidate::GetMinFactorToEnableMulticore(TileAxis *axis) {
   return std::max(static_cast<int>(ALIGN_BYTES / GetDmaCopySizeWithinAxis(axis)), 1);

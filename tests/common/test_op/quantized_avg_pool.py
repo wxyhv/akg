@@ -27,7 +27,7 @@ def get_attrs():
     """Get default attrs for avgpool."""
     default_attr_map = {
         "pragma_reschedule": 1,
-        "pragma_opt_for_davinci": 1,
+        "pragma_opt_for_dsa": 1,
         "pragma_reorder_schedule": True,
         "enable_pre_poly_loop_partition": False,
         "enable_post_poly_loop_partition": False,

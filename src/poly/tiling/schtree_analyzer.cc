@@ -942,7 +942,7 @@ void ScheduleTreeAnalyzer::MatchConvVarNames(const Call *call) {
         continue;
       } else {
         if (call->name == analyzer_->scop_info_.mmu_info_.GetCName()) {
-          mmu_var_map_[name] = DavinciNC1HWC0[count];
+          mmu_var_map_[name] = DsaNC1HWC0[count];
         } else if (call->name == analyzer_->scop_info_.mmu_info_.GetAName()) {
           if (ForwardFeaturemap[count] == "N") {
             CHECK(mmu_var_map_.find(name) != mmu_var_map_.end());

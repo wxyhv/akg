@@ -62,9 +62,9 @@ class Poly {
       return;
     }
 
-    // optimize post poly Halide IR for Davinci
+    // optimize post poly Halide IR
     if (scop_->info_.user_config_.GetEnableFeatureLib() || scop_->info_.user_config_.GetOptimizeForNPU()) {
-      stmt_ = poly::DavinciHalideOptimizer(stmt_, !scop_->info_.user_config_.GetParams().empty());
+      stmt_ = poly::DsaHalideOptimizer(stmt_, !scop_->info_.user_config_.GetParams().empty());
     }
     gen_empty_tiling = scop_->info_.analysis_result_.GetIsTiled();
   }

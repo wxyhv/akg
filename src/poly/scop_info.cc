@@ -186,7 +186,6 @@ bool ScopInfo::MayWriteAfterRead(const std::string &name) const {
   // if A = f(A) exists, we think has WAR
   for (auto i : def) {
     if (use.count(i.first)) {
-      // vmadd/vmla insn is in the form A = f(A), but there is no WAR dependence
       if (!IsElewiseVMStmt(i.second)) return true;
     }
   }

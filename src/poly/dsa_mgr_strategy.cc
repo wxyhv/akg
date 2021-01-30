@@ -1,5 +1,5 @@
 /**
- * Copyright 2020 Huawei Technologies Co., Ltd
+ * Copyright 2020-2021 Huawei Technologies Co., Ltd
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -13,7 +13,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-#include "poly/davinci_mgr_strategy.h"
+#include "poly/dsa_mgr_strategy.h"
 
 #include "poly/schedule_pass/group.h"
 #include "poly/schedule_pass/tile_outer_band.h"
@@ -42,13 +42,13 @@ namespace akg {
 namespace ir {
 namespace poly {
 
-void DavinciMgrStrategy::RegisterTilingPasses() {
+void DsaMgrStrategy::RegisterTilingPasses() {
   RegisterPass(std::make_shared<TileOuterBand>(pass_info_, scop_info_));
 }
 
-void DavinciMgrStrategy::RegisterMemPromPasses() { RegisterPass(std::make_shared<MemoryManager>(scop_info_)); }
+void DsaMgrStrategy::RegisterMemPromPasses() { RegisterPass(std::make_shared<MemoryManager>(scop_info_)); }
 
-void DavinciMgrStrategy::RegisterPasses() {
+void DsaMgrStrategy::RegisterPasses() {
   passes_.clear();
   RegisterNormalizationPasses();
   if (!scop_info_.user_config_.GetDisableGroup()) {
