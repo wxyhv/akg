@@ -1,6 +1,6 @@
 
 /**
- * Copyright 2020 Huawei Technologies Co., Ltd
+ * Copyright 2020-2021 Huawei Technologies Co., Ltd
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -31,10 +31,10 @@ class TileSpaceCollector {
       : space_(make_node<air::TileSpaceNode>()), analyzer_(analyzer), cand_(&analyzer), level_(level) {
     air::runtime::NDArray init_array = air::runtime::NDArray::Empty({}, type, ctx);
     space_->index_table = init_array;
-    space_->l1_tile_range_table = init_array;
-    space_->l0_tile_range_table = init_array;
-    space_->l1_tile_mod_table = init_array;
-    space_->l0_tile_mod_table = init_array;
+    space_->c1_tile_range_table = init_array;
+    space_->c0_tile_range_table = init_array;
+    space_->c1_tile_mod_table = init_array;
+    space_->c0_tile_mod_table = init_array;
     space_->tiling_candidate = init_array;
   }
   ~TileSpaceCollector() = default;
@@ -131,29 +131,29 @@ class TileSpaceCollector {
             *ptr++ = b_idx;
             *ptr++ = a_idx;
           } else {
-            if (con == "L1_range") {
-              TileAxis::Constraint const_cons = all_axes[b_idx][a_idx]->GetConstConstraint(LEVEL1);
+            if (con == "C1_range") {
+              TileAxis::Constraint const_cons = all_axes[b_idx][a_idx]->GetConstConstraint(CACHE1);
               *ptr++ = const_cons.tile_min_.as<IntImm>()->value;
               *ptr++ = const_cons.tile_extent_.as<IntImm>()->value;
-            } else if (con == "L0_range") {
-              TileAxis::Constraint const_cons = all_axes[b_idx][a_idx]->GetConstConstraint(LEVEL0);
+            } else if (con == "C0_range") {
+              TileAxis::Constraint const_cons = all_axes[b_idx][a_idx]->GetConstConstraint(CACHE0);
               *ptr++ = const_cons.tile_min_.as<IntImm>()->value;
               *ptr++ = const_cons.tile_extent_.as<IntImm>()->value;
-            } else if (con == "L1_mod") {
-              TileAxis::Constraint const_cons = all_axes[b_idx][a_idx]->GetConstConstraint(LEVEL1);
+            } else if (con == "C1_mod") {
+              TileAxis::Constraint const_cons = all_axes[b_idx][a_idx]->GetConstConstraint(CACHE1);
               *ptr++ = const_cons.tile_mod_.as<IntImm>()->value;
-            } else if (con == "L0_mod") {
-              TileAxis::Constraint const_cons = all_axes[b_idx][a_idx]->GetConstConstraint(LEVEL0);
+            } else if (con == "C0_mod") {
+              TileAxis::Constraint const_cons = all_axes[b_idx][a_idx]->GetConstConstraint(CACHE0);
               *ptr++ = const_cons.tile_mod_.as<IntImm>()->value;
             }
           }
         }
       }
       if (con == "index") space_->index_table = array;
-      if (con == "L1_range") space_->l1_tile_range_table = array;
-      if (con == "L0_range") space_->l0_tile_range_table = array;
-      if (con == "L1_mod") space_->l1_tile_mod_table = array;
-      if (con == "L0_mod") space_->l0_tile_mod_table = array;
+      if (con == "C1_range") space_->c1_tile_range_table = array;
+      if (con == "C0_range") space_->c0_tile_range_table = array;
+      if (con == "C1_mod") space_->c1_tile_mod_table = array;
+      if (con == "C0_mod") space_->c0_tile_mod_table = array;
       delete spaceDlPack;
     }
   }
@@ -188,7 +188,7 @@ class TileSpaceCollector {
       return AppendCand(band_idx);
     }
     TileAxis *axis = tile_axes_[axis_idx];
-    TileAxis::Constraint &cons = axis->l1_constraints;
+    TileAxis::Constraint &cons = axis->c1_constraints;
     const auto tile_min = cons.tile_min_.as<IntImm>();
     const auto tile_mod = cons.tile_mod_.as<IntImm>();
     const auto tile_extent = cons.tile_extent_.as<IntImm>();
@@ -201,7 +201,7 @@ class TileSpaceCollector {
           continue;
         }
         cand_.UpdateConstTile(axis, tile);
-        if (analyzer_.scop_info_.user_config_.GetPruneTuningSpace() && !cand_.SpaceVerify(axis, LEVEL1, band_idx)) {
+        if (analyzer_.scop_info_.user_config_.GetPruneTuningSpace() && !cand_.SpaceVerify(axis, CACHE1, band_idx)) {
           continue;
         }
         if (!ScanDown(axis_idx + 1, band_idx)) {
@@ -222,8 +222,8 @@ class TileSpaceCollector {
     // check memory constraint
     int64_t mem_sz, align_sz;
     if (analyzer_.scop_info_.user_config_.GetTarget() == TARGET_CCE) {
-      std::tie(mem_sz, align_sz) = cand_.MemInfer(MEM_SCOPE_UB, band_idx);
-      if (analyzer_.scop_info_.user_config_.GetPruneTuningSpace() && align_sz > mem_limit_[MEM_SCOPE_UB]) {
+      std::tie(mem_sz, align_sz) = cand_.MemInfer(MEM_SCOPE_BUFFER, band_idx);
+      if (analyzer_.scop_info_.user_config_.GetPruneTuningSpace() && align_sz > mem_limit_[MEM_SCOPE_BUFFER]) {
         return false;
       }
     } else {
@@ -299,7 +299,7 @@ class TileSpaceCollector {
 
   void CollectMemLimit() {
     if (analyzer_.scop_info_.user_config_.GetTarget() == TARGET_CCE) {
-      DavinciInfo &d_info = DavinciInfo::GetInstance();
+      NpuInfo &d_info = NpuInfo::GetInstance();
       for (auto i = 0; i < MEM_SCOPE_BULK; ++i) {
         this->mem_limit_[i] = d_info.GetMemoryLimitInScope(i);
       }
@@ -365,7 +365,7 @@ class TileSpaceCollector {
   DLContext ctx = {kDLCPU, 0};
   std::vector<TileAxis *> tile_axes_;
   std::vector<bool> is_shared_;
-  std::unordered_set<std::string> cared_info_ = {"index", "L1_range", "L0_range", "L1_mod", "L0_mod"};
+  std::unordered_set<std::string> cared_info_ = {"index", "C1_range", "C0_range", "C1_mod", "C0_mod"};
 
   struct Result {
     std::vector<int> tile;
@@ -377,7 +377,7 @@ class TileSpaceCollector {
 };
 
 NodeRef GenerateTilingSpace(const isl::schedule &sch, ScopInfo &scop_info, Stmt body, int dump_level) {
-  CHECK(!scop_info.cube_info_.HasCube()) << "cube op is not supported by auto tiling generator now!";
+  CHECK(!scop_info.mmu_info_.HasCube()) << "cube op is not supported by auto tiling generator now!";
   TilingAnalyzer analyzer(sch, scop_info, body);
   bool need_tiling = analyzer.Prepare();
   std::stringstream ss;

@@ -24,6 +24,7 @@ endif()
 project(akg C CXX)
 
 set(AKG_SOURCE_DIR "${CMAKE_CURRENT_SOURCE_DIR}")
+set(TVM_DIR "${AKG_SOURCE_DIR}/third_party/incubator-tvm")
 
 # Find gmp
 find_path(GMP_INCLUDE_DIR NAME gmp.h HINTS /usr /usr/local PATH_SUFFIXES include include/x86_64-linux-gnu)
@@ -39,24 +40,12 @@ include(cmake/RT.cmake)
 include(cmake/utils.cmake)
 include(cmake/external_libs/isl.cmake)
 
-set(TVM_DIR "${AKG_SOURCE_DIR}/third_party/incubator-tvm")
-if(NOT ENABLE_AKG)
-  message("-- Build akg alone")
-  include(cmake/external_libs/gtest.cmake)
-  add_subdirectory(${AKG_SOURCE_DIR}/tests/unittest_cpp)
-  set(GTEST_DIR "${CMAKE_CURRENT_BINARY_DIR}/_deps/gtest-src")
-  set(UNITTEST_DIR "${AKG_SOURCE_DIR}/tests/unittest_cpp")
-endif()
-
 file(COPY ${AKG_SOURCE_DIR}/python/akg DESTINATION
     ${CMAKE_CURRENT_BINARY_DIR})
 
 # Utility functions
 include(${TVM_DIR}/cmake/util/Util.cmake)
 
-tvm_option(USE_CCE_RT "Build with cce with runtime support" OFF)
-tvm_option(USE_CCE_RT_SIM "Build cce with simulate runtime support" OFF)
-tvm_option(USE_KC_AIR "Build cce with kc air rpc support" OFF)
 tvm_option(USE_ASAN "Build with AddressSanitizer" OFF)
 tvm_option(USE_CUDA "Build with CUDA" OFF)
 tvm_option(USE_CUDNN "Build with cuDNN" OFF)
@@ -76,11 +65,6 @@ include_directories(AFTER "${TVM_DIR}/src")
 include_directories(AFTER "${TVM_DIR}/src/schedule")
 include_directories(AFTER "${AKG_SOURCE_DIR}/src")
 include_directories(AFTER "${AKG_SOURCE_DIR}/src/include")
-
-# cce rt
-include_directories(AFTER "${AKG_SOURCE_DIR}/third_party/fwkacllib/inc")
-include_directories(AFTER "${AKG_SOURCE_DIR}/third_party/fwkacllib/inc/toolchain")
-
 include_directories(AFTER "${TVM_DIR}/3rdparty/dmlc-core/include")
 include_directories(AFTER "${TVM_DIR}/3rdparty/dlpack/include")
 include_directories(AFTER "${TVM_DIR}/3rdparty/compiler-rt")
@@ -164,7 +148,6 @@ file(
   ${TVM_DIR}/src/node/*.cc
   ${TVM_DIR}/src/schedule/*.cc
   ${TVM_DIR}/src/runtime/*.cc
-  ${TVM_DIR}/src/runtime/cce/*.cc
   ${TVM_DIR}/src/runtime/vm/*.cc
   ${TVM_DIR}/src/runtime/vm/profiler/*.cc
   ${TVM_DIR}/src/codegen/stackvm/*.cc
@@ -175,16 +158,10 @@ file(
   ${AKG_SOURCE_DIR}/src/poly/gpu_emit/*.cc
   ${AKG_SOURCE_DIR}/src/api/*.cc
   ${AKG_SOURCE_DIR}/src/pass/*.cc
-  ${AKG_SOURCE_DIR}/src/rpc/*.cc
   ${AKG_SOURCE_DIR}/src/schedule/*.cc
-  ${AKG_SOURCE_DIR}/src/emit_insn/*.cc
-  ${AKG_SOURCE_DIR}/src/contrib/cce_parm/*.cc
-  ${AKG_SOURCE_DIR}/src/contrib/parser/*.cc
-  ${AKG_SOURCE_DIR}/src/runtime/stub/*.cc
   ${AKG_SOURCE_DIR}/src/codegen/*.cc
   ${AKG_SOURCE_DIR}/src/composite/*.cc
   ${AKG_SOURCE_DIR}/src/composite/optimize/*.cc
-  ${AKG_SOURCE_DIR}/src/op/*.cc
   ${AKG_SOURCE_DIR}/src/common/*.cc)
 
 
@@ -203,7 +180,6 @@ file(
   GLOB
   RUNTIME_SRCS
   ${TVM_DIR}/src/runtime/*.cc
-  ${TVM_DIR}/src/runtime/cce/*.cc
   ${TVM_DIR}/src/runtime/vm/*.cc
   ${TVM_DIR}/src/runtime/stackvm/*.cc)
 
@@ -219,14 +195,6 @@ include(${TVM_DIR}/cmake/util/FindLLVM.cmake)
 file(GLOB LLVM_SRCS ${TVM_DIR}/src/codegen/llvm/*.cc)
 list(APPEND COMPILER_SRCS ${LLVM_SRCS})
 include(${TVM_DIR}/cmake/modules/LLVM.cmake)
-endif()
-
-file(GLOB RUNTIME_STUB_SRC ${AKG_SOURCE_DIR}/src/runtime/stub/*.cc)
-
-if(USE_CCE_RT
-   OR USE_CCE_RT_SIM
-   OR USE_KC_AIR)
-  list(REMOVE_ITEM COMPILER_SRCS ${RUNTIME_STUB_SRC})
 endif()
 
 if(USE_RPC)

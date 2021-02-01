@@ -1,5 +1,5 @@
 /**
- * Copyright 2020 Huawei Technologies Co., Ltd
+ * Copyright 2020-2021 Huawei Technologies Co., Ltd
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -28,7 +28,7 @@ TEST(TestKeepOuterBandOrder, TestCase1) {
 
   ir::poly::ScopInfo scop_info_(input_sch.ctx().get());
   ir::poly::StmtOpInfo stmt_op_Info;
-  stmt_op_Info.isCube = true;
+  stmt_op_Info.isMMU = true;
   scop_info_.analysis_result_.RecordStmtOpInfo(isl::id(input_sch.ctx().get(), "S_0"), stmt_op_Info);
   input_sch = ir::poly::KeepOuterBandOrder(scop_info_).Run(input_sch);
   EXPECT_TRUE(SCH_EQUAL(input_sch, expect_ouput_sch));

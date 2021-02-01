@@ -651,7 +651,7 @@ isl::multi_val RegisterMemoryManager::GetRealTileSizeVal(const isl::schedule_nod
     if (i == del_position) {
       continue;
     }
-    tile_size_number.emplace_back(static_cast<int>(pass_info_.tile_sizes_[i].l0_tiling_size));
+    tile_size_number.emplace_back(static_cast<int>(pass_info_.tile_sizes_[i].c0_tiling_size));
   }
 
   auto len = static_cast<int>(tile_size_number.size());

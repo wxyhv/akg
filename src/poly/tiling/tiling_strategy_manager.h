@@ -1,5 +1,5 @@
 /**
- * Copyright 2020 Huawei Technologies Co., Ltd
+ * Copyright 2020-2021 Huawei Technologies Co., Ltd
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -29,7 +29,7 @@ class TilingStrategy {
  public:
   explicit TilingStrategy(const TilingAnalyzer *a) : analyzer_(a), target_(a->scop_info_.user_config_.GetTarget()) {}
   ~TilingStrategy() {}
-  virtual void AddDavinciConstraint(){};
+  virtual void AddNpuConstraint(){};
   virtual void AddGpuConstraint(){};
 
   std::string interested_attr_key;
@@ -73,9 +73,9 @@ class TilingStrategyManager {
     this->strategies_.assign(strategies.begin(), strategies.end());
   }
 
-  void ExecuteCce() {
+  void ExecuteNpu() {
     for (auto strategy : this->strategies_) {
-      strategy->AddDavinciConstraint();
+      strategy->AddNpuConstraint();
     }
   }
 
@@ -93,7 +93,7 @@ class GpuDmaAnalysisStrategy : public TilingStrategy {
  public:
   explicit GpuDmaAnalysisStrategy(const TilingAnalyzer *a) : TilingStrategy(a) {}
   ~GpuDmaAnalysisStrategy() {}
-  void AddDavinciConstraint();
+  void AddNpuConstraint();
   void AddGpuConstraint();
 };
 
@@ -101,7 +101,7 @@ class CustomTilingStrategy : public TilingStrategy {
  public:
   explicit CustomTilingStrategy(const TilingAnalyzer *a) : TilingStrategy(a) {}
   ~CustomTilingStrategy() {}
-  void AddDavinciConstraint();
+  void AddNpuConstraint();
   void AddGpuConstraint();
 
   std::string interested_attr_key = "CUSTOM";
@@ -111,7 +111,7 @@ class ConflictTreeRangeStrategy : public TilingStrategy {
  public:
   explicit ConflictTreeRangeStrategy(const TilingAnalyzer *a) : TilingStrategy(a) {}
   ~ConflictTreeRangeStrategy() {}
-  void AddDavinciConstraint();
+  void AddNpuConstraint();
   void AddGpuConstraint();
 };
 
@@ -119,18 +119,18 @@ class ModStrategy : public TilingStrategy {
  public:
   explicit ModStrategy(const TilingAnalyzer *a) : TilingStrategy(a) {}
   ~ModStrategy() {}
-  void AddDavinciConstraint();
+  void AddNpuConstraint();
   void AddGpuConstraint();
 
   std::string interested_attr_key = AT_MOD;
 };
 
-// These strategies aim to deal with special insn in Davinci core.
+// These strategies aim to deal with special insn in Npu core.
 class CastStrategy : public TilingStrategy {
  public:
   explicit CastStrategy(const TilingAnalyzer *a) : TilingStrategy(a) {}
   ~CastStrategy() {}
-  void AddDavinciConstraint();
+  void AddNpuConstraint();
   void AddGpuConstraint();
   void MarkDataSize() {
     auto interested_info = GetInterestedInfo(interested_attr_key);
@@ -164,7 +164,7 @@ class ReduceStrategy : public TilingStrategy {
  public:
   explicit ReduceStrategy(const TilingAnalyzer *a) : TilingStrategy(a) {}
   ~ReduceStrategy() {}
-  void AddDavinciConstraint();
+  void AddNpuConstraint();
   void AddGpuConstraint();
   void DealWith4DFusedReduce(const std::vector<akg::ir::poly::TileAxis *> &reduce_axes);
 
@@ -192,7 +192,7 @@ class VectorizedStrategy : public TilingStrategy {
  public:
   explicit VectorizedStrategy(const TilingAnalyzer *a) : TilingStrategy(a) {}
   ~VectorizedStrategy() {}
-  void AddDavinciConstraint();
+  void AddNpuConstraint();
   void AddGpuConstraint();
 };
 
@@ -200,7 +200,7 @@ class DmaAlignStrategy : public TilingStrategy {
  public:
   explicit DmaAlignStrategy(const TilingAnalyzer *a) : TilingStrategy(a) {}
   ~DmaAlignStrategy() {}
-  void AddDavinciConstraint();
+  void AddNpuConstraint();
   void AddGpuConstraint();
 
   std::string interested_attr_key = AT_ALIGN;
@@ -210,7 +210,7 @@ class TensorOfTensorStrategy : public TilingStrategy {
  public:
   explicit TensorOfTensorStrategy(const TilingAnalyzer *a) : TilingStrategy(a) {}
   ~TensorOfTensorStrategy() {}
-  void AddDavinciConstraint();
+  void AddNpuConstraint();
   void AddGpuConstraint();
 };
 
@@ -218,7 +218,7 @@ class PassDownAttrStrategy : public TilingStrategy {
  public:
   explicit PassDownAttrStrategy(const TilingAnalyzer *a) : TilingStrategy(a) {}
   ~PassDownAttrStrategy() {}
-  void AddDavinciConstraint();
+  void AddNpuConstraint();
   void AddGpuConstraint();
 };
 
@@ -226,7 +226,7 @@ class DynamicShapeLimitStrategy : public TilingStrategy {
  public:
   explicit DynamicShapeLimitStrategy(const TilingAnalyzer *a) : TilingStrategy(a) {}
   ~DynamicShapeLimitStrategy() {}
-  void AddDavinciConstraint();
+  void AddNpuConstraint();
   void AddGpuConstraint();
 
   std::string interested_attr_key = "DYN_SHAPE_LIMIT";
@@ -236,7 +236,7 @@ class ShiftAxisStrategy : public TilingStrategy {
  public:
   explicit ShiftAxisStrategy(const TilingAnalyzer *a) : TilingStrategy(a) {}
   ~ShiftAxisStrategy() {}
-  void AddDavinciConstraint();
+  void AddNpuConstraint();
   void AddGpuConstraint();
 
   std::string interested_attr_key = AT_SHIFT;
@@ -246,7 +246,7 @@ class ModShiftAxisStrategy : public TilingStrategy {
  public:
   explicit ModShiftAxisStrategy(const TilingAnalyzer *a) : TilingStrategy(a) {}
   ~ModShiftAxisStrategy() {}
-  void AddDavinciConstraint();
+  void AddNpuConstraint();
   void AddGpuConstraint();
 
   std::string interested_attr_key = AT_MODSHIFT;
@@ -256,7 +256,7 @@ class DynamicBoundStrategy : public TilingStrategy {
  public:
   explicit DynamicBoundStrategy(const TilingAnalyzer *a) : TilingStrategy(a) {}
   ~DynamicBoundStrategy() {}
-  void AddDavinciConstraint();
+  void AddNpuConstraint();
   void AddGpuConstraint();
 
   std::string interested_attr_key = AT_DYNAMIC_BOUND;
@@ -266,7 +266,7 @@ class ConvStrategy : public TilingStrategy {
  public:
   explicit ConvStrategy(const TilingAnalyzer *a) : TilingStrategy(a) {}
   ~ConvStrategy() {}
-  void AddDavinciConstraint();
+  void AddNpuConstraint();
   void AddGpuConstraint();
 
   std::string interested_attr_key = AT_CONV;
@@ -282,7 +282,7 @@ class GemmStrategy : public TilingStrategy {
  public:
   explicit GemmStrategy(const TilingAnalyzer *a) : TilingStrategy(a) {}
   ~GemmStrategy() {}
-  void AddDavinciConstraint();
+  void AddNpuConstraint();
   void AddGpuConstraint();
 
   std::string interested_attr_key = AT_GEMM;
@@ -304,7 +304,7 @@ class GpuStrategy : public TilingStrategy {
     CUSTOM_CONFIG,
     TEMPLATE_BULK
   };
-  void AddDavinciConstraint();
+  void AddNpuConstraint();
   void AddGpuConstraint();
 
  private:

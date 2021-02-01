@@ -1,5 +1,5 @@
 /**
- * Copyright 2019 Huawei Technologies Co., Ltd
+ * Copyright 2019-2021 Huawei Technologies Co., Ltd
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -83,7 +83,7 @@ class SpaceVisitor : public IRVisitor {
   int loop_count_ = 0;
   size_t band_count_ = 0;
   std::unordered_set<std::string> local_buf_;
-  std::unordered_map<std::string, int> op_pipe_map_ = {{AT_DMA2, PIPE_MTE2}, {AT_DMA3, PIPE_MTE3}, {AT_REDUCE, PIPE_V}};
+  std::unordered_map<std::string, int> op_flow_map_ = {{AT_DMA2, FLOW_DMA2}, {AT_DMA3, FLOW_DMA3}, {AT_REDUCE, FLOW_V}};
 
   void AnalyzeProvide(const Provide *op) {
     if (cur_loop_ == nullptr) return;
@@ -119,7 +119,7 @@ class SpaceVisitor : public IRVisitor {
 
     auto src_length = static_cast<int>(src_tensor.size());
     for (auto st : src_tensor) {
-      if (st.name == "mad" || st.name == "load_3d") {
+      if (st.name == "mad" || st.name == LOAD_IM2COL) {
         basic_op_type = "SP_CALL";
       }
     }
@@ -138,7 +138,7 @@ class SpaceVisitor : public IRVisitor {
     dst_tensor.band_index = band_count_;
     dst_tensor.type_byte = analyzer_->scop_info_.user_config_.GetDataType(dst_tensor.name);
     prov.basic_op_type = basic_op_type.empty() ? GetBasicOpType(dst_tensor, src_tensor) : basic_op_type;
-    prov.pipe = GetPipeFromBasicOpType(prov.basic_op_type);
+    prov.flow = GetFlowFromBasicOpType(prov.basic_op_type);
     prov.band_index = band_count_;
     prov.src = src_tensor;
     prov.dst = dst_tensor;
@@ -147,15 +147,17 @@ class SpaceVisitor : public IRVisitor {
     provides_ana_[cur_loop_].emplace_back(prov);
   }
 
-  std::unordered_set<int> GetPipeFromBasicOpType(const std::string &basic_op_type) {
-    std::unordered_set<int> pipe;
-    for (auto it : op_pipe_map_) {
-      if (basic_op_type.find(it.first) != std::string::npos) pipe.insert(it.second);
+  std::unordered_set<int> GetFlowFromBasicOpType(const std::string &basic_op_type) {
+    std::unordered_set<int> flows;
+    for (auto it : op_flow_map_) {
+      if (basic_op_type.find(it.first) != std::string::npos) {
+        flows.insert(it.second);
+      }
     }
-    if (basic_op_type.find(AT_ELEMWISE) != std::string::npos && pipe.empty()) {
-      pipe.insert(PIPE_V);
+    if (basic_op_type.find(AT_ELEMWISE) != std::string::npos && flows.empty()) {
+      flows.insert(FLOW_V);
     }
-    return pipe;
+    return flows;
   }
 
   // Match variable to loop by name since the name in current band is unique.
@@ -588,25 +590,25 @@ void SpaceAnalyzer::IdentifyAlignAxes() {
         };
         if (pe.basic_op_type.find(AT_REDUCE) != std::string::npos) {
           const For *dst_last = GetBufferInnerAxis(dst_tensor);
-          int64_t ub_block = 1;
+          int64_t buf_block = 1;
           if (dst_last != nullptr) {
             align_axes_attrs[dst_last] = std::make_pair(dst_tensor.name, pe.basic_op_type);
-            if (const auto i = dst_last->extent.as<IntImm>()) ub_block = i->value;
+            if (const auto i = dst_last->extent.as<IntImm>()) buf_block = i->value;
           }
           IdentifySrcAlign(src_tensors, dst_tensor);
           if (src_last != nullptr) {
             TileAxis *align_axis = analyzer_->Axis(src_last);
-            if ((align_axis != nullptr && !align_axis->children.empty()) || (ub_block != gm_block)) {
+            if ((align_axis != nullptr && !align_axis->children.empty()) || (buf_block != gm_block)) {
               align_axes_attrs[src_last] = std::make_pair(src_name, pe.basic_op_type);
             }
           }
         } else if (pe.basic_op_type.find(AT_BROADCAST) != std::string::npos) {
           const For *dst_last = GetBufferInnerAxis(dst_tensor);
-          int64_t ub_block = 1;
+          int64_t buf_block = 1;
           if (dst_last == nullptr) continue;
-          if (const auto i = dst_last->extent.as<IntImm>()) ub_block = i->value;
+          if (const auto i = dst_last->extent.as<IntImm>()) buf_block = i->value;
           IdentifySrcAlign(src_tensors, dst_tensor);
-          if (ub_block != gm_block && src_last != nullptr) {
+          if (buf_block != gm_block && src_last != nullptr) {
             align_axes_attrs[dst_last] = std::make_pair(dst_tensor.name, pe.basic_op_type);
             align_axes_attrs[src_last] = std::make_pair(src_name, pe.basic_op_type);
           }

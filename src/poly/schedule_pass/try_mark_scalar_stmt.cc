@@ -1,5 +1,5 @@
 /**
- * Copyright 2020 Huawei Technologies Co., Ltd
+ * Copyright 2020-2021 Huawei Technologies Co., Ltd
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -69,7 +69,7 @@ isl::schedule TryMarkScalarStmt::Run(isl::schedule curr_schedule) {
   // Mark to copy to UB
   if (node.isa<isl::schedule_node_leaf>() || (IsSequenceOrSet(node))) {
     node = InsertEmptyPermutableBand(node);
-    auto tag = REALIZE_UB;
+    auto tag = REALIZE_BUF;
     node = node.insert_mark(isl::id(node.ctx(), tag));
     return node.get_schedule();
   }

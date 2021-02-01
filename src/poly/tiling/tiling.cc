@@ -1,5 +1,5 @@
 /**
- * Copyright 2019 Huawei Technologies Co., Ltd
+ * Copyright 2019-2021 Huawei Technologies Co., Ltd
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -102,25 +102,25 @@ class TilingGenerator {
     auto Convert = [this, &dims](TileAxis *axis) {
       if (axis->index < 0) return;
       if (axis->is_inner && !axis->is_pragma) return;
-      Expr l1_val = 1;
-      Expr l0_val = 1;
+      Expr c1_val = 1;
+      Expr c0_val = 1;
       DimensionInfo dimInfo;
       dimInfo.index = axis->index;
       if (axis->axis_type_.empty())
         dimInfo.axis = std::to_string(axis->dim_axis);
       else
         dimInfo.axis = axis->axis_type_;
-      std::tie(l1_val, l0_val) = this->cand_->GetTileVal(axis);
-      l1_val = CanonicalSimplify(l1_val);
-      l0_val = CanonicalSimplify(l0_val);
-      const auto l1 = l1_val.as<IntImm>();
-      const auto l0 = l0_val.as<IntImm>();
-      CHECK(l1 && l0);
+      std::tie(c1_val, c0_val) = this->cand_->GetTileVal(axis);
+      c1_val = CanonicalSimplify(c1_val);
+      c0_val = CanonicalSimplify(c0_val);
+      const auto c1 = c1_val.as<IntImm>();
+      const auto c0 = c0_val.as<IntImm>();
+      CHECK(c1 && c0);
       // Make sure tile size is positive.
-      auto l1_pos_tile_size = l1->value <= 0 ? MIN_TILE : l1->value;
-      auto l0_pos_tile_size = l0->value <= 0 ? l1_pos_tile_size : l0->value;
-      dimInfo.l1_tiling_size = l1_pos_tile_size;
-      dimInfo.l0_tiling_size = l0_pos_tile_size;
+      auto c1_pos_tile_size = c1->value <= 0 ? MIN_TILE : c1->value;
+      auto c0_pos_tile_size = c0->value <= 0 ? c1_pos_tile_size : c0->value;
+      dimInfo.c1_tiling_size = c1_pos_tile_size;
+      dimInfo.c0_tiling_size = c0_pos_tile_size;
       dimInfo.dim_seq = axis->seq_index;
       dims.push_back(dimInfo);
     };
@@ -141,24 +141,24 @@ class TilingGenerator {
     };
 
     for (const auto &it : this->cand_->tile_val_) {
-      const auto tile_l1 = it.second.tile_l1.as<IntImm>();
-      const auto tile_l0 = it.second.tile_l0.as<IntImm>();
-      if (tile_l1) {
-        InsertMinMax(tile_l1->value);
+      const auto tile_c1 = it.second.tile_c1.as<IntImm>();
+      const auto tile_c0 = it.second.tile_c0.as<IntImm>();
+      if (tile_c1) {
+        InsertMinMax(tile_c1->value);
       }
-      if (tile_l0) {
-        InsertMinMax(tile_l0->value);
+      if (tile_c0) {
+        InsertMinMax(tile_c0->value);
       }
-      if (tile_l1 && tile_l0) {
-        int64_t floordiv = tile_l1->value / tile_l0->value;
-        int64_t mod = tile_l1->value - floordiv * tile_l0->value;
+      if (tile_c1 && tile_c0) {
+        int64_t floordiv = tile_c1->value / tile_c0->value;
+        int64_t mod = tile_c1->value - floordiv * tile_c0->value;
         InsertMinMax(floordiv);
         InsertMinMax(mod);
       }
     }
     for (const auto &d : this->dims_) {
-      InsertMinMax(d.l1_tiling_size);
-      InsertMinMax(d.l0_tiling_size);
+      InsertMinMax(d.c1_tiling_size);
+      InsertMinMax(d.c0_tiling_size);
     }
     if (chosen.count(prime) != 0) return true;
     for (auto mul : prev.mul_tile)
@@ -235,7 +235,7 @@ class TilingGenerator {
       }
       if (!found) LOG(INFO) << "Use conflict prime " << cand << " for var replacement, may raise problem.";
     } else {
-      const auto bound = axis->l1_constraints.tile_mod_.as<IntImm>();
+      const auto bound = axis->c1_constraints.tile_mod_.as<IntImm>();
       if (bound != nullptr && bound->value != -1) {
         CHECK_NE(bound->value, 0);
         CHECK_GT(cand, 0);
@@ -266,51 +266,51 @@ class TilingGenerator {
       if (axis->index < 0) return;
       if (axis->is_pragma) return;
       axis->DumpAxis();
-      Expr l1_val;
-      Expr l0_val;
+      Expr c1_val;
+      Expr c0_val;
       DimensionInfo dimInfo = ConvertDefaultInfo(axis);
-      std::tie(l1_val, l0_val) = this->cand_->GetTileVal(axis);
-      l1_val = CanonicalSimplify(l1_val);
-      l0_val = CanonicalSimplify(l0_val);
-      const auto l1 = l1_val.as<IntImm>();
-      const auto l0 = l0_val.as<IntImm>();
-      if (l0 != nullptr && l0->value != TileVarId::UNDEFINE) {
-        if (l0->value == TileVarId::VAR)
-          analyzer_.logger_.LogFatalAndSaveLog("L0 value of axis " + std::to_string(axis->index) + "_" +
+      std::tie(c1_val, c0_val) = this->cand_->GetTileVal(axis);
+      c1_val = CanonicalSimplify(c1_val);
+      c0_val = CanonicalSimplify(c0_val);
+      const auto c1 = c1_val.as<IntImm>();
+      const auto c0 = c0_val.as<IntImm>();
+      if (c0 != nullptr && c0->value != TileVarId::UNDEFINE) {
+        if (c0->value == TileVarId::VAR)
+          analyzer_.logger_.LogFatalAndSaveLog("c0 value of axis " + std::to_string(axis->index) + "_" +
                                                std::to_string(axis->dim_axis) + " has not been tiled.");
-        dimInfo.l0_tiling_size = l0->value;
+        dimInfo.c0_tiling_size = c0->value;
       } else {
         if (analyzer_.op_type_ == GEMM_OP) {
           if (param_replacement_.l0_tile.empty())
             analyzer_.logger_.LogFatalAndSaveLog("Axis index exceed maximal var replace limit (" +
                                                  std::to_string(GEN_PRIME_NUM) + ")");
-          dimInfo.l0_tiling_size = param_replacement_.l0_tile.back();
+          dimInfo.c0_tiling_size = param_replacement_.l0_tile.back();
           param_replacement_.l0_tile.pop_back();
-          prev_tiling_.emplace_back(dimInfo.l0_tiling_size);
-          dimInfo.l0_var = l0_val;
-          if (l0_val.as<Variable>()) {
-            auto v = air::Downcast<Var>(l0_val);
-            var_to_prime_record.Set(v, make_const(v->type, dimInfo.l0_tiling_size));
+          prev_tiling_.emplace_back(dimInfo.c0_tiling_size);
+          dimInfo.c0_var = c0_val;
+          if (c0_val.as<Variable>()) {
+            auto v = air::Downcast<Var>(c0_val);
+            var_to_prime_record.Set(v, make_const(v->type, dimInfo.c0_tiling_size));
           }
         } else if (analyzer_.op_type_ == CONV_OP) {
-          dimInfo.l0_tiling_size = 65535;
+          dimInfo.c0_tiling_size = 65535;
         } else {
-          dimInfo.l0_tiling_size = 1;
+          dimInfo.c0_tiling_size = 1;
         }
       }
-      if (l1 != nullptr && l1->value != TileVarId::UNDEFINE) {
-        if (l1->value == TileVarId::VAR)
-          analyzer_.logger_.LogFatalAndSaveLog("L1 value of axis " + std::to_string(axis->index) + "_" +
+      if (c1 != nullptr && c1->value != TileVarId::UNDEFINE) {
+        if (c1->value == TileVarId::VAR)
+          analyzer_.logger_.LogFatalAndSaveLog("c1 value of axis " + std::to_string(axis->index) + "_" +
                                                std::to_string(axis->dim_axis) + " has not been tiled.");
-        dimInfo.l1_tiling_size = l1->value;
+        dimInfo.c1_tiling_size = c1->value;
       } else {
-        int64_t l1_base = analyzer_.op_type_ == CONV_OP ? 1 : dimInfo.l0_tiling_size;
-        dimInfo.l1_tiling_size = CalL1VarTiling(l1_base, axis);
-        prev_tiling_.emplace_back(dimInfo.l1_tiling_size);
-        dimInfo.l1_var = l1_val;
-        if (l1_val.as<Variable>()) {
-          auto v = air::Downcast<Var>(l1_val);
-          var_to_prime_record.Set(v, make_const(v->type, dimInfo.l1_tiling_size));
+        int64_t l1_base = analyzer_.op_type_ == CONV_OP ? 1 : dimInfo.c0_tiling_size;
+        dimInfo.c1_tiling_size = CalL1VarTiling(l1_base, axis);
+        prev_tiling_.emplace_back(dimInfo.c1_tiling_size);
+        dimInfo.c1_var = c1_val;
+        if (c1_val.as<Variable>()) {
+          auto v = air::Downcast<Var>(c1_val);
+          var_to_prime_record.Set(v, make_const(v->type, dimInfo.c1_tiling_size));
         }
       }
       this->dims_.push_back(dimInfo);
@@ -322,9 +322,9 @@ class TilingGenerator {
 
   void ConvertShiftBoundToDims() {
     // dim.l1_size -> dynamic bound value set in attr
-    // dim.l1_val  -> corresponding dynamic bound's variable
+    // dim.c1_val  -> corresponding dynamic bound's variable
     // dim.l0_size -> tile prime chosen for this axis
-    // dim.l0_val  -> corresponding tile variable
+    // dim.c0_val  -> corresponding tile variable
     // dim.prgama  -> shift time (IntImm)
     auto Convert = [this](TileAxis *axis) {
       std::vector<std::string> bound_value = axis->GetAttrValue(AT_DYNAMIC_BOUND);
@@ -333,19 +333,19 @@ class TilingGenerator {
         CHECK_NE(bound_value[0], "");
         auto bound = static_cast<int>(std::strtol(bound_value[0].c_str(), nullptr, 10));
         DimensionInfo bound_info = ConvertDefaultInfo(axis);
-        bound_info.l1_tiling_size = bound;
-        bound_info.l1_var = axis->range_extent;
+        bound_info.c1_tiling_size = bound;
+        bound_info.c1_var = axis->range_extent;
         for (const auto &d : this->dims_) {
           if (d.dim_seq != bound_info.dim_seq) continue;
-          bound_info.l0_tiling_size = d.l1_tiling_size;
-          bound_info.l0_var = d.l1_var;
+          bound_info.c0_tiling_size = d.c1_tiling_size;
+          bound_info.c0_var = d.c1_var;
         }
         std::vector<std::string> shift_value = axis->GetAttrValue(AT_DYNAMIC_SHIFT);
         CHECK_EQ(shift_value.size(), 1U) << "Empty shift_time for dynamic bound " << bound;
         CHECK_NE(shift_value[0], "");
         auto shift = static_cast<int>(std::strtol(shift_value[0].c_str(), nullptr, 10));
         bound_info.pragma = shift;
-        CHECK_NE(bound_info.l0_tiling_size, -1);
+        CHECK_NE(bound_info.c0_tiling_size, -1);
         this->dims_.push_back(bound_info);
       }
     };
@@ -355,40 +355,40 @@ class TilingGenerator {
   void ConvertPragmaToDims(Map<Var, Expr> var_to_prime_record) {
     auto ConvertPragma = [this, &var_to_prime_record](TileAxis *axis) {
       if (!axis->is_pragma) return;
-      Expr l1_val;
-      Expr l0_val;
+      Expr c1_val;
+      Expr c0_val;
       DimensionInfo dimInfo = ConvertDefaultInfo(axis);
-      std::tie(l1_val, l0_val) = this->cand_->GetTileVal(axis);
-      const auto l1 = l1_val.as<IntImm>();
-      const auto l0 = l0_val.as<IntImm>();
-      if (l0 != nullptr && l0->value != TileVarId::UNDEFINE) {
-        dimInfo.l0_tiling_size = l0->value;
+      std::tie(c1_val, c0_val) = this->cand_->GetTileVal(axis);
+      const auto c1 = c1_val.as<IntImm>();
+      const auto c0 = c0_val.as<IntImm>();
+      if (c0 != nullptr && c0->value != TileVarId::UNDEFINE) {
+        dimInfo.c0_tiling_size = c0->value;
       } else {
         CHECK(!param_replacement_.l0_tile.empty())
           << "Number of axis to tile exceeds maximal var replace limit (" << GEN_PRIME_NUM << ")";
-        dimInfo.l0_tiling_size = param_replacement_.l0_tile.back();
+        dimInfo.c0_tiling_size = param_replacement_.l0_tile.back();
         param_replacement_.l0_tile.pop_back();
         param_replacement_.l0_tile.pop_back();
-        prev_tiling_.emplace_back(dimInfo.l0_tiling_size);
-        dimInfo.l0_var = l0_val;
+        prev_tiling_.emplace_back(dimInfo.c0_tiling_size);
+        dimInfo.c0_var = c0_val;
       }
-      if (l1 != nullptr && l1->value != TileVarId::UNDEFINE) {
-        dimInfo.l1_tiling_size = l1->value;
+      if (c1 != nullptr && c1->value != TileVarId::UNDEFINE) {
+        dimInfo.c1_tiling_size = c1->value;
       } else {
-        dimInfo.l1_tiling_size = dimInfo.l0_tiling_size;
+        dimInfo.c1_tiling_size = dimInfo.c0_tiling_size;
       }
-      dimInfo.l1_var = l1_val;
-      dimInfo.l0_var = l0_val;
-      dimInfo.pragma = l0_val;
-      // Use same prime of Conv L1 for specgemm.
+      dimInfo.c1_var = c1_val;
+      dimInfo.c0_var = c0_val;
+      dimInfo.pragma = c0_val;
+      // Use same prime of Conv c1 for specgemm.
       for (const auto &d : dims_) {
-        if (!d.l1_var.defined() || !l1_val.defined()) continue;
-        Expr sub = CanonicalSimplify(Substitute(l1_val, var_to_prime_record));
-        if (analyzer_.arith_ana_.CanProve(l1_val == d.l1_var) || analyzer_.arith_ana_.CanProve(sub == d.l1_var)) {
-          dimInfo.l1_tiling_size = d.l1_tiling_size;
-          dimInfo.l1_var = d.l1_var;
+        if (!d.c1_var.defined() || !c1_val.defined()) continue;
+        Expr sub = CanonicalSimplify(Substitute(c1_val, var_to_prime_record));
+        if (analyzer_.arith_ana_.CanProve(c1_val == d.c1_var) || analyzer_.arith_ana_.CanProve(sub == d.c1_var)) {
+          dimInfo.c1_tiling_size = d.c1_tiling_size;
+          dimInfo.c1_var = d.c1_var;
         } else if (const auto imm = sub.as<IntImm>()) {
-          dimInfo.l1_tiling_size = imm->value;
+          dimInfo.c1_tiling_size = imm->value;
         }
       }
       dims_.push_back(dimInfo);
@@ -412,8 +412,8 @@ TileSizes NullTiling() {
   DimensionInfo dimInfo;
   dimInfo.index = 0;
   dimInfo.axis = "0";
-  dimInfo.l1_tiling_size = MIN_TILE;
-  dimInfo.l0_tiling_size = MIN_TILE;
+  dimInfo.c1_tiling_size = MIN_TILE;
+  dimInfo.c0_tiling_size = MIN_TILE;
   dimInfo.dim_seq = 0;
   dims.push_back(dimInfo);
   return dims;

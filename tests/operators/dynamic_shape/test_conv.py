@@ -1,10 +1,6 @@
 import boot
 import pytest
 
-@pytest.mark.conv
-@pytest.mark.level0
-@pytest.mark.env_oncard
-@pytest.mark.platform_x86_ascend_training
 def test_conv():
     #boot.run_conv("conv_run001", "conv_run", ((1, 1024, 14, 14), (2048, 1024, 1, 1), (0, 0, 0, 0), (2, 2), (1, 1), False), [14, 2048, 64, 128, 128, 14, 64], "partial_dynamic", "bypassL1")
     #boot.run_conv("conv_run002", "conv_run", ((1, 1024, 14, 14), (256, 1024, 1, 1), (0, 0, 0, 0), (1, 1), (1, 1), False), [14, 256, 208, 64, 128, 14, 64], "partial_dynamic")

@@ -1,5 +1,5 @@
 /**
- * Copyright 2020 Huawei Technologies Co., Ltd
+ * Copyright 2020-2021 Huawei Technologies Co., Ltd
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -119,7 +119,7 @@ isl::schedule_node GpuDmaAnalysis::GetTiledNode(isl::schedule schedule, isl::sch
   std::vector<int> tmp_sizes(n_member, 0);
   for (size_t j = 0; j < n_member; ++j) {
     tmp_sizes[j] = MAX_STRIDE;
-    if (j < dim_num) tmp_sizes[j] = static_cast<int>(tiling_res.first[j].l1_tiling_size);
+    if (j < dim_num) tmp_sizes[j] = static_cast<int>(tiling_res.first[j].c1_tiling_size);
   }
 
   for (unsigned int i = 0; i < n_member; ++i) {

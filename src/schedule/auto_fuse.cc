@@ -19,7 +19,7 @@
 #include <tvm.h>
 #include <dmlc/common.h>
 
-#include <emit_insn/insn_info.h>
+#include "pass/utils.h"
 
 struct FuncIndex {
   air::ir::FunctionRef f;
@@ -536,7 +536,7 @@ class ComputeInfo : public IRVisitor {
       }
       std::vector<const Variable*> arg_vars;
       if (!arg.as<Variable>()) {
-        auto arg_var_refs = GetVarsInExpr(arg);
+        auto arg_var_refs = akg::ir::GetVarsInExpr(arg);
         for (auto var_ref : arg_var_refs) {
           arg_vars.push_back(var_ref.get());
         }

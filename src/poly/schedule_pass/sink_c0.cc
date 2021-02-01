@@ -1,5 +1,5 @@
 /**
- * Copyright 2020 Huawei Technologies Co., Ltd
+ * Copyright 2020-2021 Huawei Technologies Co., Ltd
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -119,7 +119,6 @@ c0] -> [(c1)]; S_6[n, c1, kh, kw, oh, ow, c0] -> [(c1)] }, { S_4[n, c1, kh, oh, 
 add { S_4[n, c1, kh, oh, c0] -> [(c0)]; S_3[n, c1, oh, ow, c0] -> [(c0)]; S_5[n, c1, kh, oh, ow, c0] -> [(c0)]; S_6[n,
 c1, kh, kw, oh, ow, c0] -> [(c0)] },
 ]
- * This strategy is designed for Davinci architecture, for its five dimension data format.
  * We suppose two steps to achieve this strategy:
  * 1. find the last axis C0 schedule in the multi_union_pw_aff
  * 2. if find this schedule, move it to the end of the multi_union_pw_aff

@@ -1,5 +1,5 @@
 /**
- * Copyright 2020 Huawei Technologies Co., Ltd
+ * Copyright 2020-2021 Huawei Technologies Co., Ltd
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -23,6 +23,7 @@
 #include <tvm/ir.h>
 
 #include "common/target_info.h"
+#include "poly/dsa_utils.h"
 
 namespace akg {
 namespace ir {
@@ -32,12 +33,12 @@ namespace poly {
 enum TilingMemScope {
   // global
   MEM_SCOPE_GM = 0,
-  // davinci
-  MEM_SCOPE_UB,
-  MEM_SCOPE_L1,
-  MEM_SCOPE_L0A,
-  MEM_SCOPE_L0B,
-  MEM_SCOPE_L0C,
+  // npu
+  MEM_SCOPE_BUFFER,
+  MEM_SCOPE_CACHE1,
+  MEM_SCOPE_CACHE0_A,
+  MEM_SCOPE_CACHE0_B,
+  MEM_SCOPE_CACHE0_C,
   // gpu
   MEM_SCOPE_SHARED,
   MEM_SCOPE_LOCAL,
@@ -45,35 +46,35 @@ enum TilingMemScope {
   MEM_SCOPE_BULK,
 };
 
-class DavinciInfo {
+class NpuInfo {
  public:
-  ~DavinciInfo() {}
-  static DavinciInfo &GetInstance() {
-    static DavinciInfo hardware_info;
+  ~NpuInfo() {}
+  static NpuInfo &GetInstance() {
+    static NpuInfo hardware_info;
     return hardware_info;
   }
 
   int64_t GetMemoryLimitInScope(int scope_idx) {
     CHECK_LT(scope_idx, MEM_SCOPE_BULK);
-    return davinci_mem_limit_[scope_idx];
+    return npu_mem_limit_[scope_idx];
   }
 
  private:
-  DavinciInfo() { InitDavinciMemoryLimit(); }
-  int64_t davinci_mem_limit_[MEM_SCOPE_BULK]{0};
+  NpuInfo() { InitNpuMemoryLimit(); }
+  int64_t npu_mem_limit_[MEM_SCOPE_BULK]{0};
 
-  void InitDavinciMemoryLimit() {
+  void InitNpuMemoryLimit() {
     auto CollectLimit = [this](const std::string &scope, TilingMemScope mem) {
       air::MemoryInfo info = air::GetMemoryInfo(scope);
       CHECK(info.defined());
-      davinci_mem_limit_[mem] = info->max_num_bits / 8;
+      npu_mem_limit_[mem] = info->max_num_bits / 8;
     };
-    CollectLimit("local.UB", MEM_SCOPE_UB);
-    CollectLimit("local.L1", MEM_SCOPE_L1);
-    CollectLimit("local.L0A", MEM_SCOPE_L0A);
-    CollectLimit("local.L0B", MEM_SCOPE_L0B);
-    CollectLimit("local.L0C", MEM_SCOPE_L0C);
-    davinci_mem_limit_[MEM_SCOPE_GM] = 0;
+    CollectLimit(DOT_LOCAL_BUF, MEM_SCOPE_BUFFER);
+    CollectLimit(DOT_LOCAL_C1, MEM_SCOPE_CACHE1);
+    CollectLimit(DOT_LOCAL_C0A, MEM_SCOPE_CACHE0_A);
+    CollectLimit(DOT_LOCAL_C0B, MEM_SCOPE_CACHE0_B);
+    CollectLimit(DOT_LOCAL_C0C, MEM_SCOPE_CACHE0_C);
+    npu_mem_limit_[MEM_SCOPE_GM] = 0;
   }
 };
 
@@ -146,9 +147,9 @@ std::unordered_map<std::string, std::string> ExtractLoopIndicesFromMatrices(std:
 VarNames VisitVarNames(const air::Expr &arg, VarNames var_names, bool add_num = true);
 
 /* Data format definition */
-const VarNames DavinciNCHW = {"N", "C", "H", "W", "C0"};
-const VarNames DavinciNHWCC0 = {"N", "H", "W", "C", "C0"};
-const VarNames DavinciNC1HWC0 = {"N", "C1", "H", "W", "C0"};
+const VarNames DsaNCHW = {"N", "C", "H", "W", "C0"};
+const VarNames DsaNHWCC0 = {"N", "H", "W", "C", "C0"};
+const VarNames DsaNC1HWC0 = {"N", "C1", "H", "W", "C0"};
 
 const VarNames ForwardFilter = {"C1_in", "C1_out", "C0_out", "C0_in"};          //  nZ, Cin = [kc1,kh,kw]
 const VarNames BackpropFilter = {"C1_out", "C1_in", "C0_in", "C0_out"};         //  backprop_input, Cout = [kc1,kh,kw]

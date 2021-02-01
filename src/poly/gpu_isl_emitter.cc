@@ -73,9 +73,6 @@ Stmt GpuIslEmitter::EmitRead(const isl::ast_node_user &node) {
 
       Tensor t = info_.FindTensor(var);
       CHECK(t.defined());
-      if (info_.cube_info_.IsIm2col() && !info_.analysis_result_.GetUpdateTensor().empty()) {
-        return Provide::make(info_.analysis_result_.GetUpdateTensor()[0]->op, 0, value, local_args);
-      }
       return Provide::make(t->op, 0, value, local_args);
     }
   }
@@ -1102,16 +1099,16 @@ void GpuIslEmitter::PrepareDataForTensorCore() {
   auto tile_size = info_.analysis_result_.GetTileSizes();
   CHECK_GE(tile_size.size(), 3) << "tile size should be greater to 3";
   int len = tile_size.size();
-  tensor_core_info_.warp_tile_.m = tile_size[len - 3].l0_tiling_size;
-  tensor_core_info_.warp_tile_.n = tile_size[len - 2].l0_tiling_size;
-  tensor_core_info_.warp_tile_.k = tile_size[len - 1].l0_tiling_size;
+  tensor_core_info_.warp_tile_.m = tile_size[len - 3].c0_tiling_size;
+  tensor_core_info_.warp_tile_.n = tile_size[len - 2].c0_tiling_size;
+  tensor_core_info_.warp_tile_.k = tile_size[len - 1].c0_tiling_size;
 
   bool result = CheckTileValid(tensor_core_info_.warp_tile_);
   CHECK(result) << "tile set is not valid!";
 
   tensor_core_info_.thread_tile_.m = tensor_core_info_.warp_tile_.m / tx;
   tensor_core_info_.thread_tile_.n = tx / 2;
-  tensor_core_info_.thread_tile_.k = tile_size[2].l0_tiling_size / tz;
+  tensor_core_info_.thread_tile_.k = tile_size[2].c0_tiling_size / tz;
 
   tensor_core_info_.matrix_abc_ = info_.analysis_result_.GetMatrixMatmulMap();
   tensor_core_info_.matrix_major_ = info_.analysis_result_.GetMatrixMatmulMajor();
@@ -1422,7 +1419,7 @@ Expr GpuIslEmitter::IterNameAdaptor(std::string name) {
     return iter_name_map_[name];
   } else if (name.find(REPLACE) != std::string::npos) {
     name = name.substr(strlen(REPLACE));
-    if (info_.user_config_.GetEnableTileL0()) {
+    if (info_.user_config_.GetEnableTileC0()) {
       return SingleConfigToMultiBand(name);
     }
     return AdaptPolyNewVar(name);
@@ -1435,7 +1432,7 @@ Expr GpuIslEmitter::SingleConfigToMultiBand(std::string name) {
   Expr e;
   VarExpr original_id;
   int rep_size = 1;
-  auto l0_block_size = info_.user_config_.GetL0BlockSize();
+  auto l0_block_size = info_.user_config_.GetC0BlockSize();
   if (name.find(B0) != std::string::npos) {
     original_id = iter_name_map_[B0];
     rep_size = l0_block_size[0];
@@ -1451,9 +1448,9 @@ Expr GpuIslEmitter::SingleConfigToMultiBand(std::string name) {
     return e;
   }
 
-  if (name.find(L0) != std::string::npos) {
+  if (name.find(TILE_WITH_C0) != std::string::npos) {
     e = Mod::make(original_id, rep_size);
-  } else if (name.find(L1) != std::string::npos) {
+  } else if (name.find(TILE_WITH_C1) != std::string::npos) {
     e = Div::make(original_id, rep_size);
   } else {
     LOG(FATAL) << "Unexpected binding id: " << name;

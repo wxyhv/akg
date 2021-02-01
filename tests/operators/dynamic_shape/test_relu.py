@@ -1,10 +1,6 @@
 import boot
 import pytest
 
-@pytest.mark.relu
-@pytest.mark.level0
-@pytest.mark.env_oncard
-@pytest.mark.platform_x86_ascend_training
 def test_relu():
     boot.run("test_resnet50_relu_000", "relu_run", ((32, 128, 7, 7, 16), "float32", 1e-5), "dynamic")
     boot.run("test_resnet50_relu_001", "relu_run", ((32, 16, 14, 14, 16), "float32", 1e-5), "dynamic")

@@ -1,4 +1,4 @@
-# Copyright 2020 Huawei Technologies Co., Ltd
+# Copyright 2020-2021 Huawei Technologies Co., Ltd
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -27,7 +27,7 @@ def get_attrs():
     """Get default attrs for avgpool."""
     default_attr_map = {
         "pragma_reschedule": 1,
-        "pragma_opt_for_davinci": 1,
+        "pragma_opt_for_dsa": 1,
         "pragma_reorder_schedule": True,
         "enable_pre_poly_loop_partition": False,
         "enable_post_poly_loop_partition": False,

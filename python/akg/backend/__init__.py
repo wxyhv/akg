@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # coding: utf-8
-# Copyright 2019 Huawei Technologies Co., Ltd
+# Copyright 2019-2021 Huawei Technologies Co., Ltd
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -32,10 +32,4 @@ if __name__ == "platform":
     sys.modules.pop('platform')
     sys.path.insert(0, '')
     sys.path.append(tp_)
-else:
-    from .cce_params import *
-    from .cce_build import *
-    from .cce_conf import *
-    from .cce_runtime import *
-    from .cce_buffer import *
 _init_api("akg.build_module")

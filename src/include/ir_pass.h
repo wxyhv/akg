@@ -44,31 +44,6 @@ namespace ir {
 Expr SimplifyCombiner(const Expr &expr, bool prune_unused_components = true);
 
 /*!
- * \brief Detect and insert sync points to d-processor.
- *
- * \param stmt The stmt to be transformed
- * \return Transformed stmt.
- */
-Stmt InjectSync(Stmt stmt);
-
-/*!
- * \brief emit insn for D.
- *
- * \param stmt The stmt to be transformed
- * \return Transformed stmt.
- */
-Stmt EmitInsn(Stmt stmt, bool enable_bisect, bool enable_cover_protect, const Map<Tensor, Buffer> &extern_buffer,
-              bool is_dynamic);
-
-/*!
- * \brief emit insn debugger.
- *
- * \param stmt The stmt to be transformed
- * \return Transformed stmt.
- */
-Stmt EmitInsnDebug(Stmt stmt);
-
-/*!
  * \brief replace point word separators in variables with underscore.
  *
  * \param stmt The stmt to be transformed
@@ -92,272 +67,15 @@ Stmt RewriteMultiValueFunc(Stmt stmt);
  */
 Stmt RenameRealize(Stmt stmt, const Map<Tensor, Buffer> &extern_buffer, const Map<Tensor, Tensor> &replace);
 
-/*!
- * \brief auto inject pip info for D.
- *
- * \param stmt The stmt to be transformed
- * \return Transformed stmt.
- */
-Stmt InjectPipe(Stmt stmt);
-
-/*!
- * \brief hoist insn for D.
- *
- * \param stmt The stmt to be transformed
- * \return Transformed stmt.
- */
-
-Stmt HoistInsn(Stmt stmt);
-
-/*!
- * \brief Inject tvm_access_ptr message buffer trasnform
- *
- * \param stmt The stmt to be transformed
- * \return Transformed stmt.
- */
-Stmt InjectAccessPtrMSG(Stmt stmt);
-
-/*!
- * \brief Remove tvm_access_ptr message buffer trasnform
- *
- * \param stmt The stmt to be transformed
- * \return Transformed stmt.
- */
-Stmt RemoveAccessPtrMSG(Stmt stmt);
-
-/*!
- * \brief Rewrite storage allocation pattern for CCE platform.
- *  Trying to share space between allocations to make
- *  a static allocation plan when possible.
- *
- * \param stmt The stmt to be transformed
- * \return Transformed stmt.
- */
-Stmt StorageRewriteCCE(Stmt stmt, const std::string &maxsat_filename, bool use_BC_opt = true, bool no_limits = false,
-                       int maxsat_timeout = 4);
-
-/*!
- * \brief Rewrite storage allocation pattern in Ubuf for
- *  CCE platform.
- *  Trying to share space between allocations to make
- *  a static allocation plan when possible.
- *  Also, try to minimize read-read and read-write bank
- *  conflicts for vector operations in Ubuf.
- *
- * \param stmt The stmt to be transformed
- * \return Transformed stmt.
- */
-Stmt StorageRewriteBC(Stmt stmt, const std::string &maxsat_filename, bool no_limits, int maxsat_timeout);
-
-/*!
- * \brief Allow operators run on multi-core
- *
- * \param stmt The stmt to be transformed
- * \return Transformed stmt.
- */
-Stmt InjectMultiCore(Stmt stmt, int max_block_dim, int merge_outer_loop = 1, bool is_dynamic = false,
-                     bool scalar_rearrange = false);
-
-Array<NodeRef> InjectMultiCoreVar(Stmt stmt, const Var &block_dim, int merge_outer_loop = 1);
-
-Stmt AlignPartitionCCE(Stmt stmt);
-
-Stmt FixMadAttrs(Stmt s);
-/*!
- * Unrolls the loops if the extent is non-constant.
- */
-Stmt UnrollNonConstantExtent(Stmt s);
-
-/*!
- * \brief Compress tensor after autopoly.
- *
- * \param stmt The stmt to be transformed.
- * \return Transformed stmt.
- */
-Stmt RealizeCompress(Stmt stmt);
-
-/*!
- * \brief Normlize loop after autopoly.
- *
- * \param stmt The stmt to be transformed.
- * \return Transformed stmt.
- */
-Stmt LoopNormlize(Stmt stmt);
-
-/*!
- * \brief Rewrite expression to fit cce's intrinsics.
- * \param stmt The stmt to be transformed
- * \return Transformed stmt.
- */
-Stmt MathIntrinRewrite(Stmt stmt);
-
-/*!
- * \brief Sink IF stmt as possible.
- * \param stmt The stmt to be transformed.
- * \return Transformed stmt.
- */
-Stmt SinkIfStmt(const Stmt &stmt);
-
 Array<NodeRef> AutoPoly(const Stmt &body, const Map<Tensor, Buffer> &extern_buffer, std::string target,
                         const Map<std::string, NodeRef> &attrs, const bool is_specgemm, const bool is_dynamic,
                         Schedule sch = Schedule());
 
-/*!
- * \brief Promote IF stmt as possible.
- * \param stmt The stmt to be transformed.
- * \return Transformed stmt.
- */
-Stmt PromoteIfStmt(Stmt stmt, bool is_dynamic = false);
-
-Stmt PromoteLetStmt(const Stmt &stmt, const Array<NodeRef> &arg_list);
-
 NodeRef GenTuningSpace(const Stmt &body, std::string target, const Map<Tensor, Buffer> &extern_buffer,
                        const Map<std::string, NodeRef> &attrs, const bool is_specgemm, Schedule sch = Schedule());
 
-Stmt Load3dTrans(Stmt stmt, bool is_dynamic);
-
-Stmt PostFusion(Stmt stmt, const Map<Tensor, Buffer> &extern_buffer, bool is_dynamic);
-
-Stmt DmaFlatten(Stmt stmt, bool all_dynamic_conv);
-
-Stmt ReduceFusionOpt(Stmt stmt, const Map<Tensor, Buffer> &extern_buffer);
-
-Stmt PostProcessImg2col(Stmt stmt);
-
-/*!
- * \brief Lower the high-level cce_img2col intrinsic
- * to the D-intrinsics set_fmatrix and img2col_cbuf_to_ca.
- */
-Stmt CoarsenImg2Col(Stmt stmt);
-
-/*!
- * \brief direct copy filter from outer to L0, bypass L1
- *
- * \param stmt The stmt to be transformed.
- * \return Transformed stmt.
- */
-Stmt BypassL1(const Stmt &stmt);
-
-Stmt StrideKernelOp(Stmt stmt, const Map<Tensor, Buffer> &extern_buffer, bool is_dynamic = false);
-
-Stmt InvariantHoist(Stmt stmt);
-
-Stmt ElimDMA(Stmt stmt);
-
-Stmt InjectAttr(Stmt stmt);
-
-Stmt UnifyLoopVars(const Stmt &stmt, const Map<Tensor, Buffer> &extern_buffer, const Array<NodeRef> &arg_list);
-
-Stmt IsolateLoops(const Stmt &stmt, bool enable_isolate_min_max);
-
-Stmt CheckShapeParams(Stmt stmt, const Map<Tensor, Buffer> &extern_buffer);
-
-Stmt ForEliminate(Stmt stmt);
-
-Stmt SubstituteDivVar(Stmt stmt);
-
-Stmt FixLoopExtent(Stmt stmt);
-
-Stmt FixRealizeShape(Stmt stmt);
-
-Stmt EliminateIf(Stmt stmt);
-
-Stmt MergeLoops(const Stmt &stmt, bool is_dynamic = false);
-
-Stmt AnalyzeMinAlignStatic(Stmt stmt);
-
-Stmt AnalyzeMinAlignDynamic(Stmt stmt, bool enable_conv_analyze_align, bool set_scalar_align = false);
-
-Stmt RewriteByAlignStatic(Stmt stmt);
-
-Stmt RewriteBroadcastVector(Stmt stmt);
-
-Stmt OptimizePragma(Stmt stmt);
-
-Stmt PackStore(Stmt stmt);
-
-Stmt RecoverStore(Stmt stmt);
-
-Stmt RewriteByAlignDynamic(Stmt stmt);
-
-Stmt EliminateAtomicDma(Stmt stmt);
-
-Stmt ExpandC0(Stmt stmt);
-
-Stmt DTypeAdapter(Stmt stmt);
-
-Stmt SetVectorMaskDefault(const Stmt &stmt);
-
-Stmt ElimVectorMask(Stmt stmt);
-
-Stmt TileCoverCorrect(Stmt stmt);
-
-Stmt SelectLower(Stmt stmt);
-
-Stmt RewriteTensorIndex(Stmt stmt);
-
-Stmt LowerWith(Stmt stmt);
-
-Stmt ModDivEliminate(Stmt stmt);
-
-Stmt AutoDoubleBuffer(Stmt stmt);
-
-Stmt ConvertExtentToCond(Stmt stmt, const Map<Tensor, Buffer> &extern_buffer);
-
-Stmt ConvertCondToExtent(Stmt stmt);
-
-Stmt RewriteVarTensorIdx(Stmt stmt, const Map<Tensor, Buffer> &extern_buffer);
-
-Stmt AlignLastAxisLoopExtent(Stmt stmt, const Map<Tensor, Buffer> &extern_buffer);
-
-Stmt ConvertIfToSelect(Stmt stmt);
-
-/*!
- * \brief Split complicated expression to three address code and do instruction selection
- *        + reuse_variable = True: will try to minimize the newly generated variables
- *        + minimum_split - use with "reuse_variable" to reuse newly generated tensors when exceeding this threshold
- */
-Stmt ToThreeAddress(Stmt stmt, bool reuse_variable = false, int minimum_split = 10, bool cross_stmt_simplify = false);
-
-/*!
- * \brief Use pattern match for simple statement rewrite
- */
-Stmt StmtPatternRewrite(Stmt stmt);
-Stmt ExprPatternRewrite(Stmt stmt);
-
-Stmt AutoPragma(Stmt stmt);
-
-Stmt FixUnsupportedInstruction(Stmt stmt);
-
-Stmt DMASink(Stmt stmt);
-
-Stmt SpecialValueReplacer(Stmt stmt);
-
-Stmt ReplaceFargmaxCasts(Stmt stmt);
-
-Stmt GatherLoopInfo(Stmt stmt);
-
-Stmt CoverProtection(Stmt stmt, size_t th_block, size_t th_protect);
-
-Stmt AutoMadPragmaAttr(Stmt stmt, bool man_schedule = false);
-
-Stmt LowerStorageAccessInfoCCE(Stmt stmt);
-
-Stmt StmtCSE(Stmt stmt, const Map<Tensor, Buffer> &extern_buffer);
-
-Stmt ValueNumbering(Stmt stmt);
-
-Stmt MultiLastAxisReductions(Stmt stmt, bool is_dynamic);
-
-Stmt AutoReorder(Stmt stmt);
-Stmt SplitTail(Stmt stmt);
-
-Stmt CopyPropagation(Stmt stmt, const Map<Tensor, Buffer> &extern_buffer);
-
 Expr CastNormalize(const Expr &expr, const air::DataType cast_type);
 
-std::string DumpC(const Stmt &stmt, const Array<Buffer> &extern_buffer);
-// GPU PASS
 Stmt InjectDoubleBufferScopeOnGpu(Stmt stmt);
 /*!
  * \brief  Define the scope of data prefetch using transfer buffer and the scope of using thread group, then insert
@@ -392,28 +110,6 @@ Stmt ElementwiseFlatten(Stmt stmt, const Map<Tensor, Buffer> &extern_buffer,
 
 Array<NodeRef> FuseAxis(Stmt stmt, const Array<NodeRef> &arg_list, const Map<Tensor, Buffer> &extern_buffer);
 
-Stmt MultiCorePartition(const Stmt &stmt);
-
-Stmt MultiCoreLoopSwitchHoist(Stmt stmt);
-
-Stmt LoopSwitchHoist(Stmt stmt, bool hoist_allocate = false);
-
-Stmt DeadCodeElim(Stmt stmt);
-
-Stmt PoolingTransform(Stmt stmt, bool is_dynamic);
-
-Stmt PreProcess4Multicore(Stmt stmt);
-
-Stmt HalfReduceSumRewrite(Stmt stmt, const Map<Tensor, Buffer> &extern_buffer);
-
-Stmt FeatureLibTransform(Stmt stmt);
-
-Stmt SpecifyMinMaxDataType(Stmt stmt);
-
-Stmt RemoveAssert(const Stmt &stmt);
-
-Stmt RewriteFloorDiv(const Stmt &stmt);
-
 Expr CastNormalize(const Expr &expr, const air::DataType cast_type);
 
 Stmt TestInferBoundWithCond(const Expr &expr, const Array<Expr> &constraints);
@@ -423,28 +119,6 @@ Stmt TestReduceInequality(const air::Expr &e, const Var &reduce_var, bool scale,
 Stmt TestSimplify(const Expr &expr);
 
 Stmt TestCanProveWithPosParam(const air::Expr &e);
-
-Stmt PromoteCommonExpr(const Stmt &stmt);
-
-Stmt PromoteConstExpr(const Stmt &stmt);
-
-Array<NodeRef> CollectExternalCall(const Stmt &stmt);
-
-Array<NodeRef> CastKernelParams(const Stmt &stmt, const Array<NodeRef> &arg_list);
-
-Stmt AlgebraSimplify(const Stmt &stmt);
-
-Stmt ConvertDivModToShift(const Stmt &stmt);
-
-Stmt UnifyAllocate(const Stmt &stmt);
-
-Stmt SinkAllocate(const Stmt &stmt);
-
-Stmt FixBindBuffer(const Stmt &stmt, const Map<Tensor, Buffer> &extern_buffer);
-
-Stmt CastFilter(const Stmt &stmt);
-
-Stmt ScalarComputeRewrite(const Stmt &stmt);
 
 Stmt RemoveFakeOp(const Stmt &stmt);
 }  // namespace ir
