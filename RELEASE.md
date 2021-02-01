@@ -1,3 +1,21 @@
+# Release 1.1.1
+## Major Features and Improvements
+* Enable Tensor core when processing GEMM operators in AKG by using poly to create the schedule needed by tensor core pass automatically;
+* Implemented an akg mma lib with inlined ptx codes instead of wmma interface of cuda;
+* Enable one-dimensional mapping to optimize memory promotion.
+
+## Bugfixes
+* Fix Segmentation fault in Mapping OuterBand in mindspore (!321).
+* Fix bugs for memory promotion issues  (!306).
+* Fix bugs during gen tuning space for scalar ops (!326).
+
+## Contributors
+Thanks goes to these wonderful people:
+
+chengyun, chendeshi, chenlei_autodiff, gengzhen, hanhuifeng, lvwenyuan, lishanni513, hujiahui8, polyhedral, shiliang,  wYann, xixixian, xxxxxxw, xuhui, xiaruijie, yangsijia, yiyanzhi, zhangzhaochuang, zhengzuohe
+
+Contributions of any kind are welcome!
+
 # Release 1.1.0
 ## Major Features and Improvements
 * GPU operators improvements
