@@ -714,7 +714,7 @@ class DynamicPaddingFix : public IRMutator {
   std::string fm_l1_{""};
 };
 
-Stmt DavinciHalideOptimizer(const Stmt &s, bool dynamic_shape = false) {
+Stmt DsaHalideOptimizer(const Stmt &s, bool dynamic_shape = false) {
   Stmt stmt = s;
   if (dynamic_shape) {
     stmt = InductionVarElinate().Run(s);

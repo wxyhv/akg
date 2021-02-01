@@ -724,7 +724,7 @@ void CreateCode(const std::string &code, const std::string &kernel_name, const s
   std::string file_path;
   std::string file_suffix;
   if (target_name.find("cce") != std::string::npos) {
-    file_path = std::string(kMsDavinciKernelPath);
+    file_path = std::string(kMsAscendKernelPath);
     file_suffix = ".cce";
   } else if (target_name.find("cuda") != std::string::npos) {
     file_path = std::string(kMsGpuKernelPath) + "_" + std::to_string(getpid()) + "/";

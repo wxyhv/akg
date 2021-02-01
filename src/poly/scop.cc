@@ -21,7 +21,7 @@
 #include "poly/poly_util.h"
 #include "poly/npu_isl_emitter.h"
 #include "poly/gpu_isl_emitter.h"
-#include "poly/davinci_mgr_strategy.h"
+#include "poly/dsa_mgr_strategy.h"
 #include "poly/gpu_mgr_strategy.h"
 #include "poly/schedule_pass_mgr.h"
 
@@ -123,15 +123,15 @@ isl::schedule Scop::Transform(const isl::schedule &input_schedule) {
   SchedulePassMgr mgr(info_);
   if (info_.user_config_.GetTarget() == TARGET_CCE) {
     info_.user_config_.SetConsiderCoincidence(true);
-    DavinciMgrStrategy davinci_strategy(info_);
-    final_schedule = mgr.Run(input_schedule, davinci_strategy);
-    info_.DumpTransform("davinci_transfrom.log", davinci_strategy.pass_info_);
+    DsaMgrStrategy dsa_strategy(info_);
+    final_schedule = mgr.Run(input_schedule, dsa_strategy);
+    info_.DumpTransform("dsa_transfrom.log", dsa_strategy.pass_info_);
 
     // We offer a restart mechanism for scalar stmt that cannot tile: do not consider coincidence
     // and re-compute/re-tile to generate final schedule.
     if (mgr.need_restart_) {
       info_.user_config_.SetConsiderCoincidence(false);
-      DavinciMgrStrategy scalar_strategy(info_);
+      DsaMgrStrategy scalar_strategy(info_);
       final_schedule = mgr.Run(input_schedule, scalar_strategy);
       info_.DumpTransform("scalar_transform.log", scalar_strategy.pass_info_);
     }

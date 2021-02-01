@@ -211,7 +211,7 @@ class UserConfig {
     ParseBoolAttr(attrs, "pragma_tile_inner_band", &tile_inner_band_);
     ParseBoolAttr(attrs, "pragma_set_all_coincident", &pragma_set_all_coincident_);
 
-    ParseBoolAttr(attrs, "pragma_opt_for_davinci", &optimize_for_davinci_);
+    ParseBoolAttr(attrs, "pragma_opt_for_dsa", &optimize_for_dsa_);
     ParseBoolAttr(attrs, "enable_feature_library", &enable_feature_library_);
     ParseBoolAttr(attrs, "enable_hoist_cond_write", &enable_hoist_cond_write_);
 
@@ -326,7 +326,7 @@ class UserConfig {
   bool GetIsTuning() { return is_tuning_; }
 
   // getter for specialized optimization config
-  bool GetOptimizeForNPU() const { return optimize_for_davinci_; }
+  bool GetOptimizeForNPU() const { return optimize_for_dsa_; }
   bool GetEnableFeatureLib() const { return enable_feature_library_; }
   bool GetEnableHoistCondWrite() const { return enable_hoist_cond_write_; }
 
@@ -596,7 +596,7 @@ class UserConfig {
   bool is_tuning_{false};
 
   // specialized optimization
-  bool optimize_for_davinci_{false};
+  bool optimize_for_dsa_{false};
   bool enable_feature_library_{false};
   bool enable_hoist_cond_write_{true};
 

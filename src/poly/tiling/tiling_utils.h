@@ -147,9 +147,9 @@ std::unordered_map<std::string, std::string> ExtractLoopIndicesFromMatrices(std:
 VarNames VisitVarNames(const air::Expr &arg, VarNames var_names, bool add_num = true);
 
 /* Data format definition */
-const VarNames DavinciNCHW = {"N", "C", "H", "W", "C0"};
-const VarNames DavinciNHWCC0 = {"N", "H", "W", "C", "C0"};
-const VarNames DavinciNC1HWC0 = {"N", "C1", "H", "W", "C0"};
+const VarNames DsaNCHW = {"N", "C", "H", "W", "C0"};
+const VarNames DsaNHWCC0 = {"N", "H", "W", "C", "C0"};
+const VarNames DsaNC1HWC0 = {"N", "C1", "H", "W", "C0"};
 
 const VarNames ForwardFilter = {"C1_in", "C1_out", "C0_out", "C0_in"};          //  nZ, Cin = [kc1,kh,kw]
 const VarNames BackpropFilter = {"C1_out", "C1_in", "C0_in", "C0_out"};         //  backprop_input, Cout = [kc1,kh,kw]

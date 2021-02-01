@@ -1,5 +1,5 @@
 /**
- * Copyright 2020 Huawei Technologies Co., Ltd
+ * Copyright 2020-2021 Huawei Technologies Co., Ltd
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -14,20 +14,20 @@
  * limitations under the License.
  */
 
-#ifndef POLY_DAVINCI_MGR_STRATEGY_H_
-#define POLY_DAVINCI_MGR_STRATEGY_H_
+#ifndef POLY_DSA_MGR_STRATEGY_H_
+#define POLY_DSA_MGR_STRATEGY_H_
 
 #include "poly/pass_mgr_strategy.h"
 
 namespace akg {
 namespace ir {
 namespace poly {
-class DavinciMgrStrategy : public PassMgrStrategy {
+class DsaMgrStrategy : public PassMgrStrategy {
  public:
-  explicit DavinciMgrStrategy(ScopInfo &scop_info) : PassMgrStrategy(scop_info) {
+  explicit DsaMgrStrategy(ScopInfo &scop_info) : PassMgrStrategy(scop_info) {
     pass_info_.coincident_ = scop_info_.user_config_.GetConsiderCoincidence();
   }
-  ~DavinciMgrStrategy() override = default;
+  ~DsaMgrStrategy() override = default;
 
   void RegisterTilingPasses() override;
   void RegisterMemPromPasses() override;
@@ -37,4 +37,4 @@ class DavinciMgrStrategy : public PassMgrStrategy {
 }  // namespace poly
 }  // namespace ir
 }  // namespace akg
-#endif  // POLY_DAVINCI_MGR_STRATEGY_H_
+#endif  // POLY_DSA_MGR_STRATEGY_H_
