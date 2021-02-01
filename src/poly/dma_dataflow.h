@@ -37,7 +37,6 @@ class TensorFootprintCluster;
 struct TensorDataFlow;
 class StmtDataFlowInfo;
 
-enum MemType { DDR = 1, C1_, BUF_, C0A_, C0B_, C0C_, BUF_C0_, BUF_C1_, SHARED_, LOCAL_ };
 enum DataStreamIndex { DS_ZERO = 0, DS_FIRST, DS_SECOND, DS_THIRD };
 enum GpuMemType { SHARED = 0, LOCAL };
 
@@ -62,7 +61,7 @@ struct BufferDefInfo {
   // solve same mark tag problem
   // temp solution
   // better solution need init schedule tree has different mark tag
-  // realize_UB1, realize_UB2, and so on
+  // realize_BUF1, realize_BUF2, and so on
   std::vector<std::pair<isl::schedule_node, std::shared_ptr<TensorFootprintCluster>>> footprint_cluster_map;
   std::vector<std::pair<isl::schedule_node, std::vector<size_t>>> sizes_map_;
 
@@ -119,7 +118,6 @@ using StmtIdHashMap = std::unordered_map<isl::id, std::vector<isl::id>, isl::Isl
 using MemFlow = std::vector<MemType>;
 using FlowMap = std::unordered_map<std::string, TensorDataFlow>;
 using StateFlowMap = std::map<std::string, StmtDataFlowInfo>;
-using DataFlowAttrs = std::vector<std::pair<MemType, std::string>>;
 
 inline std::ostream &operator<<(std::ostream &os, const StmtIdHashMap &sthash) {
   os << "\nStmtIdHashMap:";
@@ -152,21 +150,6 @@ struct TensorDataFlow {
 
   void Initial(const std::string &name, const DataFlowAttrs &attrs);
 };
-
-const DataFlowAttrs Mmu_Conv_A = {
-  {MemType::DDR, ""}, {MemType::C1_, LOCAL_C1}, {MemType::C1_, _FRACTAL_C1}, {MemType::C0A_, LOCAL_C1_LOCAL_C0A}};
-const DataFlowAttrs Mmu_Conv_B = {{MemType::DDR, ""}, {MemType::C1_, LOCAL_C1}, {MemType::C0B_, LOCAL_C1_LOCAL_C0B}};
-const DataFlowAttrs Mmu_Conv_C = {{MemType::DDR, ""}, {MemType::BUF_, LOCAL_BUF}, {MemType::C0C_, LOCAL_BUF_LOCAL_C0C}};
-const DataFlowAttrs Mmu_Spec_Gemm_A = {{MemType::C1_, _FRACTAL_C1}, {MemType::C0A_, FRACTAL_C1_LOCAL_C0A}};
-const DataFlowAttrs Mmu_Spec_Gemm_A_ = {{MemType::C1_, LOCAL_C1}, {MemType::C0A_, LOCAL_C1_LOCAL_C0A}};
-const DataFlowAttrs Mmu_Gemm_A = {{MemType::DDR, ""}, {MemType::C1_, LOCAL_C1}, {MemType::C0A_, LOCAL_C1_LOCAL_C0A}};
-const DataFlowAttrs Mmu_Spec_Gemm_B = {{MemType::C1_, ""}, {MemType::C0B_, LOCAL_C0B}};
-const DataFlowAttrs Mmu_Spec_Gemm_B_ = {{MemType::C1_, ""}, {MemType::C0B_, LOCAL_C0B}};
-const DataFlowAttrs Mmu_Gemm_B = {{MemType::DDR, ""}, {MemType::C1_, LOCAL_C1}, {MemType::C0B_, LOCAL_C1_LOCAL_C0B}};
-const DataFlowAttrs Mmu_Spec_Gemm_C = {{MemType::BUF_C0_, ""}, {MemType::C0C_, LOCAL_C0C}};
-const DataFlowAttrs Mmu_Gemm_C = {{MemType::DDR, ""}, {MemType::BUF_, LOCAL_BUF}, {MemType::C0C_, LOCAL_BUF_LOCAL_C0C}};
-const DataFlowAttrs Inst_BUF = {{MemType::DDR, ""}, {MemType::BUF_, LOCAL_BUF}};
-const DataFlowAttrs Im2Col_C1 = {{MemType::DDR, ""}, {MemType::C1_, LOCAL_C1}};
 
 class StmtDataFlowInfo {
  public:

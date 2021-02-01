@@ -74,6 +74,23 @@ constexpr auto PRAGMA_MMU_C1WRITE = "PRAGMA_MMU_C1WRITE";
 constexpr auto K_C1 = "K_C1";
 constexpr auto PRAGMA_GEMM_C0 = "PRAGMA_GEMM_C0";
 
+enum MemType { DDR = 1, C1_, BUF_, C0A_, C0B_, C0C_, BUF_C0_, BUF_C1_, SHARED_, LOCAL_ };
+using DataFlowAttrs = std::vector<std::pair<MemType, std::string>>;
+
+const DataFlowAttrs Mmu_Conv_A = {{MemType::DDR, ""}};
+const DataFlowAttrs Mmu_Conv_B = {{MemType::DDR, ""}};
+const DataFlowAttrs Mmu_Conv_C = {{MemType::DDR, ""}};
+const DataFlowAttrs Mmu_Spec_Gemm_A = {{MemType::DDR, ""}};
+const DataFlowAttrs Mmu_Spec_Gemm_A_ = {{MemType::DDR, ""}};
+const DataFlowAttrs Mmu_Gemm_A = {{MemType::DDR, ""}};
+const DataFlowAttrs Mmu_Spec_Gemm_B = {{MemType::DDR, ""}};
+const DataFlowAttrs Mmu_Spec_Gemm_B_ = {{MemType::DDR, ""}};
+const DataFlowAttrs Mmu_Gemm_B = {{MemType::DDR, ""}};
+const DataFlowAttrs Mmu_Spec_Gemm_C = {{MemType::DDR, ""}};
+const DataFlowAttrs Mmu_Gemm_C = {{MemType::DDR, ""}};
+const DataFlowAttrs Inst_BUF = {{MemType::DDR, ""}};
+const DataFlowAttrs Im2Col_C1 = {{MemType::DDR, ""}};
+
 inline int GetCoreValue(const std::string &name) {
   if (name == "Core_num") {
     return 32;
