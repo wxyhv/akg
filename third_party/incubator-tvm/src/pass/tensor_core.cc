@@ -26,6 +26,11 @@
  *     Modify the pass to enable TensorCore for AKG.
  */
 
+/*!
+ * 2021.02.02
+ *     Remove the judgment logic about target.
+ */
+
 // IR Passes for TensorCore CodeGen
 #include <tvm/ir.h>
 #include <tvm/expr.h>
@@ -1585,11 +1590,6 @@ class TensorCoreIRMutator : public IRMutator {
 Stmt RewriteForTensorCore(Stmt stmt,
                           Schedule schedule,
                           Map<Tensor, Buffer> extern_buffer) {
-  // Check if current lower target is CUDA
-  auto target = air::Target::Current(true);
-  if (!target.defined()) {
-    return stmt;
-  }
 
   // Check if current runtime support GPU CUDA
   TVMContext ctx{kDLGPU, 0};
