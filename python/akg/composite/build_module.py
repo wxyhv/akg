@@ -326,6 +326,13 @@ def json_split(desc_d):
         clean_info = alloc_map[fake_op] if fake_op in alloc_map else reuse_map[fake_op]
         clean_op_map[inplace_assign_map[fake_op]] = clean_info
         alloc_map.pop(fake_op) if fake_op in alloc_map else reuse_map.pop(fake_op)
+
+    if not alloc_map:
+        alloc_map['EMPTY'] = []
+    if not clean_op_map:
+        clean_op_map['EMPTY'] = []
+    if not reuse_map:
+        reuse_map['EMPTY'] = []
     return stitch_jsons, input_tensor_name, output_tensor_name, alloc_map, reuse_map, clean_op_map
 
 
@@ -554,7 +561,7 @@ def _set_tiling_attrs(out_shape, attrs):
         i = 0
         while out_shape[i] == 1:
             i += 1
-        block_y = out_shape[i] 
+        block_y = out_shape[i]
         block_x = out_shape[i + 1] if i < axis_len - 3 else 1
         attrs['bind_block'] = str(block_x) + ' ' + str(block_y)
     if attrs.get('dim') in (None, ''):
@@ -570,6 +577,52 @@ def _set_tiling_attrs(out_shape, attrs):
             i += 1
         attrs['dim'] = ' '.join(str(x) for x in dim_list)
     return attrs
+
+def _set_reducemax_attrs(desc_d, attrs):
+    if _reducemax_pattern(desc_d)[0]:
+        attrs['enable_tile_c0'] = True
+        elem_per_thread = 4
+        blockdim_x = 64
+        blockdim_y = 16
+        griddim_x = 1
+        griddim_y = _reducemax_pattern(desc_d)[1] / (blockdim_y * elem_per_thread)
+        attrs['dim'] = ' 0 0 128 64 0 1 128 128'
+        attrs['bind_block'] = str(griddim_x) + ' ' + str(griddim_y)
+        attrs['bind_thread'] = str(blockdim_x) + ' ' + str(blockdim_y)
+    return attrs
+
+def _json_need_split(desc_d, attrs):
+    block_jsons = []
+    input_tensor_name = []
+    output_tensor_name = []
+    attrs_list = []
+    alloc_map_list = []
+    reuse_map_list = []
+    clean_op_map_list = []
+    if 'parallel_fusion' in desc_d:
+        block_jsons, input_tensor_name, output_tensor_name = split_json_to_graphs(desc_d)
+        attrs_bak = attrs.copy()
+        for i, _ in enumerate(block_jsons):
+            if 'buffer_stitch' in block_jsons[i]:
+                stitch_jsons, _, _, alloc_map, reuse_map, clean_op_map = json_split(block_jsons[i])
+                block_jsons[i] = stitch_jsons
+                attrs = _set_reducemax_attrs(desc_d, attrs)
+            else:
+                alloc_map, reuse_map, clean_op_map = dict(), dict(), dict()
+                attrs = attrs_bak
+            attrs_list.append(attrs)
+            alloc_map_list.append(alloc_map)
+            reuse_map_list.append(reuse_map)
+            clean_op_map_list.append(clean_op_map)
+    elif 'buffer_stitch' in desc_d:
+        stitch_jsons, input_tensor_name, output_tensor_name, alloc_map, reuse_map, clean_op_map = json_split(desc_d)
+        block_jsons.append(stitch_jsons)
+        attrs = _set_reducemax_attrs(desc_d, attrs)
+        attrs_list.append(attrs)
+        alloc_map_list.append(alloc_map)
+        reuse_map_list.append(reuse_map)
+        clean_op_map_list.append(clean_op_map)
+    return block_jsons, input_tensor_name, output_tensor_name, attrs_list, alloc_map_list, reuse_map_list, clean_op_map_list
 
 def _build_to_gpu_func(desc_s, desc_d, attrs=None, poly=False):
     """
@@ -617,42 +670,12 @@ def _build_to_gpu_func(desc_s, desc_d, attrs=None, poly=False):
             if value:
                 attrs[item] = value
 
-    if 'parallel_fusion' in desc_d:
-        block_jsons, input_tensor_names, output_tensor_names = split_json_to_graphs(desc_d)
-        alloc_map, reuse_map, clean_op_map = dict(), dict(), dict()
-        for i, _ in enumerate(block_jsons):
-            if 'buffer_stitch' in block_jsons[i]:
-                stitch_jsons, _, _, alloc_map, reuse_map, clean_op_map = json_split(block_jsons[i])
-                block_jsons[i] = stitch_jsons
+    if 'parallel_fusion' in desc_d or 'buffer_stitch' in desc_d:
+        block_jsons, input_tensor_name, output_tensor_name, attrs_list, alloc_map_list, reuse_map_list, \
+                    clean_op_map_list = _json_need_split(desc_d, attrs)
         func = tvm.get_global_func("composite_with_json_list_gpu")
-        if not clean_op_map:
-            clean_op_map['EMPTY'] = []
-        if not reuse_map:
-            reuse_map['EMPTY'] = []
-        if not alloc_map:
-            alloc_map['EMPTY'] = []
-
-        return func(block_jsons, input_tensor_names, output_tensor_names, alloc_map, reuse_map, clean_op_map, attrs, poly)
-    elif 'buffer_stitch' in desc_d:
-        block_jsons = []
-        stitch_jsons, input_tensor_name, output_tensor_name, alloc_map, reuse_map, clean_op_map = json_split(desc_d)
-        block_jsons.append(stitch_jsons)
-        func = tvm.get_global_func("composite_with_json_list_gpu")
-        if not clean_op_map:
-            clean_op_map['EMPTY'] = []
-        if not reuse_map:
-            reuse_map['EMPTY'] = []
-        if _reducemax_pattern(desc_d)[0]:
-            attrs['enable_tile_c0'] = True
-            elem_per_thread = 4
-            blockdim_x = 64
-            blockdim_y = 16
-            griddim_x = 1
-            griddim_y = _reducemax_pattern(desc_d)[1] / (blockdim_y * elem_per_thread)
-            attrs['dim'] = ' 0 0 128 64 0 1 128 128'
-            attrs['bind_block'] = str(griddim_x) + ' ' + str(griddim_y)
-            attrs['bind_thread'] = str(blockdim_x) + ' ' + str(blockdim_y)
-        return func(block_jsons, input_tensor_name, output_tensor_name, alloc_map, reuse_map, clean_op_map, attrs, poly)
+        return func(block_jsons, input_tensor_name, output_tensor_name, alloc_map_list, reuse_map_list, \
+                    clean_op_map_list, attrs_list, poly)
     func = tvm.get_global_func("composite_with_json")
     return func(desc_s, attrs, poly)
 
