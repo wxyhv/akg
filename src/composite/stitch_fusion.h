@@ -342,7 +342,7 @@ class BufferStitchAttr : public GridBlockDimsAttr {
 
 IrAttrInfo GetIRAttr(StitchOpType type, BufferStitchAttr &stitch_attr_info, std::vector<StitchOpType> &type_array,
                      std::vector<GridBlockDims> &dim_array, const Map<std::string, NodeRef> &attrs);
-Stmt StitchFusion(std::vector<Stmt> &stitch_irs, StitchAttrInfo &store_attr,
+Stmt StitchFusionGpu(std::vector<Stmt> &stitch_irs, StitchAttrInfo &store_attr,
                   std::unordered_map<std::string, StitchBufferInfo> &stitch_buffer_map,
                   std::unordered_map<std::string, StitchBufferInfo> &buf_within_op_map,
                   std::vector<std::string> &allocate_revoke);

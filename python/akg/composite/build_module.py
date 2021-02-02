@@ -263,7 +263,7 @@ def sub_graph_info(sub_graph, desc_d):
     json_str = json.dumps(op_json_str, indent=4)
     return json_str
 
-def json_split(desc_d):
+def stitch_json_split(desc_d):
     """
     split sub graph from merged json file.
     Using 'buffer_stitch' to store stitch info from graph kernel.
@@ -336,7 +336,7 @@ def json_split(desc_d):
     return stitch_jsons, input_tensor_name, output_tensor_name, alloc_map, reuse_map, clean_op_map
 
 
-def split_json_to_graphs(desc_d):
+def parallel_json_split(desc_d):
     """
     spilt merge_json to single graph json.
     Args:
@@ -533,6 +533,9 @@ def _build_to_func(desc_s, desc_d, attr=None, use_repo=True):
             tiling = get_repo([compute, shape, dtype, 'dim'])
             if tiling:
                 attr['dim'] = tiling
+
+    if 'parallel_fusion' in desc_d or 'buffer_stitch' in desc_d:
+        return _build_json_list_func(desc_d, attr, True, 'cce')
     func = tvm.get_global_func("composite_with_json_to_func")
     return func(desc_s, attr)
 
@@ -600,11 +603,11 @@ def _json_need_split(desc_d, attrs):
     reuse_map_list = []
     clean_op_map_list = []
     if 'parallel_fusion' in desc_d:
-        block_jsons, input_tensor_name, output_tensor_name = split_json_to_graphs(desc_d)
+        block_jsons, input_tensor_name, output_tensor_name = parallel_json_split(desc_d)
         attrs_bak = attrs.copy()
         for i, _ in enumerate(block_jsons):
             if 'buffer_stitch' in block_jsons[i]:
-                stitch_jsons, _, _, alloc_map, reuse_map, clean_op_map = json_split(block_jsons[i])
+                stitch_jsons, _, _, alloc_map, reuse_map, clean_op_map = stitch_json_split(block_jsons[i])
                 block_jsons[i] = stitch_jsons
                 attrs = _set_reducemax_attrs(desc_d, attrs)
             else:
@@ -615,7 +618,7 @@ def _json_need_split(desc_d, attrs):
             reuse_map_list.append(reuse_map)
             clean_op_map_list.append(clean_op_map)
     elif 'buffer_stitch' in desc_d:
-        stitch_jsons, input_tensor_name, output_tensor_name, alloc_map, reuse_map, clean_op_map = json_split(desc_d)
+        stitch_jsons, input_tensor_name, output_tensor_name, alloc_map, reuse_map, clean_op_map = stitch_json_split(desc_d)
         block_jsons.append(stitch_jsons)
         attrs = _set_reducemax_attrs(desc_d, attrs)
         attrs_list.append(attrs)
@@ -623,6 +626,13 @@ def _json_need_split(desc_d, attrs):
         reuse_map_list.append(reuse_map)
         clean_op_map_list.append(clean_op_map)
     return block_jsons, input_tensor_name, output_tensor_name, attrs_list, alloc_map_list, reuse_map_list, clean_op_map_list
+
+def _build_json_list_func(desc_d, attrs, poly, target):
+    func = tvm.get_global_func("composite_with_json_list")
+    block_jsons, input_tensor_name, output_tensor_name, attrs_list, alloc_map_list, reuse_map_list, \
+    clean_op_map_list = _json_need_split(desc_d, attrs)
+    return func(block_jsons, input_tensor_name, output_tensor_name, alloc_map_list, reuse_map_list, \
+                clean_op_map_list, attrs_list, poly, target)
 
 def _build_to_gpu_func(desc_s, desc_d, attrs=None, poly=False):
     """
@@ -671,11 +681,7 @@ def _build_to_gpu_func(desc_s, desc_d, attrs=None, poly=False):
                 attrs[item] = value
 
     if 'parallel_fusion' in desc_d or 'buffer_stitch' in desc_d:
-        block_jsons, input_tensor_name, output_tensor_name, attrs_list, alloc_map_list, reuse_map_list, \
-                    clean_op_map_list = _json_need_split(desc_d, attrs)
-        func = tvm.get_global_func("composite_with_json_list_gpu")
-        return func(block_jsons, input_tensor_name, output_tensor_name, alloc_map_list, reuse_map_list, \
-                    clean_op_map_list, attrs_list, poly)
+        return _build_json_list_func(desc_d, attrs, poly, 'cuda')
     func = tvm.get_global_func("composite_with_json")
     return func(desc_s, attrs, poly)
 
