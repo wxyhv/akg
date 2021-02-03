@@ -91,8 +91,9 @@ def reduce_str(inputs, output, attr, op_type):
 def cast_str(inputs, output, attr):
     """gen cast string"""
     dst_type = get_attr(attr, "dst_type")
-    s = "%s = %s.astype(np.%s)" % (
-        output[0]['tensor_name'], get_input(inputs[0][0]), dst_type)
+    s = "%s = np.array(%s).astype(np.%s) if isinstance(%s, (float, int)) else %s.astype(np.%s)" % (
+        output[0]['tensor_name'], get_input(inputs[0][0]), dst_type, get_input(inputs[0][0]),
+        get_input(inputs[0][0]), dst_type)
     return s
 
 
@@ -221,92 +222,93 @@ op_dsl = {
     "ReduceMax": lambda inputs, output, attr: reduce_str(inputs, output, attr, "max"),
     "ReduceMin": lambda inputs, output, attr: reduce_str(inputs, output, attr, "min"),
     "Tanh": lambda inputs, output, attr: "%s = np.tanh(%s)" %
-    (output[0]['tensor_name'], get_input(inputs[0][0])),
+        (output[0]['tensor_name'], get_input(inputs[0][0])),
     "Mul": lambda inputs, output, attr: "%s = np.multiply(%s, %s)" %
-    (output[0]['tensor_name'], get_input(
+        (output[0]['tensor_name'], get_input(
         inputs[0][0]), get_input(inputs[1][0])),
     "Pow": lambda inputs, output, attr: "%s = np.power(%s, %s)" %
-    (output[0]['tensor_name'], get_input(
+        (output[0]['tensor_name'], get_input(
         inputs[0][0]), get_input(inputs[1][0])),
     "Sub": lambda inputs, output, attr: "%s = np.subtract(%s, %s)" %
-    (output[0]['tensor_name'], get_input(
+        (output[0]['tensor_name'], get_input(
         inputs[0][0]), get_input(inputs[1][0])),
     "TensorAdd": lambda inputs, output, attr: "%s = np.add(%s, %s)" %
-    (output[0]['tensor_name'], get_input(
+        (output[0]['tensor_name'], get_input(
         inputs[0][0]), get_input(inputs[1][0])),
     "Add": lambda inputs, output, attr: "%s = np.add(%s, %s)" %
     (output[0]['tensor_name'], get_input(
         inputs[0][0]), get_input(inputs[1][0])),
     "Rsqrt": lambda inputs, output, attr: "%s = 1.0/np.sqrt(%s)" %
-    (output[0]['tensor_name'], get_input(inputs[0][0])),
+        (output[0]['tensor_name'], get_input(inputs[0][0])),
     "Neg": lambda inputs, output, attr: "%s = np.negative(%s)" %
-    (output[0]['tensor_name'], get_input(inputs[0][0])),
+        (output[0]['tensor_name'], get_input(inputs[0][0])),
     "Exp": lambda inputs, output, attr: "%s = np.exp(%s)" %
-    (output[0]['tensor_name'], get_input(inputs[0][0])),
+        (output[0]['tensor_name'], get_input(inputs[0][0])),
     "RealDiv": lambda inputs, output, attr: "%s = np.divide(%s, %s)" %
-    (output[0]['tensor_name'], get_input(
+        (output[0]['tensor_name'], get_input(
         inputs[0][0]), get_input(inputs[1][0])),
     "Minimum": lambda inputs, output, attr: "%s = np.minimum(%s, %s)" %
-    (output[0]['tensor_name'], get_input(
+        (output[0]['tensor_name'], get_input(
         inputs[0][0]), get_input(inputs[1][0])),
     "Maximum": lambda inputs, output, attr: "%s = np.maximum(%s, %s)" %
-    (output[0]['tensor_name'], get_input(
+        (output[0]['tensor_name'], get_input(
         inputs[0][0]), get_input(inputs[1][0])),
     "Log": lambda inputs, output, attr: "%s = np.log(%s)" %
-    (output[0]['tensor_name'], get_input(inputs[0][0])),
+        (output[0]['tensor_name'], get_input(inputs[0][0])),
     "Sqrt": lambda inputs, output, attr: "%s = np.sqrt(%s)" %
-    (output[0]['tensor_name'], get_input(inputs[0][0])),
+        (output[0]['tensor_name'], get_input(inputs[0][0])),
     "Cast": lambda inputs, output, attr: cast_str(inputs, output, attr),
     "Reshape": lambda inputs, output, attr: "%s = np.reshape(%s, %s)" %
-    (output[0]['tensor_name'], get_input(inputs[0][0]), attr[0]['value']),
+        (output[0]['tensor_name'], get_input(inputs[0][0]), attr[0]['value']),
     "OneHot": lambda inputs, output, attr: "%s = np.one_hot(%s, %s, %s, %s, %s, %s)" %
-    (output[0]['tensor_name'], get_input(inputs[0][0]), get_input(inputs[1][0]), get_input(inputs[2][0]),
-     attr[0]['value'], attr[1]['value'], inputs[0][0]['data_type']),
+        (output[0]['tensor_name'], get_input(inputs[0][0]), get_input(inputs[1][0]), get_input(inputs[2][0]),
+        attr[0]['value'], attr[1]['value'], inputs[0][0]['data_type']),
     "ZerosLike": lambda inputs, output, attr: "%s = np.zeros_like(%s)" %
-    (output[0]['tensor_name'], get_input(inputs[0][0])),
+        (output[0]['tensor_name'], get_input(inputs[0][0])),
     "AddN": lambda inputs, output, attr: "%s = %s" %
-    (output[0]['tensor_name'], ' + '.join([get_input(inputs[0][i])
+        (output[0]['tensor_name'], ' + '.join([get_input(inputs[0][i])
                                            for i in range(0, len(inputs[0]))])),
     "Tile": lambda inputs, output, attr: "%s = np.tile(%s, %s)" %
-    (output[0]['tensor_name'], get_input(
+        (output[0]['tensor_name'], get_input(
         inputs[0][0]), attr[0]['value']),
     "Reciprocal": lambda inputs, output, attr: "%s = np.divide(1.0, %s)" %
-    (output[0]['tensor_name'], get_input(inputs[0][0])),
+        (output[0]['tensor_name'], get_input(inputs[0][0])),
     "Equal": lambda inputs, output, attr: "%s = np.equal(%s, %s)" %
-    (output[0]['tensor_name'], get_input(
+        (output[0]['tensor_name'], get_input(
         inputs[0][0]), get_input(inputs[1][0])),
     "GreaterEqual": lambda inputs, output, attr: "%s = np.greater_equal(%s, %s)" %
-    (output[0]['tensor_name'], get_input(
+        (output[0]['tensor_name'], get_input(
         inputs[0][0]), get_input(inputs[1][0])),
     "Select": lambda inputs, output, attr: "%s = np.where(%s, %s, %s)" %
-    (output[0]['tensor_name'], get_input(inputs[0][0]),
-     get_input(inputs[1][0]), get_input(inputs[2][0])),
+        (output[0]['tensor_name'], get_input(inputs[0][0]),
+        get_input(inputs[1][0]), get_input(inputs[2][0])),
     "InplaceAssign": lambda inputs, output, attr: "%s = %s; %s = %s" %
-    (get_input(inputs[0][0]), get_input(inputs[1][0]),
-     output[0]['tensor_name'], get_input(inputs[2][0])),
+        (get_input(inputs[0][0]), get_input(inputs[1][0]),
+        output[0]['tensor_name'], get_input(inputs[2][0])),
     "Greater": lambda inputs, output, attr: "%s = np.greater(%s, %s)" %
-    (output[0]['tensor_name'], get_input(
+        (output[0]['tensor_name'], get_input(
         inputs[0][0]), get_input(inputs[1][0])),
     "SelectGT": lambda inputs, output, attr: "%s = np.where(%s > %s, %s, %s)" %
-    (output[0]['tensor_name'], get_input(inputs[0][0]), get_input(inputs[1][0]),
-     get_input(inputs[2][0]), get_input(inputs[3][0])),
+        (output[0]['tensor_name'], get_input(inputs[0][0]), get_input(inputs[1][0]),
+        get_input(inputs[2][0]), get_input(inputs[3][0])),
     "SelectLT": lambda inputs, output, attr: "%s = np.where(%s < %s, %s, %s)" %
-    (output[0]['tensor_name'], get_input(inputs[0][0]), get_input(inputs[1][0]),
-     get_input(inputs[2][0]), get_input(inputs[3][0])),
+        (output[0]['tensor_name'], get_input(inputs[0][0]), get_input(inputs[1][0]),
+        get_input(inputs[2][0]), get_input(inputs[3][0])),
     "Abs": lambda inputs, output, attr: "%s = np.absolute(%s)" %
-    (output[0]['tensor_name'], get_input(inputs[0][0])),
+        (output[0]['tensor_name'], get_input(inputs[0][0])),
     "LessEqual": lambda inputs, output, attr: "%s = np.less_equal(%s, %s)" %
-    (output[0]['tensor_name'], get_input(
-        inputs[0][0]), get_input(inputs[1][0])),
+        (output[0]['tensor_name'], get_input(inputs[0][0]), get_input(inputs[1][0])),
     "EquivFormat": lambda inputs, output, attr: "%s = %s" %
-    (output[0]['tensor_name'], get_input(inputs[0][0])),
+        (output[0]['tensor_name'], get_input(inputs[0][0])),
     "ExpandDims": lambda inputs, output, attr: "%s = np.expand_dims(%s, %s)" %
-    (output[0]['tensor_name'], get_input(inputs[0][0]), attr[0]['value']),
+        (output[0]['tensor_name'], get_input(inputs[0][0]), attr[0]['value']),
     "Transpose": lambda inputs, output, attr: transpose_str(inputs, output, attr),
     "TransData": trans_data_dsl,
     "BroadcastTo": lambda inputs, output, attr: broadcast_str(inputs, output, attr),
     "BatchMatMul": lambda inputs, output, attr: batchmatmul_str(inputs, output, attr),
-    "Assign": lambda inputs, output, attr: "%s = %s" % (output[0]['tensor_name'], get_input(inputs[1][0])),
+    "Assign": lambda inputs, output, attr: "%s = %s; %s = %s" %
+        (get_input(inputs[0][0]), get_input(inputs[1][0]), output[0]['tensor_name'],
+        get_input(inputs[1][0]))
 }
 
 
@@ -340,34 +342,32 @@ def gen_json_data(op_desc):
     for input_desc in desc["input_desc"] if desc["input_desc"] is not None else []:
         shape = [1] if not input_desc[0]["shape"] else input_desc[0]["shape"]
         dtype = input_desc[0]["data_type"]
-        if input_desc[0]["tensor_name"] in clean_input:
+        tensor_name = input_desc[0]["tensor_name"]
+        if tensor_name in clean_input:
             item = np.zeros(shape).astype(dtype)
         else:
             item = random_gaussian(shape, miu=1, sigma=0.1).astype(dtype)
         input_for_mod.append(item)
-        tensor_name = input_desc[0]["tensor_name"]
         input_order[tensor_name] = idx
-        idx += 1
         input_dict[tensor_name] = item
-        p.out(tensor_name)
-        p.out(" = np.array(input_dict.get(\"")
-        p.out(tensor_name)
-        p.out("\"))")
-        p.null_line()
+        p.out("%s = np.array(input_dict.get('%s'))" % (tensor_name, tensor_name),
+            new_line=False if idx == 0 else True)
+        idx += 1
 
     inplace_assign_write = []
     fake_output_tensors = []
     elemwise_op_list = ["TensorAdd", "Add", "RealDiv", "Mul", "Minimum", "Maximum", "Sub"]
     for op in desc["op_desc"]:
         dsl_fun = op_dsl.get(op["name"], None)
-        if op["name"] == "InplaceAssign":
-            fake_output = False
-            for attr in op["attr"]:
-                if attr["name"] == "fake_output":
-                    fake_output = attr["value"]
+        if op["name"] in ("InplaceAssign", "Assign"):
+            if op["name"] == "InplaceAssign":
+                fake_output = False
+                for attr in op["attr"]:
+                    if attr["name"] == "fake_output":
+                        fake_output = attr["value"]
+                if fake_output:
+                    fake_output_tensors.append(op["output_desc"][0]["tensor_name"])
             inplace_assign_write.append(op["input_desc"][0][0]["tensor_name"])
-            if fake_output:
-                fake_output_tensors.append(op["output_desc"][0]["tensor_name"])
         elif op["name"] in elemwise_op_list and "format" in op["output_desc"][0]and \
              op["output_desc"][0]["format"] =="FRACTAL_NZ":
             if op["input_desc"][0][0]["format"] == "DefaultFormat" and \
@@ -423,15 +423,11 @@ def gen_json_data(op_desc):
         item = np.full(shape, 0, dtype)
         input_for_mod.append(item)
         tensor_name = output_desc["tensor_name"]
-        if tensor_name in fake_output_tensors:
-            idx += 1
-            continue
-        real_idx = idx - out_nums
-        output_indexes.append(real_idx)
+        if tensor_name not in fake_output_tensors:
+            real_idx = idx - out_nums
+            output_indexes.append(real_idx)
+            p.out("expect.append(%s)" % (tensor_name), True)
         idx += 1
-        p.out("expect.append(", True)
-        p.out(tensor_name)
-        p.out(")")
 
     # Add inplace tensors to expect, and add their index to output_indexes.
     if inplace_assign_write:
