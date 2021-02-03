@@ -1,4 +1,4 @@
-# Copyright 2020 Huawei Technologies Co., Ltd
+# Copyright 2020-2021 Huawei Technologies Co., Ltd
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -18,7 +18,7 @@ from gen_random import random_gaussian
 from akg.utils import kernel_exec as utils
 from akg.utils.result_analysis import gpu_profiling
 from akg.utils.format_transform import to_tvm_nd_array
-from akg.ops.poly_gpu import fused_bn_reduce_grad_manual, fused_bn_reduce_grad_auto
+from test_op.resnet.fused_bn_reduce_grad import fused_bn_reduce_grad
 
 def compute_fused_bn_reduce_grad(data, inter_dtype, layout, out_dtype):
 
@@ -86,13 +86,8 @@ def test_fused_bn_reduce_grad(in_shape, in_dtype="float16", layout='NHWC', out_d
     op_attrs = [layout, out_dtype]
     if poly_sch:
         mod = utils.op_build_test(
-            fused_bn_reduce_grad_auto, input_shape_list, input_dtype_list,
-            kernel_name="fused_bn_reduce_grad_auto", op_attrs=op_attrs, attrs={"target": "cuda"}
-        )
-    else:
-        mod = utils.op_build_test(
-            fused_bn_reduce_grad_manual, input_shape_list, input_dtype_list,
-            kernel_name="fused_bn_reduce_grad_manual", op_attrs=op_attrs
+            fused_bn_reduce_grad, input_shape_list, input_dtype_list,
+            kernel_name="fused_bn_reduce_grad", op_attrs=op_attrs, attrs={"target": "cuda"}
         )
 
     outputs = [output]

@@ -12,7 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License
 import numpy as np
-from akg.ops.poly_gpu import batch_matmul_manual, batch_matmul_auto
+from test_op.batch_matmul import batch_matmul
 from gen_random import random_gaussian
 from akg.utils import kernel_exec as utils
 from akg.utils.result_analysis import gpu_profiling
@@ -79,14 +79,11 @@ def test_ms_bmm(shape1, shape2, dtype, out_dtype="float32", layout1="NHDT", layo
     op_attrs = [out_dtype, layout1, layout2, layout_out, tensor_core, add_bias]
 
     if poly_sch:
-        mod = utils.op_build_test(batch_matmul_auto, (shape1, shape2, shape_bias), (dtype, dtype, out_dtype), op_attrs=op_attrs,
+        mod = utils.op_build_test(batch_matmul, (shape1, shape2, shape_bias), (dtype, dtype, out_dtype), op_attrs=op_attrs,
                                   attrs={"target": "cuda", "use_shared_memory": True, "pragma_enable_tensor_core": tensor_core, "enable_auto_fuse": False,
                                          "dim": dim, "bind_block": bind_block, "bind_thread": bind_thread, "vector_load_type": "float4",
                                          "pragma_enable_matmul": True},
-                                  kernel_name="batch_matmul_auto")
-    else:
-        mod = utils.op_build_test(batch_matmul_manual, (shape1, shape2, shape_bias), (
-            dtype, dtype, out_dtype), op_attrs=op_attrs, kernel_name="batch_matmul_manual")
+                                  kernel_name="batch_matmul")
 
     lhs, rhs, bias, output, expect = gen_data(
         shape1, shape2, dtype, out_dtype, layout1, layout2, layout_out, shape_bias, add_bias)
