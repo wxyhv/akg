@@ -1,4 +1,4 @@
-# Copyright 2020 Huawei Technologies Co., Ltd
+# Copyright 2020-2021 Huawei Technologies Co., Ltd
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -17,7 +17,7 @@ from gen_random import random_gaussian
 from akg.utils import kernel_exec as utils
 from akg.utils.result_analysis import gpu_profiling
 from akg.utils.format_transform import to_tvm_nd_array
-from akg.ops.poly_gpu import fused_is_finite_manual, fused_is_finite_auto
+from test_op.resnet.fused_is_finite import fused_is_finite
 
 def gen_data(shape, dtype, layout='NHWC'):
     support_list = {"float16": np.float16, "float32": np.float32}
@@ -37,9 +37,8 @@ def gen_data(shape, dtype, layout='NHWC'):
 def test_fused_is_finite(shape, layout='NHWC', poly_sch=False):
     dtype="float32"
     if poly_sch:
-        mod = utils.op_build_test(fused_is_finite_auto, [shape], [dtype], op_attrs=[layout], kernel_name="fused_is_finite_auto", attrs={"target": "cuda"})    
-    else:
-        mod = utils.op_build_test(fused_is_finite_manual, [shape], [dtype], op_attrs=[layout], kernel_name="fused_is_finite_manual")    
+        mod = utils.op_build_test(fused_is_finite, [shape], [dtype], op_attrs=[layout], kernel_name="fused_is_finite", attrs={"target": "cuda"})    
+
     data, expect, output = gen_data(shape, dtype, layout)
     args = (data, output)
     output = utils.mod_launch(mod, args, expect = expect)

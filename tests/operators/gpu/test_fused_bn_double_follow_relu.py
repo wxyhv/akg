@@ -1,4 +1,4 @@
-# Copyright 2020 Huawei Technologies Co., Ltd
+# Copyright 2020-2021 Huawei Technologies Co., Ltd
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -18,7 +18,7 @@ from gen_random import random_gaussian
 from akg.utils import kernel_exec as utils
 from akg.utils.result_analysis import gpu_profiling
 from akg.utils.format_transform import to_tvm_nd_array
-from akg.ops.poly_gpu import fused_bn_double_follow_relu_manual, fused_bn_double_follow_relu_auto
+from test_op.resnet.fused_bn_double_follow_relu import fused_bn_double_follow_relu
 
 def compute_expect(data, inter_dtype, layout, out_dtype):
 
@@ -84,11 +84,8 @@ def test_fused_bn_double_follow_relu(in_shape, in_dtype='float16', layout='NHWC'
     input_dtype_list = [inter_dtype] * 4 + [in_dtype] + [inter_dtype] * 4 + [in_dtype]
     op_attrs = [layout, out_dtype]
     if poly_sch:
-        mod = utils.op_build_test(fused_bn_double_follow_relu_auto, input_shape_list, input_dtype_list,
-                             kernel_name="fused_bn_double_follow_relu_auto", op_attrs=op_attrs, attrs={"target": "cuda"})
-    else:
-        mod = utils.op_build_test(fused_bn_double_follow_relu_manual, input_shape_list, input_dtype_list, kernel_name="fused_bn_double_follow_relu_manual", op_attrs=op_attrs)
-
+        mod = utils.op_build_test(fused_bn_double_follow_relu, input_shape_list, input_dtype_list,
+                             kernel_name="fused_bn_double_follow_relu", op_attrs=op_attrs, attrs={"target": "cuda"})
 
     outputs = [output]
     arglist = inputs + outputs

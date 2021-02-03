@@ -1,4 +1,4 @@
-# Copyright 2020 Huawei Technologies Co., Ltd
+# Copyright 2020-2021 Huawei Technologies Co., Ltd
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -19,7 +19,7 @@ from akg.utils import kernel_exec as utils
 from akg.utils.result_analysis import gpu_profiling
 from akg.utils.format_transform import to_tvm_nd_array
 from tensorio import compare_tensor
-from akg.ops.poly_gpu import fused_mul_div_rsqrt_mul_isfinite_red_manual, fused_mul_div_rsqrt_mul_isfinite_red_auto
+from test_op.resnet.fused_mul_div_rsqrt_mul_isfinite_red import fused_mul_div_rsqrt_mul_isfinite_red
 
 def gen_data(shape, dtype):
     data1 = random_gaussian(shape, miu=1, sigma=0.1).astype(dtype)
@@ -46,9 +46,8 @@ def test_fused_mul_div_rsqrt_mul_isfinite_red(shape, dtype='float32', poly_sch=F
     input_shape = [shape, shape]
     input_dtype = [dtype, dtype]
     if poly_sch:
-        mod = utils.op_build_test(fused_mul_div_rsqrt_mul_isfinite_red_auto, input_shape, input_dtype, kernel_name="fused_mul_div_rsqrt_mul_isfinite_red_auto", attrs={"target": "cuda"})
-    else:
-        mod = utils.op_build_test(fused_mul_div_rsqrt_mul_isfinite_red_manual, input_shape, input_dtype, kernel_name="fused_mul_div_rsqrt_mul_isfinite_red_manual")
+        mod = utils.op_build_test(fused_mul_div_rsqrt_mul_isfinite_red, input_shape, input_dtype, kernel_name="fused_mul_div_rsqrt_mul_isfinite_red", attrs={"target": "cuda"})
+
     outputs = [np.full((1,), False, 'bool')] + [np.full(shape, np.nan, dtype)] * 3
     output = utils.mod_launch(mod, [*input, *outputs], outputs=list(range(-len(outputs), 0)), expect=expect)
     ret = compare_tensor(output[0], expect[0], rtol=5e-03, atol=1.e-08)

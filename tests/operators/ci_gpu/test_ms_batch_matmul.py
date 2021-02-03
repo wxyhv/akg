@@ -1,4 +1,4 @@
-# Copyright 2020 Huawei Technologies Co., Ltd
+# Copyright 2020-2021 Huawei Technologies Co., Ltd
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -12,12 +12,9 @@
 # See the License for the specific language governing permissions and
 # limitations under the License
 import numpy as np
-from akg.ops.poly_gpu import batch_matmul_manual, batch_matmul_auto
+from test_op.batch_matmul import batch_matmul
 from gen_random import random_gaussian
 from akg.utils import kernel_exec as utils
-from akg.utils.result_analysis import gpu_profiling
-from akg.utils.format_transform import to_tvm_nd_array
-
 
 def gen_data(shape1, shape2, dtype, layout1="NHDT", layout2="NHDT", layout_out="NHDT", shape_bias=None, add_bias=False):
     support_list = {"float16": np.float16, "float32": np.float32}
@@ -84,9 +81,7 @@ def test_ms_bmm(shape1, shape2, dtype, layout1="NHDT", layout2="NHDT", layout_ou
             attrs["bind_thread"] = "32 8"  # thread x = 32, thread y = 8
             attrs["dim"] = "0 0 64 1 0 1 32 1 0 2 32 1"  # tile m = 64, tile n = 32, tile k = 32
 
-        mod = utils.op_build_test(batch_matmul_auto, shape_tuple, dtype_tuple, op_attrs=op_attrs, attrs=attrs, kernel_name="batch_matmul_auto")
-    else:
-        mod = utils.op_build_test(batch_matmul_manual, shape_tuple, dtype_tuple, op_attrs=op_attrs, kernel_name="batch_matmul_manual")
+        mod = utils.op_build_test(batch_matmul, shape_tuple, dtype_tuple, op_attrs=op_attrs, attrs=attrs, kernel_name="batch_matmul")
     
     lhs, rhs, bias, output, expect = gen_data( shape1, shape2, dtype, layout1, layout2, layout_out, shape_bias, add_bias)
     args = (lhs, rhs, output)
@@ -100,8 +95,4 @@ def test_ms_bmm(shape1, shape2, dtype, layout1="NHDT", layout2="NHDT", layout_ou
         print(mod.imported_modules[0].get_source())
         raise AssertionError("Test fail")
 
-    if add_bias == True:
-        lhs, rhs, bias, expect = to_tvm_nd_array([lhs, rhs, bias, expect])
-    else:
-        lhs, rhs, expect = to_tvm_nd_array([lhs, rhs, expect])
     return True

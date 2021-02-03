@@ -1,4 +1,4 @@
-# Copyright 2020 Huawei Technologies Co., Ltd
+# Copyright 2020-2021 Huawei Technologies Co., Ltd
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -12,11 +12,11 @@
 # See the License for the specific language governing permissions and
 # limitations under the License 
 import numpy as np
-from akg.ops.poly_gpu import equal_manual, equal_auto
 from gen_random import random_gaussian
 from akg.utils import kernel_exec as utils
 from akg.utils.result_analysis import gpu_profiling
 from akg.utils.format_transform import to_tvm_nd_array
+from akg.ops.math_gpu.equal import equal
 
 def gen_data(shapes, dtype):
     support_list = {"float16": np.float16, "float32": np.float32}
@@ -36,9 +36,8 @@ def gen_data(shapes, dtype):
 
 def test_ms_equal(shapes, dtype, poly_sch=False):
     if poly_sch:
-        mod = utils.op_build_test(equal_auto, shapes, [dtype, dtype], kernel_name="equal_auto", attrs={"target": "cuda"})
-    else:
-        mod = utils.op_build_test(equal_manual, shapes, [dtype, dtype], kernel_name="equal_manual")
+        mod = utils.op_build_test(equal, shapes, [dtype, dtype], kernel_name="equal", attrs={"target": "cuda"})
+        
     inputs1, output1, expect1 = gen_data(shapes, dtype)
     output1 = utils.mod_launch(mod, (*inputs1, output1), expect=expect1)
 
