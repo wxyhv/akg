@@ -783,44 +783,6 @@ Stmt String2LowerStmtSimple(const StringImm *json_str, const Map<std::string, No
   return Downcast<Stmt>(stmt);
 }
 
-Stmt String2LowerStmt(const StringImm *json_str, const Map<std::string, NodeRef> &attrs, bool poly,
-                      Array<NodeRef> &all_args, std::unordered_map<std::string, NodeRef> &outputs2args,
-                      std::string &merge_name, size_t &idx, int grid_dims, int block_dims, bool buffer_stitch = false) {
-  CHECK(json_str);
-  picojson::value v = String2Json(json_str->value);
-  BuildInfo info;
-  std::vector<std::string> input_tensors;
-  std::vector<std::string> output_tensors;
-  ExtractBuildInfo(v, info, input_tensors, output_tensors);
-  // ensure merge_name is the same as original json name
-  if (merge_name.empty()) merge_name = info.kernel_name;
-  std::string sch_name = GetSchedule(info.tensors);
-  const auto *sch_create = air::runtime::Registry::Get("select_cuda_scheduler");
-  CHECK(sch_create != nullptr);
-  Schedule sch = (*sch_create)(info.tensors, sch_name, poly, grid_dims, block_dims, buffer_stitch);
-  akg::BuildConfig config = akg::BuildConfig::Current();
-  CHECK(config.defined());
-  config->dump_pass_ir = getenv("MS_AKG_DUMP_IR") != nullptr;
-  // use idx to distinct different subgraph
-  std::string distinct_name = info.kernel_name + "_" + std::to_string(idx);
-  Array<NodeRef> args, shape_vars, arg_list_0;
-  Map<Tensor, Buffer> binds, binds_0;
-  auto stmt = LowerStmt(sch, info.args, shape_vars, distinct_name, info.in_binds, attrs, false, poly, false, "cuda",
-                        config, &args, &arg_list_0, &binds, &binds_0, true);
-  size_t count = 0;
-  for (const auto &x : arg_list_0) {
-    auto buffer = x.as<BufferNode>();
-    CHECK(buffer) << "arg must be a BufferNode";
-    if (std::find(input_tensors.begin(), input_tensors.end(), buffer->name) == std::end(input_tensors)) {
-      CHECK(count < output_tensors.size());
-      outputs2args[output_tensors[count]] = x;
-      count++;
-    }
-    all_args.push_back(x);
-  }
-  return Downcast<Stmt>(stmt);
-}
-
 NodeRef CompositeWithJsonToFunc(const std::string &json_str, Map<std::string, NodeRef> attrs) {
   const char *akg_dump_pass_ir = getenv("MS_AKG_DUMP_IR");
   picojson::value v = String2Json(json_str);
@@ -992,88 +954,181 @@ Stmt InsertSync(Stmt &s) {
     s, Evaluate::make(Call::make(Int(32), "tvm_storage_sync", {StringImm::make("shared")}, Call::Intrinsic)));
 }
 
-std::vector<Stmt> LowerStitchIRs(const NodeRef &block_json, StitchAttrInfo &stitch_attr,
-                                 const Map<std::string, NodeRef> &attrs, bool poly, Array<NodeRef> &all_args,
-                                 std::unordered_map<std::string, NodeRef> &outputs2args, std::string &merge_name,
-                                 size_t &idx) {
-  std::vector<Stmt> stitch_irs;
-  std::vector<Expr> loop_extent_array;
-  std::vector<GridBlockDims> dim_array;
-  std::vector<StitchOpType> ir_type_array;
-  for (auto &stitch_json : Downcast<Array<Expr>>(block_json)) {
-    ++idx;
-    std::vector<OpDesc> op_v = ParseOpDesc(stitch_json.as<StringImm>()->value);
-    using std::placeholders::_1;
-    using std::placeholders::_2;
-    using std::placeholders::_3;
-    const std::function<Stmt(const StringImm *, const Map<std::string, NodeRef> &, bool)> f =
-      std::bind(&String2LowerStmtSimple, _1, _2, _3);
-    BufferStitchAttr stitch_attr_info(f);
-    stitch_attr_info.GetBufferStitchAttr(stitch_json, op_v, attrs, poly);
-    auto dims = stitch_attr_info.dims;
-    auto stitch_type = stitch_attr_info.stitch_type_;
-    if (idx == 1) loop_extent_array = stitch_attr_info.loop_extent;
-    stitch_attr_info.loop_extent = loop_extent_array;  // only care about loop from first ir.
-    dim_array.push_back(dims);                         // save current dims into array.
-    IrAttrInfo ir_attr_info = GetIRAttr(stitch_type, stitch_attr_info, ir_type_array, dim_array, attrs);
-    ir_type_array.push_back(stitch_type);  // Note this should be done AFTER GetIrAttr.
-    stitch_attr.broadcast_size = ir_attr_info.broadcast_size;
-    stitch_attr.switch_y_2_x = ir_attr_info.switch_y_2_x;
-    auto new_attrs = BindBlockAndThread(ir_attr_info.dims, poly, ir_attr_info.attrs);
-    auto single_ir = String2LowerStmt(stitch_json.as<StringImm>(), new_attrs, poly, all_args, outputs2args, merge_name,
-                                      idx, ir_attr_info.grid_dims, ir_attr_info.block_dims, true);
-    stitch_irs.emplace_back(InsertSync(single_ir));
-  }
-  stitch_attr.type_array = ir_type_array;
-  return stitch_irs;
-}
+class CompositeJsonList {
+ public:
+  CompositeJsonList(const Array<NodeRef> &json_str_node, const Array<NodeRef> &inputs, const Array<NodeRef> &outputs,
+                    const Array<NodeRef> &alloc_map_list, const Array<NodeRef> &reuse_map_list, const Array<NodeRef> &clean_op_map_list,
+                    const Array<NodeRef> &attrs_list, bool poly, std::string target)
+      : json_str_node_(json_str_node),
+        inputs_(inputs),
+        outputs_(outputs),
+        alloc_map_list_(alloc_map_list),
+        reuse_map_list_(reuse_map_list),
+        clean_op_map_list_(clean_op_map_list),
+        attrs_list_(attrs_list),
+        poly_(poly),
+        target_(target) {}
 
-Module CompositeWithJsonListGpu(const Array<NodeRef> &json_str_node, const Array<NodeRef> &inputs,
-                                const Array<NodeRef> &outputs, const Array<NodeRef> &alloc_map_list,
-                                const Array<NodeRef> &reuse_map_list, const Array<NodeRef> &clean_op_map_list,
-                                const Array<NodeRef> &attrs_list, bool poly) {
-  CHECK(!json_str_node.empty());
-  std::vector<Stmt> block_irs;
-  Array<NodeRef> all_args;
-  std::unordered_map<std::string, NodeRef> outputs2args;
-  std::string merge_name;
-  size_t idx = 0;
-  for (size_t i = 0; i < json_str_node.size(); ++i) {
-    auto &block_json = json_str_node[i];
-    auto attrs = Downcast<Map<std::string, NodeRef>>(attrs_list[i]);
-    if (block_json.as<StringImm>()) {
-      ++idx;
-      auto single_ir =
-        String2LowerStmt(block_json.as<StringImm>(), attrs, poly, all_args, outputs2args, merge_name, idx, 0, 0);
-      block_irs.emplace_back(single_ir);
-    } else {
-      StitchAttrInfo stitch_attr;
-      std::vector<Stmt> stitch_irs =
-        LowerStitchIRs(block_json, stitch_attr, attrs, poly, all_args, outputs2args, merge_name, idx);
-      StitchBufAlloc buf_manager;
-      auto alloc_map = Downcast<Map<std::string, Array<NodeRef>>>(alloc_map_list[i]);
-      auto reuse_map = Downcast<Map<std::string, Array<NodeRef>>>(reuse_map_list[i]);
-      auto clean_op_map = Downcast<Map<std::string, Array<NodeRef>>>(clean_op_map_list[i]);
-      buf_manager.BufferAllocReuse(stitch_irs, alloc_map, reuse_map, clean_op_map, outputs2args);
-      auto stitched_ir = StitchFusion(stitch_irs, stitch_attr, buf_manager.stitch_buffer_map,
-                                      buf_manager.buf_within_op_map, buf_manager.allocate_revoke);
-      stitched_ir = ElimDuplicateInputs(inputs).Run(stitched_ir);
-      block_irs.emplace_back(stitched_ir);
+  virtual Stmt String2LowerStmt(const StringImm *json_str, const Map<std::string, NodeRef> &attrs) = 0;
+  virtual Stmt StitchFusion(const NodeRef &block_json, Map<std::string, NodeRef> &attrs) = 0;
+
+  Module Build() {
+    CHECK(!json_str_node_.empty());
+    std::vector<Stmt> block_irs;
+    for (; block_json_idx_ < json_str_node_.size(); ++block_json_idx_) {
+      auto &block_json = json_str_node_[block_json_idx_];
+      auto attrs = Downcast<Map<std::string, NodeRef>>(attrs_list_[block_json_idx_]);
+      if (block_json.as<StringImm>()) {
+        ++each_ir_idx_;
+        auto single_ir = String2LowerStmt(block_json.as<StringImm>(), attrs);
+        block_irs.emplace_back(single_ir);
+      } else {
+        auto stitched_ir = StitchFusion(block_json, attrs);
+        stitched_ir = ElimDuplicateInputs(inputs_).Run(stitched_ir);
+        block_irs.emplace_back(stitched_ir);
+      }
     }
+    Array<NodeRef> ordered_args = ReorderArgs(inputs_, outputs_, all_args_, outputs2args_);
+    auto merged_ir = block_irs.size() == 1 ? block_irs[0] : ir::BlockFusion(block_irs);
+    merged_ir = ElimDuplicateInputs(inputs_).Run(merged_ir);
+    akg::BuildConfig final_config = akg::BuildConfig::Current();
+    CHECK(final_config.defined());
+    final_config->dump_pass_ir = getenv("MS_AKG_DUMP_IR") != nullptr;
+    auto rst = LowerFunc(merged_ir, merge_name_, final_config, ordered_args);
+    auto build_rst = BuildRstNode::make(rst, merge_name_);
+    return BuildToModule(build_rst, target_);
   }
-  Array<NodeRef> ordered_args = ReorderArgs(inputs, outputs, all_args, outputs2args);
-  auto merged_ir = block_irs.size() == 1 ? block_irs[0] : ir::BlockFusion(block_irs);
-  merged_ir = ElimDuplicateInputs(inputs).Run(merged_ir);
-  akg::BuildConfig final_config = akg::BuildConfig::Current();
-  CHECK(final_config.defined());
-  final_config->dump_pass_ir = getenv("MS_AKG_DUMP_IR") != nullptr;
-  auto rst = LowerFunc(merged_ir, merge_name, final_config, ordered_args);
-  auto build_rst = BuildRstNode::make(rst, merge_name);
-  return BuildToModule(build_rst, "cuda");
+
+ protected:
+  Array<NodeRef> json_str_node_;
+  Array<NodeRef> inputs_;
+  Array<NodeRef> outputs_;
+  Array<NodeRef> alloc_map_list_;
+  Array<NodeRef> reuse_map_list_;
+  Array<NodeRef> clean_op_map_list_;
+  Array<NodeRef> attrs_list_;
+  bool poly_{true};
+  std::string target_;
+  Array<NodeRef> all_args_;
+  std::unordered_map<std::string, NodeRef> outputs2args_;
+  std::string merge_name_;
+  size_t each_ir_idx_{0};
+  size_t block_json_idx_{0};
+};
+
+class CompositeJsonListGpu : public CompositeJsonList {
+ public:
+  CompositeJsonListGpu(const Array<NodeRef> &json_str_node, const Array<NodeRef> &inputs, const Array<NodeRef> &outputs,
+                       const Array<NodeRef> &alloc_map_list, const Array<NodeRef> &reuse_map_list,
+                       const Array<NodeRef> &clean_op_map_list, const Array<NodeRef> &attrs_list, bool poly, std::string target)
+      : CompositeJsonList(json_str_node, inputs, outputs, alloc_map_list, reuse_map_list, clean_op_map_list, attrs_list,
+                          poly, target) {}
+
+  Stmt StitchFusion(const NodeRef &block_json, Map<std::string, NodeRef> &attrs) override {
+    auto alloc_map = Downcast<Map<std::string, Array<NodeRef>>>(alloc_map_list_[block_json_idx_]);
+    auto reuse_map = Downcast<Map<std::string, Array<NodeRef>>>(reuse_map_list_[block_json_idx_]);
+    auto clean_op_map = Downcast<Map<std::string, Array<NodeRef>>>(clean_op_map_list_[block_json_idx_]);
+    StitchAttrInfo stitch_attr;
+    std::vector<Stmt> stitch_irs = LowerStitchIRs(block_json, stitch_attr, attrs);
+    StitchBufAlloc buf_manager;
+    buf_manager.BufferAllocReuse(stitch_irs, alloc_map, reuse_map, clean_op_map, outputs2args_);
+    auto stitched_ir = StitchFusionGpu(stitch_irs, stitch_attr, buf_manager.stitch_buffer_map,
+                                       buf_manager.buf_within_op_map, buf_manager.allocate_revoke);
+    return stitched_ir;
+  }
+
+  Stmt String2LowerStmt(const StringImm *json_str, const Map<std::string, NodeRef> &attrs) override {
+    return String2LowerStmt(json_str, attrs, 0, 0, false);
+  }
+
+  Stmt String2LowerStmt(const StringImm *json_str, const Map<std::string, NodeRef> &attrs, int grid_dims,
+                        int block_dims, bool buffer_stitch) {
+    CHECK(json_str);
+    picojson::value v = String2Json(json_str->value);
+    BuildInfo info;
+    std::vector<std::string> input_tensors;
+    std::vector<std::string> output_tensors;
+    ExtractBuildInfo(v, info, input_tensors, output_tensors);
+    // ensure merge_name_ is the same as original json name
+    if (merge_name_.empty()) merge_name_ = info.kernel_name;
+    std::string sch_name = GetSchedule(info.tensors);
+    const auto *sch_create = air::runtime::Registry::Get("select_cuda_scheduler");
+    CHECK(sch_create != nullptr);
+    Schedule sch = (*sch_create)(info.tensors, sch_name, poly_, grid_dims, block_dims, buffer_stitch);
+    akg::BuildConfig config = akg::BuildConfig::Current();
+    CHECK(config.defined());
+    config->dump_pass_ir = getenv("MS_AKG_DUMP_IR") != nullptr;
+    // use each_ir_idx_ to distinct different subgraph
+    std::string distinct_name = info.kernel_name + "_" + std::to_string(each_ir_idx_);
+    Array<NodeRef> args, shape_vars, arg_list_0;
+    Map<Tensor, Buffer> binds, binds_0;
+    auto stmt = LowerStmt(sch, info.args, shape_vars, distinct_name, info.in_binds, attrs, false, poly_, false, "cuda",
+                          config, &args, &arg_list_0, &binds, &binds_0, true);
+    size_t count = 0;
+    for (const auto &x : arg_list_0) {
+      auto buffer = x.as<BufferNode>();
+      CHECK(buffer) << "arg must be a BufferNode";
+      if (std::find(input_tensors.begin(), input_tensors.end(), buffer->name) == std::end(input_tensors)) {
+        CHECK(count < output_tensors.size());
+        outputs2args_[output_tensors[count]] = x;
+        count++;
+      }
+      all_args_.push_back(x);
+    }
+    return Downcast<Stmt>(stmt);
+  }
+
+  std::vector<Stmt> LowerStitchIRs(const NodeRef &block_json, StitchAttrInfo &stitch_attr,
+                                   const Map<std::string, NodeRef> &attrs) {
+    std::vector<Stmt> stitch_irs;
+    std::vector<Expr> loop_extent_array;
+    std::vector<GridBlockDims> dim_array;
+    std::vector<StitchOpType> ir_type_array;
+    for (auto &stitch_json : Downcast<Array<Expr>>(block_json)) {
+      ++each_ir_idx_;
+      std::vector<OpDesc> op_v = ParseOpDesc(stitch_json.as<StringImm>()->value);
+      using std::placeholders::_1;
+      using std::placeholders::_2;
+      using std::placeholders::_3;
+      const std::function<Stmt(const StringImm *, const Map<std::string, NodeRef> &, bool)> f =
+        std::bind(&String2LowerStmtSimple, _1, _2, _3);
+      BufferStitchAttr stitch_attr_info(f);
+      stitch_attr_info.GetBufferStitchAttr(stitch_json, op_v, attrs, poly_);
+      auto dims = stitch_attr_info.dims;
+      auto stitch_type = stitch_attr_info.stitch_type_;
+      if (each_ir_idx_ == 1) loop_extent_array = stitch_attr_info.loop_extent;
+      stitch_attr_info.loop_extent = loop_extent_array;  // only care about loop from first ir.
+      dim_array.push_back(dims);                         // save current dims into array.
+      IrAttrInfo ir_attr_info = GetIRAttr(stitch_type, stitch_attr_info, ir_type_array, dim_array, attrs);
+      ir_type_array.push_back(stitch_type);  // Note this should be done AFTER GetIrAttr.
+      stitch_attr.broadcast_size = ir_attr_info.broadcast_size;
+      stitch_attr.switch_y_2_x = ir_attr_info.switch_y_2_x;
+      auto new_attrs = BindBlockAndThread(ir_attr_info.dims, poly_, ir_attr_info.attrs);
+      auto single_ir =
+        String2LowerStmt(stitch_json.as<StringImm>(), new_attrs, ir_attr_info.grid_dims, ir_attr_info.block_dims, true);
+      stitch_irs.emplace_back(InsertSync(single_ir));
+    }
+    stitch_attr.type_array = ir_type_array;
+    return stitch_irs;
+  }
+};
+
+Module CompositeWithJsonList(const Array<NodeRef> &json_str_node, const Array<NodeRef> &inputs, const Array<NodeRef> &outputs,
+                             const Array<NodeRef> &alloc_map_list, const Array<NodeRef> &reuse_map_list,
+                             const Array<NodeRef> &clean_op_map_list, const Array<NodeRef> &attrs_list, bool poly,
+                             const std::string &target) {
+  if (target == "cuda") {
+    return CompositeJsonListGpu(json_str_node, inputs, outputs, alloc_map_list, reuse_map_list, clean_op_map_list,
+                                attrs_list, poly, target)
+      .Build();
+  } else {
+    CHECK(0) << "UNSUPPORTED TARGET: " << target;
+    return Module();
+  }
 }
 
 TVM_REGISTER_GLOBAL("composite_with_json_to_func").set_body_typed(CompositeWithJsonToFunc);
 TVM_REGISTER_GLOBAL("composite_with_json").set_body_typed(CompositeWithJson);
-TVM_REGISTER_GLOBAL("composite_with_json_list_gpu").set_body_typed(CompositeWithJsonListGpu);
+TVM_REGISTER_GLOBAL("composite_with_json_list").set_body_typed(CompositeWithJsonList);
 TVM_REGISTER_GLOBAL("composite_lower").set_body_typed(CompositeLower);
 }  // namespace akg

@@ -478,7 +478,7 @@ IrAttrInfo GetIRAttr(StitchOpType type, BufferStitchAttr &stitch_attr_info, std:
   return ir_attr_info;
 }
 
-Stmt StitchFusion(std::vector<Stmt> &stitch_irs, StitchAttrInfo &store_attr,
+Stmt StitchFusionGpu(std::vector<Stmt> &stitch_irs, StitchAttrInfo &store_attr,
                   std::unordered_map<std::string, StitchBufferInfo> &stitch_buffer_map,
                   std::unordered_map<std::string, StitchBufferInfo> &buf_within_op_map,
                   std::vector<std::string> &allocate_revoke) {
