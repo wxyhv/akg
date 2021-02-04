@@ -52,11 +52,11 @@ struct Select<false, TrueType, FalseType> {
 };
 
 /**
- * @brief the type transform function for test cases
+ * @brief Type transform function for test cases
  *
- * @tparam T target type
- * @tparam Y original type
- * @param y  original value
+ * @tparam T Target dtype
+ * @tparam Y Original dtype
+ * @param y  Original value
  * @return   value with target type
  */
 template <typename T, typename Y>

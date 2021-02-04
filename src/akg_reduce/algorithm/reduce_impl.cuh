@@ -20,13 +20,20 @@
 namespace akg_reduce {
 
 // The implements for specific selected algorithms,
-// supports 1D & 2D (x-axis or y-axis) reduce.
+// Supports 1D & 2D (x-axis or y-axis) reduce.
 
+/**
+ * @brief The enter of all-reduce reduction
+ * 
+ * @tparam T            Dtype: half, float, double, int, signed char, bool
+ * @tparam ReduceOp     Operators for reduce: SumOp, MaxOp, MinOp, AndOp, OrOp
+ * @tparam BlockDimX    Real blockDim.x
+ */
 template <typename T, typename ReduceOp, size_t BlockDimX>
-__inline__ __device__ void AllReduce(ReduceOp op,      // the operator
-                                     T *output,        // the addr of output, single value
-                                     T *shared_array,  // the temp array in shared memory
-                                     const T acc       // aggregated value in current thread
+__inline__ __device__ void AllReduce(const ReduceOp op,  // The operator
+                                     T *output,          // Addr of output
+                                     T *shared_array,    // Temp array in shared memory
+                                     const T acc         // Aggregated value in current thread
 ) {
   const int tx = blockDim.x * threadIdx.y + threadIdx.x;
 
@@ -37,11 +44,18 @@ __inline__ __device__ void AllReduce(ReduceOp op,      // the operator
   }
 }
 
+/**
+ * @brief  The enter of reduce2D-X reduction.
+ * 
+ * @tparam T          Dtype: half, float, double, int, signed char, bool
+ * @tparam ReduceOp   Operators for reduce: SumOp, MaxOp, MinOp, AndOp, OrOp
+ * @tparam BlockDimX  Real blockDim.x
+ */
 template <typename T, typename ReduceOp, size_t BlockDimX>
-__inline__ __device__ void ReduceDirectionX(ReduceOp op,      // the operator
-                                            T *output,        // the addr of output, single value
-                                            T *shared_array,  // the temp array in shared memory
-                                            const T acc       // aggregated value in current thread
+__inline__ __device__ void ReduceDirectionX(const ReduceOp op,  // The operator
+                                            T *output,          // Addr of output
+                                            T *shared_array,    // Temp array in shared memory
+                                            const T acc         // Aggregated value in current thread
 ) {
   const int tx = (blockDim.x * threadIdx.y + threadIdx.x) % BlockDimX;
   const int ty = (blockDim.x * threadIdx.y + threadIdx.x) / BlockDimX;
@@ -49,16 +63,24 @@ __inline__ __device__ void ReduceDirectionX(ReduceOp op,      // the operator
   HalvedReduce2DX<ReduceOp, BlockDimX>(shared_array, acc, op, tx, ty);
 
   if (tx == 0) {
-    output[0] = op(output[0], shared_array[ty * BlockDimX]);  // shared_array maybe a part of an array.
+    output[0] = op(output[0], shared_array[ty * BlockDimX]);  // shared_array maybe a part of an array
   }
 }
 
+/**
+ * @brief  The enter of reduce2D-Y reduction.
+ * 
+ * @tparam T          Dtype: half, float, double, int, signed char, bool
+ * @tparam ReduceOp   Operators for reduce: SumOp, MaxOp, MinOp, AndOp, OrOp
+ * @tparam BlockDimX  Real blockDim.x
+ * @tparam BlockDimY  Real blockDim.y
+ */
 template <typename T, typename ReduceOp, size_t BlockDimX, size_t BlockDimY>
-__inline__ __device__ void ReduceDirectionY(ReduceOp op,           // the operator
-                                            T *output,             // the addr of output, single value
-                                            T *shared_array,       // the temp array in shared memory
-                                            const T acc,           // aggregated value in current thread
-                                            const int sharedmem_x  // shared memory size of x axis.
+__inline__ __device__ void ReduceDirectionY(const ReduceOp op,     // The operator
+                                            T *output,             // Addr of output
+                                            T *shared_array,       // Temp array in shared memory
+                                            const T acc,           // Aggregated value in current thread
+                                            const int sharedmem_x  // Shared memory size of x axis
 ) {
   const int tx = (blockDim.x * threadIdx.y + threadIdx.x) % BlockDimX;
   const int ty = (blockDim.x * threadIdx.y + threadIdx.x) / BlockDimX;
