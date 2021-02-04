@@ -713,6 +713,7 @@ Stmt GpuIslEmitter::EmitStmt(const isl::ast_node_user &node) {
         reduce_info_.gm_write_stmt_ = EmitWriteAtomic(node);
         ConstructAtomicReturnFuncName();
         is_sync_before_ = false;
+        reduce_info_.is_atomic = false;
         return MakeAtomicStmt();
       }
       is_sync_before_ = false;
