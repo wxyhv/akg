@@ -261,10 +261,8 @@ class StitchMutate : public IRMutator {
   }
 
   void SpecializeByStitchTypeInLoad(Expr &new_index) {
-    if (stitch_type_ == StitchOpType::Elem) {
-      if (add_condition) {
-        substitute_[thread_idx_x.get()] = (thread_idx_y * blockdim_x) + thread_idx_x;
-      }
+    if (stitch_type_ <= StitchOpType::Broadcast) {
+      substitute_[thread_idx_x.get()] = (thread_idx_y * blockdim_x) + thread_idx_x;
     }
   }
   Expr Mutate_(const Load *op, const Expr &e) final {
@@ -278,7 +276,7 @@ class StitchMutate : public IRMutator {
         if (info.type == StorageType::Shared || info.type == StorageType::Global) {
           fix_consumer_ = true;
           index = this->Mutate(index);
-          SpecializeByStitchTypeInLoad(index);
+          if (Equal(index, op->index)) SpecializeByStitchTypeInLoad(index);
           fix_consumer_ = false;
           return Load::make(op->type, replace, index, op->predicate);
         }
