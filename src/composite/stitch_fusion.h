@@ -258,7 +258,7 @@ class StitchBufAlloc : public IRVisitor {
 
 class BufferStitchAttr : public GridBlockDimsAttr {
  public:
-  explicit BufferStitchAttr(const std::function<Stmt(const StringImm *, const Map<std::string, NodeRef> &, bool)> &f)
+  explicit BufferStitchAttr(const std::function<Stmt(const StringImm *, const Map<std::string, NodeRef> &, bool, bool)> &f)
       : func_(f){};
 
   void SetStitchType(const StitchOpType &stitch_type) {
@@ -312,7 +312,7 @@ class BufferStitchAttr : public GridBlockDimsAttr {
       }
     }
     if (json_str) {
-      auto stmt = func_(json_str, attrs, poly);
+      auto stmt = func_(json_str, attrs, poly, true);
       Visit(stmt);
     }
   }
@@ -333,7 +333,7 @@ class BufferStitchAttr : public GridBlockDimsAttr {
   }
 
  public:
-  const std::function<Stmt(const StringImm *, const Map<std::string, NodeRef> &, bool)> func_;
+  const std::function<Stmt(const StringImm *, const Map<std::string, NodeRef> &, bool, bool)> func_;
   Expr broadcast_size;
   Expr elemwise_size;
   std::vector<Expr> loop_extent;
