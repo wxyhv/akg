@@ -420,7 +420,7 @@ def gen_json_data(op_desc):
     for output_desc in desc["output_desc"]:
         shape = [1] if not output_desc["shape"] else output_desc["shape"]
         dtype = output_desc["data_type"]
-        item = np.full(shape, 0, dtype)
+        item = np.full(shape, np.nan, dtype)
         input_for_mod.append(item)
         tensor_name = output_desc["tensor_name"]
         if tensor_name not in fake_output_tensors:
