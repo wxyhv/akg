@@ -57,11 +57,12 @@ struct StoreWithLoopVar {
   std::vector<Var> loopvars;
 };
 
-class Reduce2Index : public IRVisitor {
+class BroadcastSubstitute : public IRVisitor {
  public:
-  Reduce2Index(const std::vector<const For *> &loops, const std::unordered_map<std::string, Var> &vars,
-               const std::unordered_map<std::string, StitchBufferInfo> &stitch_buffer_map,
-               const std::unordered_map<Var, StoreWithLoopVar, air::NodeHash, air::NodeEqual> &store_with_loopvar)
+  BroadcastSubstitute(
+    const std::vector<const For *> &loops, const std::unordered_map<std::string, Var> &vars,
+    const std::unordered_map<std::string, StitchBufferInfo> &stitch_buffer_map,
+    const std::unordered_map<Var, StoreWithLoopVar, air::NodeHash, air::NodeEqual> &store_with_loopvar)
       : loops_(loops), vars_(vars), stitch_buffer_map_(stitch_buffer_map), store_with_loopvar_(store_with_loopvar) {}
 
   void Visit_(const Load *op) final {
@@ -121,7 +122,7 @@ class StitchMutate : public IRMutator {
   }
 
  private:
-  void SpecializeByStitchTypeInAttr(const AttrStmt *op, const std::string &name) {
+  void CollectCondition(const AttrStmt *op, const std::string &name) {
     if (IsThreadIdxX(name)) {
       if (is_one(Simplify((op->value - blockdim_x) < 0))) {
         // blockdim_x in elemwise is larger than blockdim_y in reduce.
@@ -161,7 +162,7 @@ class StitchMutate : public IRMutator {
       const auto iv = op->node.as<IterVarNode>();
       std::string name = iv->thread_tag;
       if (idx_names_.count(name)) {
-        SpecializeByStitchTypeInAttr(op, name);
+        CollectCondition(op, name);
         return this->Mutate(op->body);
       }
       if (phase == 0) {
@@ -190,22 +191,29 @@ class StitchMutate : public IRMutator {
     return IRMutator::Mutate_(op, s);
   }
 
+  void Mapping1Dto2D() {
+    if (stitch_type_ <= StitchOpType::Broadcast && broadcast_substitute_.empty()) {
+      substitute_[thread_idx_x.get()] = (thread_idx_y * blockdim_x) + thread_idx_x;
+    }
+  }
+
   Stmt Mutate_(const For *op, const Stmt &s) final {
     loops_.emplace_back(op);
     if (!op->body.as<For>() && stitch_type_ == StitchOpType::Broadcast) {
-      auto f = Reduce2Index(loops_, vars_, stitch_buffer_map_, store_with_loopvar_);
+      auto f = BroadcastSubstitute(loops_, vars_, stitch_buffer_map_, store_with_loopvar_);
       f.Visit(s);
-      reduce2_substitute_ = f.substitute_;
+      broadcast_substitute_ = f.substitute_;
     }
+    Mapping1Dto2D();
     auto stmt = IRMutator::Mutate_(op, s);
     loops_.pop_back();
     return stmt;
   }
   Expr GetIndex(const Expr &index) {
-    if (stitch_type_ == StitchOpType::Broadcast) {
+    if (stitch_type_ == StitchOpType::Broadcast && !broadcast_substitute_.empty()) {
       auto f = GetBlockExpr();
       f.Visit(index);
-      for (auto &kv : reduce2_substitute_) {
+      for (auto &kv : broadcast_substitute_) {
         if (Equal(kv.first, index)) {
           auto f2 = GetLoopLen(*loops_.begin());
           f2.Visit(kv.second);
@@ -260,11 +268,6 @@ class StitchMutate : public IRMutator {
     return stmt;
   }
 
-  void SpecializeByStitchTypeInLoad(Expr &new_index) {
-    if (stitch_type_ <= StitchOpType::Broadcast) {
-      substitute_[thread_idx_x.get()] = (thread_idx_y * blockdim_x) + thread_idx_x;
-    }
-  }
   Expr Mutate_(const Load *op, const Expr &e) final {
     Var var = op->buffer_var;
     auto name = var->name_hint;
@@ -276,7 +279,6 @@ class StitchMutate : public IRMutator {
         if (info.type == StorageType::Shared || info.type == StorageType::Global) {
           fix_consumer_ = true;
           index = this->Mutate(index);
-          if (Equal(index, op->index)) SpecializeByStitchTypeInLoad(index);
           fix_consumer_ = false;
           return Load::make(op->type, replace, index, op->predicate);
         }
@@ -293,7 +295,7 @@ class StitchMutate : public IRMutator {
       if (IsBlockIdx(name)) return 0;
     }
     if (IsBlockIdxX(name)) {
-      if (store_attr_.switch_y_2_x) {
+      if (store_attr_.switch_x_2_y) {
         return block_idx_y;
       }
       return block_idx_x;
@@ -319,7 +321,7 @@ class StitchMutate : public IRMutator {
  private:
   bool fix_producer_{false};
   bool fix_consumer_{false};
-  std::unordered_map<Expr, Expr, air::NodeHash, air::NodeEqual> reduce2_substitute_;
+  std::unordered_map<Expr, Expr, air::NodeHash, air::NodeEqual> broadcast_substitute_;
   std::unordered_map<std::string, StitchBufferInfo> &stitch_buffer_map_;
   std::unordered_map<std::string, StitchBufferInfo> &buf_within_op_map_;
   std::vector<std::string> &allocate_revoke_;
@@ -346,7 +348,11 @@ class AddCondition : public IRMutator {
   Stmt Run(Stmt &s) {
     s = this->Mutate(s);
     visit_ = false;
-    return this->Mutate(s);
+    if (last_alloc) {
+      return this->Mutate(s);
+    } else {
+      return IfThenElse::make(condition_, s);
+    }
   }
 
  private:
@@ -422,7 +428,7 @@ IrAttrInfo GetIRAttr(StitchOpType type, BufferStitchAttr &stitch_attr_info, std:
       ir_attr_info.dims.griddim_x = grid_dims;
       ir_attr_info.block_dims = ir_attr_info.dims.blockdim_x;
       if (dim_array[0].griddim_x == 1 && dim_array[0].griddim_y > 1) {
-        ir_attr_info.switch_y_2_x = true;
+        ir_attr_info.switch_x_2_y = true;
       }
       break;
     case StitchOpType::All_Reduce:
@@ -450,6 +456,9 @@ IrAttrInfo GetIRAttr(StitchOpType type, BufferStitchAttr &stitch_attr_info, std:
       ir_attr_info.dims.blockdim_x = ir_attr_info.block_dims;
       ir_attr_info.dims.griddim_x = grid_dims;
       ir_attr_info.elemwise_size = stitch_attr_info.elemwise_size;
+      if (dim_array[0].griddim_x == 1 && dim_array[0].griddim_y > 1) {
+        ir_attr_info.switch_x_2_y = true;
+      }
       break;
     default:
       auto dims = dim_array.back();
@@ -491,13 +500,13 @@ Stmt StitchFusionGpu(std::vector<Stmt> &stitch_irs, StitchAttrInfo &store_attr,
     f.Visit(ir);
     func.phase = i;
     ir = func.Run(ir);
-    if (f.dims.blockdim_y == 1 && !func.substitute_.empty()) {
-      ir = Substitute(ir, func.substitute_);
-      func.substitute_.clear();
-    }
     if (func.add_condition) {
       ir = AddCondition(func.condition).Run(ir);
       func.add_condition = false;
+    }
+    if (f.dims.blockdim_y == 1 && !func.substitute_.empty()) {
+      ir = Substitute(ir, func.substitute_);
+      func.substitute_.clear();
     }
     ++i;
     ir = Block::make(ir, Evaluate::make(Expr("=============split===============")));

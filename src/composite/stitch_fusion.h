@@ -38,7 +38,7 @@ struct StitchBufferInfo {
 struct StitchAttrInfo {
   Expr broadcast_size;
   std::vector<StitchOpType> type_array;
-  bool switch_y_2_x{false};
+  bool switch_x_2_y{false};
 };
 
 struct IrAttrInfo {
@@ -48,7 +48,7 @@ struct IrAttrInfo {
   Map<std::string, NodeRef> attrs;
   Expr broadcast_size{0};
   Expr elemwise_size{0};
-  bool switch_y_2_x{false};
+  bool switch_x_2_y{false};
 };
 
 class StitchBufAlloc : public IRVisitor {
