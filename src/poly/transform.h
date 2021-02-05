@@ -1,5 +1,5 @@
 /**
- * Copyright 2019 Huawei Technologies Co., Ltd
+ * Copyright 2019-2021 Huawei Technologies Co., Ltd
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -31,12 +31,12 @@ namespace akg {
 namespace ir {
 namespace poly {
 enum Tile_type {
-  L0 = 0,
-  L1,
-  UB,
-  UBL1,
-  UBL0,
-  L1UBL1,
+  C0 = 0,
+  C1,
+  BUF,
+  BUFC1,
+  BUFC0,
+  C1BUFC1,
   Invalid,
 };
 
@@ -91,9 +91,9 @@ class Transform {
 
   isl::schedule Ungroup(isl::schedule schedule_, const isl::union_pw_multi_aff &group_upma);
 
-  static bool IsL1OrUbMark(const isl::schedule_node &node);
+  static bool IsC1OrUbMark(const isl::schedule_node &node);
 
-  static bool IsL0OrUbL0Mark(const isl::schedule_node &node);
+  static bool IsC0OrUbC0Mark(const isl::schedule_node &node);
 
   static bool IsSequenceOrSet(const isl::schedule_node &node);
 
@@ -168,8 +168,8 @@ class Transform {
   isl::schedule_node MarkTileBand(isl::schedule_node node, size_t tile_type);
 
   // tiling for l0
-  isl::schedule_node TileL0(isl::schedule_node node);
-  isl::schedule_node TileUbL1(isl::schedule_node node);
+  isl::schedule_node TileC0(isl::schedule_node node);
+  isl::schedule_node TileUbC1(isl::schedule_node node);
 
   void PaddingIsolate(int &h_head, int &h_tail, int &w_head, int &w_tail);
   bool IsConv();
@@ -203,10 +203,10 @@ class Transform {
   isl::schedule_node TileBandAndCollectMark(isl::schedule_node node, const int *tile_size, int *full_tile_min,
                                             int *full_tile_max, size_t tile_type, bool isolate);
 
-  void TileTypeL1(isl::schedule_node &node, int *full_tile_min, int *full_tile_max, size_t &tile_type, bool &isolate,
+  void TileTypeC1(isl::schedule_node &node, int *full_tile_min, int *full_tile_max, size_t &tile_type, bool &isolate,
                   isl::multi_val &sizes);
 
-  void TileTypeL0(isl::schedule_node &node, int *full_tile_min, int *full_tile_max, size_t &tile_type, bool &isolate,
+  void TileTypeC0(isl::schedule_node &node, int *full_tile_min, int *full_tile_max, size_t &tile_type, bool &isolate,
                   isl::multi_val &sizes);
 
   // get isolated
@@ -216,7 +216,7 @@ class Transform {
 
   // data structure for recording tile band data
   struct TileBandData {
-    // flag indicating whether L0 tiled
+    // flag indicating whether C0 tiled
     bool l0_tiled;
     // mark node of the tile band, if any
     isl::schedule_node mark;
@@ -266,19 +266,19 @@ class Transform {
   // scop
   Scop &scop_;
 
-  // for recording L1/UB tile band build options
+  // for recording C1/BUF tile band build options
   std::vector<isl::union_set> l1_build_options_;
 
-  // for recording L0 tile band build options
+  // for recording C0 tile band build options
   std::vector<isl::union_set> l0_build_options_;
 
-  // for recording nodes along the path from root to L1/UB band
+  // for recording nodes along the path from root to C1/BUF band
   std::vector<isl::schedule_node> node_list_0_;
 
-  // for recording nodes along the path from L1/UB band to L0/UBL0 band
+  // for recording nodes along the path from C1/BUF band to C0/BUFC0 band
   std::vector<isl::schedule_node> node_list_1_;
 
-  // for recording nodes along the path from L0/UBL0 band to point band
+  // for recording nodes along the path from C0/BUFC0 band to point band
   std::vector<isl::schedule_node> node_list_2_;
 
   std::vector<int> temp_res_;

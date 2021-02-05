@@ -1,5 +1,5 @@
 /**
- * Copyright 2019 Huawei Technologies Co., Ltd
+ * Copyright 2019-2021 Huawei Technologies Co., Ltd
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -286,22 +286,22 @@ void Scop::InsertPairsConvTileVar(Stmt &stmt, std::map<int64_t, Expr> &param_map
   auto PR = Var("PR");
 
   if (dynamic_shape_conv_full_parametric_) {
-    stmt = AttrStmt::make(make_zero(Int(32)), "[MemoryLimit_L1]", T1_0_C1 <= 4, stmt);
-    stmt = AttrStmt::make(make_zero(Int(32)), "[MemoryLimit_L1]", T1_0_H <= 18, stmt);
-    stmt = AttrStmt::make(make_zero(Int(32)), "[MemoryLimit_L1]", T1_0_W <= 1, stmt);
+    stmt = AttrStmt::make(make_zero(Int(32)), "[MemoryLimit_C1]", T1_0_C1 <= 4, stmt);
+    stmt = AttrStmt::make(make_zero(Int(32)), "[MemoryLimit_C1]", T1_0_H <= 18, stmt);
+    stmt = AttrStmt::make(make_zero(Int(32)), "[MemoryLimit_C1]", T1_0_W <= 1, stmt);
 
-    stmt = AttrStmt::make(make_zero(Int(32)), "[MemoryLimit_L0A]", T0_0_MO <= 1, stmt);
-    stmt = AttrStmt::make(make_zero(Int(32)), "[MemoryLimit_L0B]", T0_0_NO <= 1, stmt);
-    stmt = AttrStmt::make(make_zero(Int(32)), "[MemoryLimit_L0C]", T0_0_KO <= 1, stmt);
+    stmt = AttrStmt::make(make_zero(Int(32)), "[MemoryLimit_C0A]", T0_0_MO <= 1, stmt);
+    stmt = AttrStmt::make(make_zero(Int(32)), "[MemoryLimit_C0B]", T0_0_NO <= 1, stmt);
+    stmt = AttrStmt::make(make_zero(Int(32)), "[MemoryLimit_C0C]", T0_0_KO <= 1, stmt);
 
-    stmt = AttrStmt::make(make_zero(Int(32)), "[MemoryLimit_UB]", KH <= 1, stmt);
-    stmt = AttrStmt::make(make_zero(Int(32)), "[MemoryLimit_UB]", KW <= 1, stmt);
-    stmt = AttrStmt::make(make_zero(Int(32)), "[MemoryLimit_UB]", SH <= 1, stmt);
-    stmt = AttrStmt::make(make_zero(Int(32)), "[MemoryLimit_UB]", SW <= 1, stmt);
-    stmt = AttrStmt::make(make_zero(Int(32)), "[MemoryLimit_UB]", PT <= 1, stmt);
-    stmt = AttrStmt::make(make_zero(Int(32)), "[MemoryLimit_UB]", PB <= 1, stmt);
-    stmt = AttrStmt::make(make_zero(Int(32)), "[MemoryLimit_UB]", PL <= 1, stmt);
-    stmt = AttrStmt::make(make_zero(Int(32)), "[MemoryLimit_UB]", PR <= 1, stmt);
+    stmt = AttrStmt::make(make_zero(Int(32)), "[MemoryLimit_BUF]", KH <= 1, stmt);
+    stmt = AttrStmt::make(make_zero(Int(32)), "[MemoryLimit_BUF]", KW <= 1, stmt);
+    stmt = AttrStmt::make(make_zero(Int(32)), "[MemoryLimit_BUF]", SH <= 1, stmt);
+    stmt = AttrStmt::make(make_zero(Int(32)), "[MemoryLimit_BUF]", SW <= 1, stmt);
+    stmt = AttrStmt::make(make_zero(Int(32)), "[MemoryLimit_BUF]", PT <= 1, stmt);
+    stmt = AttrStmt::make(make_zero(Int(32)), "[MemoryLimit_BUF]", PB <= 1, stmt);
+    stmt = AttrStmt::make(make_zero(Int(32)), "[MemoryLimit_BUF]", PL <= 1, stmt);
+    stmt = AttrStmt::make(make_zero(Int(32)), "[MemoryLimit_BUF]", PR <= 1, stmt);
   }
 
   // c1
@@ -456,7 +456,7 @@ void Scop::InsertPairs(Stmt &stmt, std::map<int64_t, Expr> &param_map) {
         InsertRange(param_map, std::make_pair(dims.l1_tiling_size * (-2), dims.l1_var * (-2)));
         param_map.insert(std::make_pair(dims.l1_tiling_size * 2 + 1, dims.l1_var * 2 + 1));
         if (dims.l0_var.defined()) {
-          // normal cube axis's L0 tile
+          // normal cube axis's C0 tile
           int64_t floor = dims.l1_tiling_size / dims.l0_tiling_size;
           int64_t mod = dims.l1_tiling_size - floor * dims.l0_tiling_size;
           InsertRange(param_map, std::make_pair(dims.l0_tiling_size, dims.l0_var));

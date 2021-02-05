@@ -1,5 +1,5 @@
 /**
- * Copyright 2019 Huawei Technologies Co., Ltd
+ * Copyright 2019-2021 Huawei Technologies Co., Ltd
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -237,8 +237,8 @@ class ConvolutionModel {
   int infer_isolate_overlap(std::vector<IsolateInfo> *info, std::vector<IsolateInfo> *win_info, Expr len, Expr cut,
                             Expr stride, Expr kernel_dilation, Expr head, Expr tail);
 
-  /* L1 isolate Info */
-  virtual int infer_L1_tile() = 0;
+  /* CA1 isolate Info */
+  virtual int infer_CA1_tile() = 0;
 
   virtual int get_ci_idx(int isolate_idx) const;
   virtual int get_co_idx(int isolate_idx) const;
@@ -258,8 +258,8 @@ class ConvolutionModel {
   IsolateInfo get_kh_isolate_info(int isolate_idx);
   IsolateInfo get_kw_isolate_info(int isolate_idx);
 
-  /* L0 isolate Info */
-  virtual int infer_L0_tile(int isolate_idx) = 0;
+  /* CA0 isolate Info */
+  virtual int infer_CA0_tile(int isolate_idx) = 0;
 
   int get_n_idx(int gemm_idx) const;
   int get_m_idx(int gemm_idx) const;
@@ -283,7 +283,7 @@ class ConvolutionModel {
   Conv conv_;
   Tiling tile_;
 
-  /* l1 info */
+  /* ca1 info */
   std::vector<IsolateInfo> b_info;
   int b_base{0};
   std::vector<IsolateInfo> ci_info;
@@ -301,7 +301,7 @@ class ConvolutionModel {
   std::vector<IsolateInfo> kw_info;
   int kw_base{0};
 
-  /* l0 info */
+  /* ca0 info */
   std::vector<IsolateInfo> m_info;
   int m_base{0};
   std::vector<IsolateInfo> k_info;
@@ -318,15 +318,15 @@ class ConvolutionForwardModel : public ConvolutionModel {
 
   ~ConvolutionForwardModel() override = default;
 
-  /* L1 isolate Info */
-  int infer_L1_tile() override;
+  /* CA1 isolate Info */
+  int infer_CA1_tile() override;
 
   int get_co_idx(int isolate_idx) const override;
   int get_h_idx(int isolate_idx) const override;
   int get_w_idx(int isolate_idx) const override;
 
-  /* L0 isolate Info */
-  int infer_L0_tile(int isolate_idx) override;
+  /* CA0 isolate Info */
+  int infer_CA0_tile(int isolate_idx) override;
 };
 
 class ConvolutionBackpropInputModel : public ConvolutionModel {
@@ -337,15 +337,15 @@ class ConvolutionBackpropInputModel : public ConvolutionModel {
 
   ~ConvolutionBackpropInputModel() override = default;
 
-  /* L1 isolate Info */
-  int infer_L1_tile() override;
+  /* CA1 isolate Info */
+  int infer_CA1_tile() override;
 
   int get_co_idx(int isolate_idx) const override;
   int get_h_idx(int isolate_idx) const override;
   int get_w_idx(int isolate_idx) const override;
 
-  /* L0 isolate Info */
-  int infer_L0_tile(int isolate_idx) override;
+  /* CA0 isolate Info */
+  int infer_CA0_tile(int isolate_idx) override;
 };
 
 class ConvolutionBackpropFilterModel : public ConvolutionModel {
@@ -356,8 +356,8 @@ class ConvolutionBackpropFilterModel : public ConvolutionModel {
 
   ~ConvolutionBackpropFilterModel() override = default;
 
-  /* L1 isolate Info */
-  int infer_L1_tile() override;
+  /* CA1 isolate Info */
+  int infer_CA1_tile() override;
 
   int get_ci_idx(int isolate_idx) const override;
   int get_co_idx(int isolate_idx) const override;
@@ -367,8 +367,8 @@ class ConvolutionBackpropFilterModel : public ConvolutionModel {
   int get_kh_idx(int isolate_idx) const override;
   int get_kw_idx(int isolate_idx) const override;
 
-  /* L0 isolate Info */
-  int infer_L0_tile(int isolate_idx) override;
+  /* CA0 isolate Info */
+  int infer_CA0_tile(int isolate_idx) override;
 };
 }  // namespace ir
 }  // namespace akg

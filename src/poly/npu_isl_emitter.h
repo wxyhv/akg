@@ -1,5 +1,5 @@
 /**
- * Copyright 2019 Huawei Technologies Co., Ltd
+ * Copyright 2019-2021 Huawei Technologies Co., Ltd
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -13,8 +13,8 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-#ifndef POLY_CCE_ISL_EMITTER_H_
-#define POLY_CCE_ISL_EMITTER_H_
+#ifndef POLY_NPU_ISL_EMITTER_H_
+#define POLY_NPU_ISL_EMITTER_H_
 
 #include <tvm/expr.h>
 #include <tvm/ir.h>
@@ -42,10 +42,10 @@ class Liveness {
 /*!
  * IslEmitter for CCE
  */
-class CCEIslEmitter : public IslEmitter {
+class NPUIslEmitter : public IslEmitter {
  public:
-  CCEIslEmitter(Scop &s, const NodeInfoRepo &n, const isl::id_list &i) : IslEmitter(s, n, i) { ProcBypassL1(s); }
-  ~CCEIslEmitter() override = default;
+  NPUIslEmitter(Scop &s, const NodeInfoRepo &n, const isl::id_list &i) : IslEmitter(s, n, i) { ProcBypathC1(s); }
+  ~NPUIslEmitter() override = default;
 
   Stmt Emit(const isl::ast_node &node) final;
 
@@ -60,9 +60,9 @@ class CCEIslEmitter : public IslEmitter {
 
   // DMA emitters for CCE
   Expr EmitLoad(const isl::ast_expr &lhs, Type type);
-  Stmt EmitL1Read(const isl::ast_node_user &node);
-  Stmt EmitL1Write(const isl::ast_node_user &node, Scop::AtomicType atomic);
-  Stmt EmitSpecGemL1write(const isl::ast_node_mark &node, const Stmt &stmt);
+  Stmt EmitC1Read(const isl::ast_node_user &node);
+  Stmt EmitC1Write(const isl::ast_node_user &node, Scop::AtomicType atomic);
+  Stmt EmitSpecGemC1write(const isl::ast_node_mark &node, const Stmt &stmt);
 
   // RangeInfo emitters for CCE
   Stmt EmitGemmRangeInfoBackPropFilter(const Stmt &stmt);
@@ -72,23 +72,23 @@ class CCEIslEmitter : public IslEmitter {
   Stmt EmitMarkMulticore(const isl::ast_node_mark &node);
   bool InjectMulticore(const std::string &iter);
 
-  Stmt EmitMarkFuseVector(const isl::ast_node_mark &node);
+  Stmt EmitMarkFuseInst(const isl::ast_node_mark &node);
   Stmt EmitMarkAllocRealizeOut(const isl::ast_node_mark &node);
   Stmt EmitMarkAllocC(const isl::ast_node_mark &node);
   Stmt EmitMarkSpecGemm(const isl::ast_node_mark &node);
 
-  void EmitAttrStmt(const isl::ast_node_block &block_node, const Liveness &liveness, bool is_L1, bool is_L0,
+  void EmitAttrStmt(const isl::ast_node_block &block_node, const Liveness &liveness, bool is_C1, bool is_C0,
                     std::vector<Stmt> &stmts);
 
-  void EmitAttrStmtL0(Tensor &t, bool &is_im2col, bool &is_filter_l0, bool &is_gemm_data_trans,
+  void EmitAttrStmtC0(Tensor &t, bool &is_im2col, bool &is_filter_l0, bool &is_gemm_data_trans,
                       bool &is_gemm_weight_trans);
 
-  void EmitAttrStmtL1(Tensor &t, bool &is_fractal, bool &is_filter_l1);
+  void EmitAttrStmtC1(Tensor &t, bool &is_fractal, bool &is_filter_l1);
 
-  void EmitAttrStmtLiveness(const Liveness &liveness, std::vector<Stmt> &stmts, int i, bool is_L1);
+  void EmitAttrStmtLiveness(const Liveness &liveness, std::vector<Stmt> &stmts, int i, bool is_C1);
 
-  void EmitAttrStmtAfterRealize(bool is_L1, bool is_L0, std::vector<Stmt> &stmts);
-  void EmitRealize(const isl::ast_node_block &block_node, const Liveness &liveness_info, bool is_L1, bool is_L0,
+  void EmitAttrStmtAfterRealize(bool is_C1, bool is_C0, std::vector<Stmt> &stmts);
+  void EmitRealize(const isl::ast_node_block &block_node, const Liveness &liveness_info, bool is_C1, bool is_C0,
                    std::vector<Stmt> &stmts);
 
   void EmitRealizeLivenessInfo(std::vector<IslIdSet> &real, const Liveness &liveness_info,
@@ -103,12 +103,12 @@ class CCEIslEmitter : public IslEmitter {
   // realize info for CCE
   Expr FindRealizeScope(const isl::id &var);
   std::string FindRealizeScopeToString(const isl::id &var);
-  Stmt InsertRealize(Stmt stmt, const isl::id &var, bool is_L0);
+  Stmt InsertRealize(Stmt stmt, const isl::id &var, bool is_C0);
   void RealizeOut();
 
   Stmt RemoveCond(const Stmt &stmt);
-  void ProcBypassL1(const Scop &scop);
-  void SetCube(const isl::id &stmt_id);
+  void ProcBypathC1(const Scop &scop);
+  void SetMMU(const isl::id &stmt_id);
   std::string ReplaceAxis(const std::string &oldAxis);
   static std::vector<std::string> ConstructPrefix();
   void GemmTranspose(std::vector<Stmt> &stmts);
@@ -118,8 +118,8 @@ class CCEIslEmitter : public IslEmitter {
   IslIdSet hoisted_read_;
   IslIdSet hoisted_write_;
 
-  int bypassL1_{0};
-  bool is_cube_{false};
+  int bypathC1_{0};
+  bool is_mmu_{false};
   StmtOpInfo opinfo_;
 
   // range info index
@@ -127,8 +127,8 @@ class CCEIslEmitter : public IslEmitter {
   int tile_idx_{0};
   int isolate_idx_{-1};
 
-  bool is_old_gemm_l1write_{false};
-  std::vector<Stmt> cube_l0write_;
+  bool is_old_gemm_c1write_{false};
+  std::vector<Stmt> mmu_c0write_;
   int gemm_transpose_index_{0};
   std::set<const Variable *> rmif_;
 
@@ -146,4 +146,4 @@ class CCEIslEmitter : public IslEmitter {
 }  // namespace poly
 }  // namespace ir
 }  // namespace akg
-#endif  // POLY_CCE_ISL_EMITTER_H_
+#endif  // POLY_NPU_ISL_EMITTER_H_

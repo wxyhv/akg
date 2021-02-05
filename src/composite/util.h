@@ -1,5 +1,5 @@
 /**
- * Copyright 2020 Huawei Technologies Co., Ltd
+ * Copyright 2020-2021 Huawei Technologies Co., Ltd
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -21,7 +21,7 @@
 #include "tvm.h"
 
 namespace akg {
-constexpr auto kMsDavinciKernelPath = "./kernel_meta/";
+constexpr auto kMsAscendKernelPath = "./kernel_meta/";
 static std::unordered_map<std::string, air::Type> type_mapping = {
   {"float32", air::Float(32)}, {"float16", air::Float(16)}, {"int32", air::Int(32)}, {"bool", air::Bool()}};
 }  // namespace akg

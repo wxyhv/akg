@@ -1,6 +1,6 @@
 
 /**
- * Copyright 2019 Huawei Technologies Co., Ltd
+ * Copyright 2019-2021 Huawei Technologies Co., Ltd
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -384,6 +384,10 @@ class AttrIRMutator : public IRMutator {
     }
   }
 };
+
+Array<Expr> GetBinaryOpExprChildren(const Expr &e);
+
+Array<VarExpr> GetVarsInExpr(const Expr &expr, bool exclude_upper_case_vars = false);
 }  // namespace ir
 }  // namespace akg
 

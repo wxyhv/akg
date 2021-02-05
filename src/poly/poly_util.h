@@ -1,5 +1,5 @@
 /**
- * Copyright 2019 Huawei Technologies Co., Ltd
+ * Copyright 2019-2021 Huawei Technologies Co., Ltd
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -118,7 +118,7 @@ constexpr auto ATTR_CONV_PAD_LEFT = "pragma_conv_padding_left";
 constexpr auto ATTR_CONV_PAD_RIGHT = "pragma_conv_padding_right";
 constexpr auto ATTR_CONV_PAD_TOP = "pragma_conv_padding_top";
 constexpr auto ATTR_CONV_PAD_BOTTOM = "pragma_conv_padding_bottom";
-constexpr auto ATTR_CONV_BYPASS_L1 = "pragma_conv_bypass_l1";
+constexpr auto ATTR_CONV_BYPASS_C1 = "pragma_conv_bypass_l1";
 constexpr auto ATTR_CONV_BACKPROP_INPUT = "pragma_conv_backprop_input";
 constexpr auto ATTR_CONV_BACKPROP_FILTER = "pragma_conv_backprop_filter";
 constexpr auto ATTR_CONV_SPECIAL_DMA = "pragma_conv_special_dma";
@@ -172,26 +172,20 @@ constexpr auto ATOMIC_COND_CLEAN = "atomic_cond_clean";
  * Following const is the mark tags for schedule tree
  ******************************************************/
 constexpr auto REALIZE = "realize";
-constexpr auto REALIZE_L1 = "realize_L1";
-constexpr auto REALIZE_L0 = "realize_L0";
-constexpr auto REALIZE_UB = "realize_UB";
-constexpr auto REALIZE_UBL0 = "realize_UBL0";
-constexpr auto REALIZE_UBL1 = "realize_UBL1";
-constexpr auto REALIZE_L1UBL1 = "realize_L1UBL1";
 constexpr auto CONV_GEMM = "conv_gemm";
-constexpr auto FUSE_VECTOR = "fuse_vector";
+constexpr auto FUSE_INST = "fuse_vector";
 constexpr auto MULTICORE_COINCIDENT = "multicore_coincident_";
 
 constexpr auto ALLOC_C = "alloc_C";
 constexpr auto ALLOC_REALIZE_OUT = "alloc_out";
 
-constexpr auto CALL_IM2COL_UB = "cce_img2col_ub";
+constexpr auto CALL_IM2COL_BUF = "cce_img2col_ub";
 constexpr auto ATTR_IM2COL_KEY = "im2colKey";
 
 const std::vector<std::string> ConvATTRList = {ATTR_CONV_FEATURE_W,  ATTR_CONV_KERNEL_H,   ATTR_CONV_KERNEL_W,
                                                ATTR_CONV_STRIDE_H,   ATTR_CONV_STRIDE_W,   ATTR_CONV_DILATION_H,
                                                ATTR_CONV_DILATION_W, ATTR_CONV_PAD_LEFT,   ATTR_CONV_PAD_RIGHT,
-                                               ATTR_CONV_PAD_TOP,    ATTR_CONV_PAD_BOTTOM, ATTR_CONV_BYPASS_L1};
+                                               ATTR_CONV_PAD_TOP,    ATTR_CONV_PAD_BOTTOM, ATTR_CONV_BYPASS_C1};
 
 const std::vector<std::string> FastPoolingATTRList = {
   ATTR_CONV_FEATURE_H, ATTR_CONV_FEATURE_W,  ATTR_CONV_KERNEL_H,   ATTR_CONV_KERNEL_W, ATTR_CONV_STRIDE_H,

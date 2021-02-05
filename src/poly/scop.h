@@ -1,5 +1,5 @@
 /**
- * Copyright 2019 Huawei Technologies Co., Ltd
+ * Copyright 2019-2021 Huawei Technologies Co., Ltd
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -111,7 +111,7 @@ class Scop {
   bool is_spec_gemm_{false};
   bool is_tiled_{false};
   int conv_back_prop_filter_{0};
-  int bypassL1_{0};
+  int bypathC1_{0};
   int dump_tuning_level_{0};
   bool disable_group_{false};
   bool tile_inner_band_{false};
@@ -130,7 +130,7 @@ class Scop {
   bool reorder_schedule_{false};
   bool sink_last_axis_{true};
   bool keep_outer_band_order_{false};
-  bool optimize_for_davinci_{false};
+  bool optimize_for_npu_{false};
   bool enable_feature_library_{false};
   bool enable_hoist_cond_write_{true};
   bool enable_mark_multi_core_{false};
@@ -210,7 +210,7 @@ class Scop {
 
   std::vector<DimensionInfo> conv_mnk_dims_;
   struct BufferedDecl {
-    enum Kind { L1, L0, L0A, L0B, L0C, UB };
+    enum Kind { C1, C0, C0A, C0B, C0C, BUF };
 
     isl::id tensor_id;
     std::vector<size_t> sizes;
@@ -279,7 +279,7 @@ class Scop {
   isl::schedule GenIsl();
   void ComputeTransferCopyin(isl::union_map &fake_copyin);
   void TransferStmt(isl::schedule &t_sch);
-  void ComputeByPassL1();
+  void ComputeByPassC1();
   void AddPartitionInfoToData(const std::vector<std::vector<int>> &partition_info);
   isl::schedule Transform(isl::schedule, bool coincident = true, bool tuning = false);
   Stmt GenHalide(const isl::schedule &);
@@ -361,13 +361,13 @@ class Scop {
   bool IsA(const std::string &name) const;
   bool IsB(const std::string &name) const;
   bool IsC(const std::string &name) const;
-  bool IsCUB(const std::string &name) const;
+  bool IsCBUF(const std::string &name) const;
   std::string GetAName() const;
   std::string GetBName() const;
   std::string GetCName() const;
   bool IsIm2col() const;
-  bool IsLoad3dL1Ub() const;
-  bool IsLoad3dL1UBStmt(const std::string &stmtName) const;
+  bool IsLoadIm2colC1BUF() const;
+  bool IsLoadIm2colC1BUFStmt(const std::string &stmtName) const;
   bool HasCube() const;
   bool IsConv() const;
   bool IsConvBackpropInput() const;

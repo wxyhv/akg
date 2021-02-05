@@ -1,5 +1,5 @@
 /**
- * Copyright 2019 Huawei Technologies Co., Ltd
+ * Copyright 2019-2021 Huawei Technologies Co., Ltd
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -909,7 +909,7 @@ void ScheduleTreeAnalyzer::AnalyzeCubeInfo() {
     }
     Band pre_loops = GetPreviousLoops(it.first);
     for (auto l : pre_loops) {
-      for (const auto &it2 : cube_var_map_) {
+      for (const auto &it2 : mmu_var_map_) {
         std::string lname = it2.first;
         std::string type = it2.second;
         if (l->loop_var.get()->name_hint != lname) continue;
@@ -920,7 +920,7 @@ void ScheduleTreeAnalyzer::AnalyzeCubeInfo() {
         break;
       }
     }
-    cube_var_map_.clear();
+    mmu_var_map_.clear();
   }
 }
 
@@ -938,30 +938,30 @@ void ScheduleTreeAnalyzer::MatchConvVarNames(const Call *call) {
         continue;
       } else {
         if (call->name == analyzer_->scop_->GetCName()) {
-          cube_var_map_[name] = analyzer_->NC1HWC0[count];
+          mmu_var_map_[name] = analyzer_->NC1HWC0[count];
         } else if (call->name == analyzer_->scop_->GetAName()) {
           if (analyzer_->FMMatrix[count] == "N") {
-            CHECK(cube_var_map_.find(name) != cube_var_map_.end());
-            CHECK_EQ(cube_var_map_[name], "N");
+            CHECK(mmu_var_map_.find(name) != mmu_var_map_.end());
+            CHECK_EQ(mmu_var_map_[name], "N");
           } else if (analyzer_->FMMatrix[count] == "H_in") {
-            if (cube_var_map_.find(name) == cube_var_map_.end()) {  // H is 1
-              cube_var_map_[name] = "kh";
+            if (mmu_var_map_.find(name) == mmu_var_map_.end()) {  // H is 1
+              mmu_var_map_[name] = "kh";
             }  // else kh is 1
           } else if (analyzer_->FMMatrix[count] == "W_in") {
-            if (cube_var_map_.find(name) == cube_var_map_.end()) {  // W is 1
-              cube_var_map_[name] = "kw";
+            if (mmu_var_map_.find(name) == mmu_var_map_.end()) {  // W is 1
+              mmu_var_map_[name] = "kw";
             }  // else kw is 1
           } else if (analyzer_->FMMatrix[count] == "C1_in") {
-            if (cube_var_map_.find(name) == cube_var_map_.end()) {  // normal conv
-              cube_var_map_[name] = analyzer_->FMMatrix[count];
+            if (mmu_var_map_.find(name) == mmu_var_map_.end()) {  // normal conv
+              mmu_var_map_[name] = analyzer_->FMMatrix[count];
             } else {  // depthwise
-              cube_var_map_[name] = "C1_in_out";
+              mmu_var_map_[name] = "C1_in_out";
             }
           } else {
-            if (cube_var_map_.find(name) == cube_var_map_.end()) {
-              cube_var_map_[name] = analyzer_->FMMatrix[count];
+            if (mmu_var_map_.find(name) == mmu_var_map_.end()) {
+              mmu_var_map_[name] = analyzer_->FMMatrix[count];
             } else {
-              CHECK(analyzer_->FMMatrix[count].find(cube_var_map_[name]) != std::string::npos);
+              CHECK(analyzer_->FMMatrix[count].find(mmu_var_map_[name]) != std::string::npos);
             }
           }
         }
@@ -971,18 +971,18 @@ void ScheduleTreeAnalyzer::MatchConvVarNames(const Call *call) {
       if (call->name == analyzer_->scop_->GetAName()) {
         CHECK(analyzer_->FMMatrix[count] == "H_in" || analyzer_->FMMatrix[count] == "W_in");
         for (const auto &name : var_names) {
-          if (cube_var_map_.find(name) == cube_var_map_.end()) {  // kh or kw
+          if (mmu_var_map_.find(name) == mmu_var_map_.end()) {  // kh or kw
             if (analyzer_->FMMatrix[count] == "H_in") {
-              cube_var_map_[name] = "kh";
+              mmu_var_map_[name] = "kh";
             } else if (analyzer_->FMMatrix[count] == "W_in") {
-              cube_var_map_[name] = "kw";
+              mmu_var_map_[name] = "kw";
             }
           }
         }
       } else if (call->name == analyzer_->scop_->GetBName()) {
         CHECK(analyzer_->FTMatrix[count] == "C1_in" || analyzer_->FTBACK_Matrix[count] == "C1_out");
         for (const auto &name : var_names) {
-          CHECK(cube_var_map_.find(name) != cube_var_map_.end());
+          CHECK(mmu_var_map_.find(name) != mmu_var_map_.end());
         }
       }
     }
@@ -1003,16 +1003,16 @@ void ScheduleTreeAnalyzer::MatchConvFilterVarNames(const Call *call) {
         continue;
       } else {
         if (call->name == analyzer_->scop_->GetCName()) {
-          cube_var_map_[name] = analyzer_->FilterOutput_Matrix[count];
+          mmu_var_map_[name] = analyzer_->FilterOutput_Matrix[count];
         } else {
-          cube_var_map_[name] = analyzer_->FilterInput_Matrix[count];
+          mmu_var_map_[name] = analyzer_->FilterInput_Matrix[count];
         }
       }
     } else {
       CHECK(call->name == analyzer_->scop_->GetAName());
       for (const auto &name : var_names) {
-        if (cube_var_map_.find(name) == cube_var_map_.end()) {
-          cube_var_map_[name] = analyzer_->FilterInput_Matrix[count];
+        if (mmu_var_map_.find(name) == mmu_var_map_.end()) {
+          mmu_var_map_[name] = analyzer_->FilterInput_Matrix[count];
           break;
         }
       }
@@ -1075,16 +1075,16 @@ void ScheduleTreeAnalyzer::MatchGemmVarNames(std::vector<const Call *> op_list) 
   CHECK_LE(gemm_k.size(), format_k_.size());
   CHECK_LE(gemm_b.size(), format_b_.size());
   for (auto i = static_cast<int>(gemm_m.size()) - 1; i >= 0; --i) {
-    cube_var_map_[gemm_m[i]] = format_m_[static_cast<int>(gemm_m.size()) - 1 - i];
+    mmu_var_map_[gemm_m[i]] = format_m_[static_cast<int>(gemm_m.size()) - 1 - i];
   }
   for (auto i = static_cast<int>(gemm_n.size()) - 1; i >= 0; --i) {
-    cube_var_map_[gemm_n[i]] = format_n_[static_cast<int>(gemm_n.size()) - 1 - i];
+    mmu_var_map_[gemm_n[i]] = format_n_[static_cast<int>(gemm_n.size()) - 1 - i];
   }
   for (auto i = static_cast<int>(gemm_k.size()) - 1; i >= 0; --i) {
-    cube_var_map_[gemm_k[i]] = format_k_[static_cast<int>(gemm_k.size()) - 1 - i];
+    mmu_var_map_[gemm_k[i]] = format_k_[static_cast<int>(gemm_k.size()) - 1 - i];
   }
   for (auto i = static_cast<int>(gemm_b.size()) - 1; i >= 0; --i) {
-    cube_var_map_[gemm_b[i]] = format_b_[static_cast<int>(gemm_b.size()) - 1 - i];
+    mmu_var_map_[gemm_b[i]] = format_b_[static_cast<int>(gemm_b.size()) - 1 - i];
   }
 }
 

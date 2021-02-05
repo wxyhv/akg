@@ -1,5 +1,5 @@
 /**
- * Copyright 2019 Huawei Technologies Co., Ltd
+ * Copyright 2019-2021 Huawei Technologies Co., Ltd
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -28,7 +28,7 @@ namespace air {
  */
 class CustomTilingNode : public Node {
  public:
-  /*! \brief tile location, chosen from "L1" and "L0"*/
+  /*! \brief tile location, chosen from "C1" and "C0"*/
   Expr tile_level;
 
   /*! \brief custom mode, chosen from "AXIS" and "TENSOR"*/

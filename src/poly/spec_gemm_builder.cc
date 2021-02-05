@@ -1,5 +1,5 @@
 /**
- * Copyright 2019 Huawei Technologies Co., Ltd
+ * Copyright 2019-2021 Huawei Technologies Co., Ltd
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -49,7 +49,7 @@ Stmt Scop::ConstructPolyGemm(const Expr &mad_init_cond) {
 
   Map<std::string, NodeRef> attrs;
   attrs.Set("conv_backprop_filter", makeIntImm(IsConvBackpropFilter()));
-  attrs.Set("bypassL1", makeIntImm(bypassL1_));
+  attrs.Set("bypassC1", makeIntImm(bypathC1_));
   attrs.Set("dim", StringImm::make(gmm_dim));
   if (IsConvBackpropInput()) {
     attrs.Set("kernel_h", makeIntImm(matB_dim_h_));
@@ -205,40 +205,40 @@ Stmt Scop::ConstructGemmReduceBody(const Binds &gemm_bind, const Expr &mad_init_
   }
   Tensor t = FindBindTensor(gemm_bind, fractal_str_info_[ATTR_CONV_GMM_RES]);
 
-  Array<Expr> args_c_localUB, args_a_localL1, args_b_localL1;
+  Array<Expr> args_c_localBUF, args_a_localC1, args_b_localC1;
   if (!IsConvBackpropFilter()) {
-    args_c_localUB.push_back(gv.var_batch_name);
+    args_c_localBUF.push_back(gv.var_batch_name);
   }
-  args_c_localUB.push_back(gv.var_no_name);
-  args_c_localUB.push_back(gv.var_mo_name);
-  args_c_localUB.push_back(gv.var_mi_name);
-  args_c_localUB.push_back(gv.var_ni_name);
+  args_c_localBUF.push_back(gv.var_no_name);
+  args_c_localBUF.push_back(gv.var_mo_name);
+  args_c_localBUF.push_back(gv.var_mi_name);
+  args_c_localBUF.push_back(gv.var_ni_name);
 
-  args_a_localL1.push_back(gv.var_batch_name);
-  args_a_localL1.push_back(gv.var_mo_name);
-  args_a_localL1.push_back(gv.var_ko_name);
-  args_a_localL1.push_back(gv.var_mi_name);
-  args_a_localL1.push_back(gv.var_ki_name);
+  args_a_localC1.push_back(gv.var_batch_name);
+  args_a_localC1.push_back(gv.var_mo_name);
+  args_a_localC1.push_back(gv.var_ko_name);
+  args_a_localC1.push_back(gv.var_mi_name);
+  args_a_localC1.push_back(gv.var_ki_name);
 
   if (IsConvBackpropFilter()) {
-    args_b_localL1.push_back(gv.var_batch_name);
+    args_b_localC1.push_back(gv.var_batch_name);
   }
-  args_b_localL1.push_back(gv.var_ko_name);
-  args_b_localL1.push_back(gv.var_no_name);
-  args_b_localL1.push_back(gv.var_ni_name);
-  args_b_localL1.push_back(gv.var_ki_name);
+  args_b_localC1.push_back(gv.var_ko_name);
+  args_b_localC1.push_back(gv.var_no_name);
+  args_b_localC1.push_back(gv.var_ni_name);
+  args_b_localC1.push_back(gv.var_ki_name);
 
-  Expr c_buffer = Call::make(t->dtype, t->op->name, args_c_localUB, Call::CallType::Halide, t->op, t->value_index);
-  Expr a_buffer = Call::make(a->dtype, a->op->name, args_a_localL1, Call::CallType::Halide, a->op, a->value_index);
-  Expr b_buffer = Call::make(b->dtype, b->op->name, args_b_localL1, Call::CallType::Halide, b->op, b->value_index);
+  Expr c_buffer = Call::make(t->dtype, t->op->name, args_c_localBUF, Call::CallType::Halide, t->op, t->value_index);
+  Expr a_buffer = Call::make(a->dtype, a->op->name, args_a_localC1, Call::CallType::Halide, a->op, a->value_index);
+  Expr b_buffer = Call::make(b->dtype, b->op->name, args_b_localC1, Call::CallType::Halide, b->op, b->value_index);
   Expr added = Mul::make(a_buffer, b_buffer);
   if (MadCastType() == Float(32)) {
     added = Cast::make(Float(32), added);
   }
   Expr mad = Call::make(c_buffer.type(), "mad", {c_buffer, added}, Call::PureIntrinsic);
-  Stmt provide = Provide::make(t->op, 0, mad, args_c_localUB);
+  Stmt provide = Provide::make(t->op, 0, mad, args_c_localBUF);
 
-  Stmt init = Provide::make(t->op, 0, ZeroByDtype(t), args_c_localUB);
+  Stmt init = Provide::make(t->op, 0, ZeroByDtype(t), args_c_localBUF);
   if (mad_init_cond.defined() && !is_zero(mad_init_cond)) {
     init = IfThenElse::make(mad_init_cond, init);
   }

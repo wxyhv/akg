@@ -1,5 +1,5 @@
 /**
- * Copyright 2020 Huawei Technologies Co., Ltd
+ * Copyright 2020-2021 Huawei Technologies Co., Ltd
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -57,8 +57,8 @@ void CustomTilingStrategy::AddConstraint() {
       CHECK_GE(constraints.size(), 1U);
       std::vector<std::string> level = akg::common::Split(constraints[0], ":");
       CHECK(level.size() == 2U && level[0] == "LEVEL");
-      CHECK(level[1] == "L1" || level[1] == "L0");
-      TileLevel lv = level[1] == "L1" ? LEVEL1 : LEVEL0;
+      CHECK(level[1] == "C1" || level[1] == "C0");
+      TileLevel lv = level[1] == "C1" ? LEVEC1 : LEVEC0;
       constraints.erase(constraints.begin());
       for (const auto &con : constraints) {
         std::vector<std::string> items = akg::common::Split(con, ":");
@@ -67,32 +67,32 @@ void CustomTilingStrategy::AddConstraint() {
         CHECK_NE(items[1], "");
         if (items[0] == "MIN") {
           if (items[1] == "MIN") {
-            if (lv == LEVEL1) {
+            if (lv == LEVEC1) {
               axis->l1_constraints.tile_extent_ = axis->l1_constraints.tile_min_;
-            } else if (lv == LEVEL0) {
+            } else if (lv == LEVEC0) {
               axis->l0_constraints.tile_extent_ = axis->l0_constraints.tile_min_;
             }
           } else {
-            if (lv == LEVEL1) {
+            if (lv == LEVEC1) {
               axis->l1_constraints.tile_min_ = CastToExpr(items[1]);
-            } else if (lv == LEVEL0) {
+            } else if (lv == LEVEC0) {
               axis->l0_constraints.tile_min_ = CastToExpr(items[1]);
             }
           }
         } else if (items[0] == "FACTOR") {
           axis->TileRestrainToSingleValue(CastToExpr(items[1]), lv);
         } else if (items[0] == "CANDIDATE") {
-          if (lv == LEVEL1)
-            axis->InsertL1CandFactor(CastToExpr(items[1]));
+          if (lv == LEVEC1)
+            axis->InsertC1CandFactor(CastToExpr(items[1]));
           else
-            axis->InsertL0CandFactor(CastToExpr(items[1]));
+            axis->InsertC0CandFactor(CastToExpr(items[1]));
         } else if (items[0] == "MAX") {
           if (items[1] == "FULL") {
             axis->TileRestrainEntire(lv);
           } else {
-            if (lv == LEVEL1) {
+            if (lv == LEVEC1) {
               axis->l1_constraints.tile_extent_ = CastToExpr(items[1]);
-            } else if (lv == LEVEL0) {
+            } else if (lv == LEVEC0) {
               axis->l0_constraints.tile_extent_ = CastToExpr(items[1]);
             }
           }
@@ -124,7 +124,7 @@ void ConflictTreeRangeStrategy::AddConstraint() {
     // It is not safe to apply min tile(1) to padded-and-transformed axis
     // as poly may generate wrong index.
     if (!axis->HasAttr("MOD")) {
-      axis->InsertL1CandFactor(CastIntToExpr(MIN_TILE));
+      axis->InsertC1CandFactor(CastIntToExpr(MIN_TILE));
     }
     if (axis->HasAttr("MODSHIFT")) {
       const_extent = (const_extent - axis->range_min);
@@ -134,7 +134,7 @@ void ConflictTreeRangeStrategy::AddConstraint() {
       axis->RemoveAttr("SHIFT");
     }
     axis->range_min = MIN_TILE;
-    axis->InsertL1CandFactor(CastInt64ToExpr(const_extent));
+    axis->InsertC1CandFactor(CastInt64ToExpr(const_extent));
     axis->l1_constraints.tile_min_ = CastIntToExpr(MIN_TILE);
     axis->l1_constraints.tile_extent_ = CastInt64ToExpr(const_extent);
     axis->l0_constraints.tile_min_ = CastIntToExpr(MIN_TILE);
@@ -181,7 +181,7 @@ void ModStrategy::AddConstraint() {
     for (const auto &attr : it.second) {
       CHECK_NE(attr.attr_value, "");
       auto mod_value = static_cast<int>(std::strtol(attr.attr_value.c_str(), nullptr, 10));
-      axis->TileRestrainMod(mod_value, LEVEL1);
+      axis->TileRestrainMod(mod_value, LEVEC1);
     }
   }
 }
@@ -232,10 +232,10 @@ void ReduceStrategy::AddConstraint() {
 }
 
 void VectorizedStrategy::AddConstraint() {
-  if (analyzer_->op_type_ != VECTOR_OP) {
+  if (analyzer_->op_type_ != INST_OP) {
     return;
   }
-  for (auto axis : analyzer_->GetAxesOfAttr("VECTORIZED")) {
+  for (auto axis : analyzer_->GetAxesOfAttr("INSTIZED")) {
     if (axis->HasAttr("DYNAMIC_BOUND")) {
       continue;
     }
@@ -250,20 +250,20 @@ void VectorizedStrategy::AddConstraint() {
       }
     }
     CHECK_NE(min_byte, 0);
-    axis->l1_constraints.tile_mod_ = CanonicalSimplify(CastIntToExpr(VECTORIZE_BYTE / min_byte));
+    axis->l1_constraints.tile_mod_ = CanonicalSimplify(CastIntToExpr(INSTIZE_BYTE / min_byte));
   }
 }
 
 void TensorOfTensorStrategy::AddConstraint() {
   for (auto axis : analyzer_->GetAxesOfAttr("TOT")) {
     if (!axis->HasAttr("ALIGN:DMA")) continue;
-    axis->TileRestrainToSingleValue(CastIntToExpr(MIN_TILE), LEVEL1);
+    axis->TileRestrainToSingleValue(CastIntToExpr(MIN_TILE), LEVEC1);
   }
 }
 
 void PassDownAttrStrategy::AddConstraint() {
   for (auto axis : analyzer_->GetAxesOfAttr(AttrInfo{"ATTR", "pass_down"})) {
-    axis->TileRestrainEntire(LEVEL1);
+    axis->TileRestrainEntire(LEVEC1);
   }
 }
 
@@ -285,7 +285,7 @@ void DynamicBoundStrategy::AddConstraint() {
     for (const auto &attr : it.second) {
       CHECK_NE(attr.attr_value, "");
       auto bound = static_cast<int>(std::strtol(attr.attr_value.c_str(), nullptr, 10));
-      axis->TileRestrainMod(bound, LEVEL1);
+      axis->TileRestrainMod(bound, LEVEC1);
       axis->forbid_iso = true;
     }
   }
@@ -302,7 +302,7 @@ void ShiftAxisStrategy::AddConstraint() {
     for (const auto &attr : it.second) {
       CHECK_NE(attr.attr_value, "");
       auto share_time = static_cast<int>(std::strtol(attr.attr_value.c_str(), nullptr, 10));
-      axis->TileRestrainToSingleValue(const_extent * (share_time + 1), LEVEL1);
+      axis->TileRestrainToSingleValue(const_extent * (share_time + 1), LEVEC1);
       break;
     }
   }
@@ -318,11 +318,11 @@ void ModShiftAxisStrategy::AddConstraint() {
     }
     for (const auto &attr : it.second) {
       axis->forbid_iso = true;
-      auto imm_min = axis->GetConstConstraint(LEVEL1).tile_min_.as<IntImm>()->value;
+      auto imm_min = axis->GetConstConstraint(LEVEC1).tile_min_.as<IntImm>()->value;
       if (imm_min > const_extent) {
         CHECK_NE(attr.attr_value, "");
         auto share_time = static_cast<int>(std::strtol(attr.attr_value.c_str(), nullptr, 10));
-        axis->TileRestrainToSingleValue(const_extent * (share_time + 1), LEVEL1);
+        axis->TileRestrainToSingleValue(const_extent * (share_time + 1), LEVEC1);
       } else {
         auto ForbidOthersIso = [](TileAxis *a) { a->forbid_iso = true; };
         analyzer_->ForEachAxisTopDown(ForbidOthersIso);
@@ -340,22 +340,22 @@ void ConvStrategy::AddConstraint() {
     for (const auto &attr : it.second) {
       axis->axis_type_ = attr.attr_value;
       if (attr.attr_value == "N" || attr.attr_value == "C1_in_out") {
-        axis->TileRestrainToSingleValue(CastIntToExpr(MIN_TILE), LEVEL1);
-        axis->TileRestrainToSingleValue(CastIntToExpr(MIN_TILE), LEVEL0);
+        axis->TileRestrainToSingleValue(CastIntToExpr(MIN_TILE), LEVEC1);
+        axis->TileRestrainToSingleValue(CastIntToExpr(MIN_TILE), LEVEC0);
       } else if (attr.attr_value == "H") {
         RestrainH(axis);
       } else if (attr.attr_value == "W") {
         if (analyzer_->scop_->IsConvBackpropFilter()) {
-          axis->TileRestrainEntire(LEVEL1);
+          axis->TileRestrainEntire(LEVEC1);
         } else {
           RestrainW(axis);
         }
       } else if (attr.attr_value.find("C0") != std::string::npos || attr.attr_value == "kh" ||
                  attr.attr_value == "kw") {
-        axis->TileRestrainEntire(LEVEL1);
+        axis->TileRestrainEntire(LEVEC1);
       } else if (attr.attr_value == "C1_in" && analyzer_->is_dynamic_) {
         // dynamic case
-        axis->TileRestrainEntire(LEVEL1);
+        axis->TileRestrainEntire(LEVEC1);
       }
     }
   }
@@ -418,13 +418,13 @@ void GemmStrategy::AddConstraint() {
     for (const auto &attr : it.second) {
       axis->axis_type_ = attr.attr_value;
       if (attr.attr_value == "mi" || attr.attr_value == "ni" || attr.attr_value == "ki") {
-        axis->TileRestrainMod(CastIntToExpr(CUBE_UNIT), LEVEL1);
-        axis->TileRestrainMod(CastIntToExpr(CUBE_UNIT), LEVEL0);
-        axis->TileRestrainToSingleValue(CastIntToExpr(CUBE_UNIT), LEVEL1);
-        axis->TileRestrainToSingleValue(CastIntToExpr(CUBE_UNIT), LEVEL0);
+        axis->TileRestrainMod(CastIntToExpr(MMU_UNIT), LEVEC1);
+        axis->TileRestrainMod(CastIntToExpr(MMU_UNIT), LEVEC0);
+        axis->TileRestrainToSingleValue(CastIntToExpr(MMU_UNIT), LEVEC1);
+        axis->TileRestrainToSingleValue(CastIntToExpr(MMU_UNIT), LEVEC0);
       } else if (attr.attr_value == "bo" || attr.attr_value == "bi") {
-        axis->TileRestrainToSingleValue(CastIntToExpr(MIN_TILE), LEVEL1);
-        axis->TileRestrainToSingleValue(CastIntToExpr(MIN_TILE), LEVEL0);
+        axis->TileRestrainToSingleValue(CastIntToExpr(MIN_TILE), LEVEC1);
+        axis->TileRestrainToSingleValue(CastIntToExpr(MIN_TILE), LEVEC0);
       }
     }
   }
@@ -528,7 +528,7 @@ int64_t MulticoreStrategy::AdjustTilingAccordingToMulticoreConstraint(TileAxis *
     valid = valid && tiling_factor % multicore_axis->l1_constraints.tile_mod_.as<IntImm>()->value == 0;
   } else {
     auto weak_constraint = multicore_axis->l1_constraints.tile_mod_.as<IntImm>()->value % tiling_factor == 0;
-    valid = valid && multicore_axis->HasAttr("VECTORIZED") && weak_constraint;
+    valid = valid && multicore_axis->HasAttr("INSTIZED") && weak_constraint;
   }
   ss << "--> Adjust tiling factor " << origin_factor << " to " << tiling_factor << " if valid(" << valid
      << ") and efficient(" << efficient << ") according to proposal range (" << min_factor_for_enough_data << ", "

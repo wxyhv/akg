@@ -1,5 +1,5 @@
 /**
- * Copyright 2020 Huawei Technologies Co., Ltd
+ * Copyright 2020-2021 Huawei Technologies Co., Ltd
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -87,7 +87,6 @@ class ModStrategy : public TilingStrategy {
   std::string interested_attr_key = "MOD";
 };
 
-// These strategies aim to deal with special insn in Davinci core.
 class CastStrategy : public TilingStrategy {
  public:
   explicit CastStrategy(const TilingAnalyzer *a) : TilingStrategy(a) {}

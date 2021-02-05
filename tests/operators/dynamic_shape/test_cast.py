@@ -2,10 +2,6 @@ import boot
 import pytest
 
 
-@pytest.mark.cast
-@pytest.mark.level0
-@pytest.mark.env_oncard
-@pytest.mark.platform_x86_ascend_training
 def test_cast():
     #boot.run("test_resnet50_cast_000", "cast_run", ((64, 128, 16, 16), "float32", "float16"), "dynamic")
     #boot.run("test_resnet50_cast_001", "cast_run", ((32, 64, 16, 16), "float32", "float16"), "dynamic")

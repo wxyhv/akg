@@ -1,5 +1,5 @@
 /**
- * Copyright 2019 Huawei Technologies Co., Ltd
+ * Copyright 2019-2021 Huawei Technologies Co., Ltd
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -315,7 +315,7 @@ void Scop::MakeBufferFootprintCluster(BufferDefInfo &tensor_info) {
     if (tensor_info.IsIm2col()) {
       HoistIm2colBufferFootprintCluster(schedule, node, index, tensor_info);
     } else {
-      if (tensor_info.IsGemmDataL12L0() || tensor_info.IsGemmWeightL12L0()) {
+      if (tensor_info.IsGemmDataC12C0() || tensor_info.IsGemmWeightC12C0()) {
         AddGemmTransposeFpCluster(schedule);
       }
       MakeMultiBufferFootprint(schedule, node, index, tensor_info);
@@ -414,19 +414,19 @@ isl::schedule_node Scop::HoistTensorClusterFootprint(isl::schedule_node tree, si
     all_read_only = all_read_only && buf_fp.second.cluster->UnWriteable();
   }
 
-  if (is_bind_tensor && tensor_info.mem_type != MemType::UBL0_) {
-    if (!(IsGemm() && tensor_info.IsCubeCL1Write())) {
-      bool insert_ub_to_l1 = false;
+  if (is_bind_tensor && tensor_info.mem_type != MemType::BUF_C0_) {
+    if (!(IsGemm() && tensor_info.IsMmuCC1Write())) {
+      bool insert_buf_to_c1 = false;
       if (!data_.fake_copyin.is_empty()) {
-        data_.fake_copyin.foreach_map([&insert_ub_to_l1, &src_tensor_id, &dst_tensor_id](const isl::map &m) -> void {
+        data_.fake_copyin.foreach_map([&insert_buf_to_c1, &src_tensor_id, &dst_tensor_id](const isl::map &m) -> void {
           if ((m.get_tuple_id(isl_dim_out).get_name() == src_tensor_id.get_name()) &&
-              (src_tensor_id.get_name() + "_local_L1" == dst_tensor_id.get_name())) {
-            insert_ub_to_l1 = true;
+              (src_tensor_id.get_name() + LOCAL_C1 == dst_tensor_id.get_name())) {
+            insert_buf_to_c1 = true;
           }
         });
       }
-      if (insert_ub_to_l1) {
-        isl::id outer_tensorId = isl::id(src_tensor_id.ctx(), src_tensor_id.get_name() + "_local_UB");
+      if (insert_buf_to_c1) {
+        isl::id outer_tensorId = isl::id(src_tensor_id.ctx(), src_tensor_id.get_name() + LOCAL_BUF);
         tree =
           PlaceInnerDataCopyBelow(*this, tree, *fp_cluster, *fp_cluster, src_tensor_id, dst_tensor_id, outer_tensorId);
       } else {
@@ -457,7 +457,7 @@ isl::schedule_node Scop::HoistTensorClusterFootprint(isl::schedule_node tree, si
     return tree;
   }
 
-  if (tensor_info.IsGemmDataL12L0()) {
+  if (tensor_info.IsGemmDataC12C0()) {
     if (IsGemmDataTranspose()) {
       const isl::id &trans_id = dst_tensor_id;
       const isl::id &cluster_id = dst_tensor_id;
@@ -467,7 +467,7 @@ isl::schedule_node Scop::HoistTensorClusterFootprint(isl::schedule_node tree, si
     }
   }
 
-  if (tensor_info.IsGemmWeightL12L0()) {
+  if (tensor_info.IsGemmWeightC12C0()) {
     if (IsGemmWeightTranspose()) {
       const isl::id &trans_id = dst_tensor_id;
       const isl::id &cluster_id = dst_tensor_id;
@@ -477,10 +477,10 @@ isl::schedule_node Scop::HoistTensorClusterFootprint(isl::schedule_node tree, si
     }
   }
   auto scop_cluster = fp_cluster;
-  if (IsGemm() && (tensor_info.IsGemmDataL12L0() || tensor_info.IsGemmWeightL12L0())) {
+  if (IsGemm() && (tensor_info.IsGemmDataC12C0() || tensor_info.IsGemmWeightC12C0())) {
     scop_cluster = GetBufferDefInfo(tensor_info.tensor_id).footprints_cluster;
   }
-  if (tensor_info.IsPreCubeTile2Write()) {
+  if (tensor_info.IsPreMmuTile2Write()) {
     auto info = GetBufferDefInfo(tensor_info.tensor_id);
     auto new_scop_group = info.GetFootPrintCluster(mark_node);
     if (new_scop_group != nullptr) {
@@ -513,7 +513,7 @@ void Scop::ReorderBufferedDefInfos() {
     [&tensors](const isl::map &m) -> void { tensors.insert(m.get_tuple_id(isl_dim_out).get_name()); });
 
   for (size_t index = 1; index < buffer_def_infos_.size(); index++) {
-    if ((buffer_def_infos_[index].mark_tag == REALIZE_L1) &&
+    if ((buffer_def_infos_[index].mark_tag == REALIZE_C1) &&
         (tensors.find(buffer_def_infos_[index].tensor_id.get_name()) != tensors.end())) {
       BufferDefInfo promoted_info = buffer_def_infos_[index];
       buffer_def_infos_.erase(buffer_def_infos_.begin() + static_cast<int>(index));
@@ -620,10 +620,10 @@ static isl::pw_multi_aff ComputeNewBufferFootprint(const std::shared_ptr<TensorF
 }
 
 /*
- * Remove the constant offset from provide args, e.g. input_1_local_UB(32, 7, cc2, cc3) = input_1(...)
+ * Remove the constant offset from provide args, e.g. input_1_local_BUF(32, 7, cc2, cc3) = input_1(...)
  * Check the footprint cluster of the hoisted var to confirm this input tensor has multiple accesses
  * from shifted tiles. This should be improved by computing the new footprint with footprint_per_access(),
- * but from isl AST we do not know the footprint ID that corresponds to the GM -> UB copy.
+ * but from isl AST we do not know the footprint ID that corresponds to the GM -> BUF copy.
  */
 isl::pw_multi_aff Scop::RemoveConstOffsetFromBufferFootprint(const isl::pw_multi_aff &buffer_footprint) {
   const isl::id buffer_id = buffer_footprint.get_tuple_id(isl_dim_out);
@@ -766,7 +766,7 @@ void Scop::GatherFractalDefInfo(const isl::schedule_node &tree, BufferDefInfo &t
 }
 
 /*
- * Update sizes of a specific tensor in order to support realize shape expansion in UB -> L1 strided copy
+ * Update sizes of a specific tensor in order to support realize shape expansion in BUF -> C1 strided copy
  * param new_sizes: new shape of the tensor
  * return: found or not found
  */

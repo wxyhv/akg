@@ -1,5 +1,5 @@
 /**
- * Copyright 2019 Huawei Technologies Co., Ltd
+ * Copyright 2019-2021 Huawei Technologies Co., Ltd
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -26,6 +26,8 @@
 #include <string>
 
 #include "pass/utils.h"
+#include "poly/dsa_utils.h"
+
 namespace akg {
 namespace ir {
 namespace poly {
@@ -317,7 +319,7 @@ std::tuple<isl::union_map, isl::union_map, isl::union_map> ConstructPolyAccesses
         }
         return 0;
       };
-      if (call->name == CALL_IM2COL_UB && call->args.size() == im2_col_arg_num) {
+      if (call->name == CALL_IM2COL_BUF && call->args.size() == im2_col_arg_num) {
         m_strid_h = getCallValue(Im2colCallIndex::idxStrideH);
         m_strid_w = getCallValue(Im2colCallIndex::idxStrideW);
         m_kernel_h = getCallValue(Im2colCallIndex::idxKernelH);
@@ -575,7 +577,7 @@ std::tuple<isl::union_map, isl::union_map, isl::union_map> ConstructPolyAccesses
     void Visit_(const Evaluate *op) final {
       IRVisitor::Visit_(op);
       const Call *call_op = op->value.as<Call>();
-      if (call_op && call_op->name == CALL_IM2COL_UB) {
+      if (call_op && call_op->name == CALL_IM2COL_BUF) {
         CHECK_GE(call_op->args.size(), 2);
         CHECK(call_op->args[0].as<Call>());
         CHECK_GE(call_op->args[0].as<Call>()->args.size(), 2);
@@ -868,12 +870,12 @@ void ParseStmtOpCall(const isl::id &id, const Call *call, Scop::Data &data, cons
       // do nothing
     } else if (0 == strcmp(call->name.c_str(), "sub_relu")) {
       // do nothing
-    } else if (0 == strcmp(call->name.c_str(), "load3d_l1_ub")) {
-      data.stmt_op_Info.at(id).isLoad3d = true;
+    } else if (0 == strcmp(call->name.c_str(), "load_im2col_c1_buf")) {
+      data.stmt_op_Info.at(id).is_load_im2col = true;
       ParseStmtOps(id, call->args[0], data, func);
     } else if (0 == strcmp(call->name.c_str(), "mad")) {
       data.stmt_op_Info.at(id).ops.push_back(PolyOpType::mad);
-      data.stmt_op_Info.at(id).isCube = true;
+      data.stmt_op_Info.at(id).isMMU = true;
       // assign + mad
       std::string name = id.get_name();
       size_t index = static_cast<size_t>(WrappedStrtol(name.substr(name.length() - 1)));
@@ -882,7 +884,7 @@ void ParseStmtOpCall(const isl::id &id, const Call *call, Scop::Data &data, cons
       ss << tmp << index - 1;
       if (data.stmt_op_Info.count(isl::id(id.ctx(), ss.str())) > 0 &&
           data.stmt_op_Info.at(isl::id(id.ctx(), ss.str())).ops[0] == PolyOpType::broadcast)
-        data.stmt_op_Info.at(isl::id(id.ctx(), ss.str())).isCubeAssign = true;
+        data.stmt_op_Info.at(isl::id(id.ctx(), ss.str())).isMMUAssign = true;
       // end
       data.stmt_op_Info.at(id).C_ = func->func_name();
       CHECK(call->args.size() == 2) << "invalid args of mad! ";
@@ -919,8 +921,8 @@ void ParseStmtOpCall(const isl::id &id, const Call *call, Scop::Data &data, cons
 }
 
 void ParseStmtOps(const isl::id &id, const Expr &val, Scop::Data &data, const FunctionRef &func) {
-  data.stmt_op_Info.at(id).isCube = false;
-  data.stmt_op_Info.at(id).isCubeAssign = false;
+  data.stmt_op_Info.at(id).isMMU = false;
+  data.stmt_op_Info.at(id).isMMUAssign = false;
   if (auto add = val.as<Add>()) {
     if (isImm(add->a) || isImm(add->b)) {
       if (!isImm(add->a)) {  // if add->a is not a scalar, then put it into recursion
@@ -1041,7 +1043,7 @@ void ParseStmtOps(const isl::id &id, const Evaluate *stmt, Scop::Data &data, con
     stmt_op_Info.readtensors.push_back(tensor_id);
   }
 
-  if (stmt->value.as<Call>() && stmt->value.as<Call>()->name == CALL_IM2COL_UB) {
+  if (stmt->value.as<Call>() && stmt->value.as<Call>()->name == CALL_IM2COL_BUF) {
     stmt_op_Info.ops.push_back(PolyOpType::im2col);
     stmt_op_Info.isIm2col = true;
   }
@@ -1438,7 +1440,7 @@ isl::schedule MakeScheduleTreeHelper(const NodeRef &s, Scop &scop, const isl::se
 
     void Visit_(const Evaluate *op) final {
       const Call *call_op = op->value.as<Call>();
-      if (call_op && call_op->name == CALL_IM2COL_UB) {
+      if (call_op && call_op->name == CALL_IM2COL_BUF) {
         size_t stmt_index = scop.data_.statements.size();
         isl::id id(set.ctx(), macro_stmt >= 0 ? kStatementLabel + std::to_string(macro_stmt)
                                               : kStatementLabel + std::to_string(stmt_index));
@@ -1574,11 +1576,11 @@ isl::schedule MakeScheduleTreeHelper(const NodeRef &s, Scop &scop, const isl::se
         std::string update_name = tensor->op->name;
         std::string update_scope;
         if (tensor->op.as<PlaceholderOpNode>()) {
-          update_name += "_local_L1";
-          update_scope = "local.L1";
+          update_name += LOCAL_C1;
+          update_scope = DOT_LOCAL_C1;
         } else {
-          update_name += "_local_UB";
-          update_scope = "local.UB";
+          update_name += LOCAL_BUF;
+          update_scope = DOT_LOCAL_BUF;
         }
         Buffer update_buffer = BufferNode::make(buffer->data, buffer->dtype, buffer->shape, buffer->strides,
                                                 buffer->elem_offset, buffer->name, update_scope, buffer->data_alignment,

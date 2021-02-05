@@ -1,5 +1,5 @@
 /**
- * Copyright 2019 Huawei Technologies Co., Ltd
+ * Copyright 2019-2021 Huawei Technologies Co., Ltd
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -17,7 +17,7 @@
 
 #include "poly/scop_builder.h"
 #include "poly/transform.h"
-#include "poly/cce_isl_emitter.h"
+#include "poly/npu_isl_emitter.h"
 
 namespace akg {
 namespace ir {
@@ -147,7 +147,7 @@ isl::schedule Scop::Transform(isl::schedule sched, bool coincident, bool tuning)
     TransferStmt(tiling_sch);
   }
 
-  // get compute attr for conv and load3d op
+  // get compute attr for conv and load_im2col op
   UpdateComputeAttrInfo();
   if (PRINT_SCHEDULE_INFO) LOG(INFO) << GenHalide(sch);
 
@@ -212,7 +212,7 @@ isl::schedule Scop::Transform(isl::schedule sched, bool coincident, bool tuning)
   std::vector<std::vector<int>> partition_info = AddTileInfo(transform.getPartitionInfo());
   AddPartitionInfoToData(partition_info);
 
-  ComputeByPassL1();
+  ComputeByPassC1();
 
   this->schedule_ = sched;
 
@@ -309,8 +309,8 @@ Stmt Scop::GenHalide(const isl::schedule &schedule_gen) {
   ast_node = CanonicalizeBlockInAst(ast_node);
 
   TIMER_START;
-  Stmt stmt = CCEIslEmitter(*this, node_info_repo, iters).Emit(ast_node);
-  TIMER_SHOW("CCEIslEmitter", std::string(is_spec_gemm_ ? "_specgemm" : ""));
+  Stmt stmt = NPUIslEmitter(*this, node_info_repo, iters).Emit(ast_node);
+  TIMER_SHOW("NPUIslEmitter", std::string(is_spec_gemm_ ? "_specgemm" : ""));
 
   if (is_dynamic_) {
     stmt = RestoreCombinedParams(stmt);

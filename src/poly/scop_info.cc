@@ -1,5 +1,5 @@
 /**
- * Copyright 2019 Huawei Technologies Co., Ltd
+ * Copyright 2019-2021 Huawei Technologies Co., Ltd
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -39,7 +39,7 @@ bool Scop::IsConvBackpropFilter() const {
 
 Expr Scop::ExtractExprFromAttrs(const std::string &name) const {
   for (auto i : data_.stmt_op_Info) {
-    if (!i.second.isCube) {
+    if (!i.second.isMMU) {
       continue;
     }
 
@@ -81,7 +81,7 @@ std::unordered_set<std::string> Scop::ExtractWithStmtId() const {
 
 std::string Scop::ExtractStringFromAttrs(const std::string &name) const {
   for (auto i : data_.stmt_op_Info) {
-    if (!i.second.isCube) {
+    if (!i.second.isMMU) {
       continue;
     }
 
@@ -104,7 +104,7 @@ std::string Scop::ExtractStringFromAttrs(const std::string &name) const {
 
 std::string Scop::ExtractStringFromAttrsAndInfo(const std::string &name) const {
   for (auto i : data_.stmt_op_Info) {
-    if (!i.second.isCube) {
+    if (!i.second.isMMU) {
       continue;
     }
 
@@ -162,32 +162,32 @@ std::string TensorMarkTag(MemType mem_type, MemFlow mem_flow) {
   /******************************
    *  This interface is used to convert tensor MemType to isl schedule tree mark_tag,
    *  used to record the extension position for each tensor in isl schedule tree.
-   *  Now REALIZE_L1/REALIZE_L0/REALIZE_UB mark_tag is equal to its MemType.
+   *  Now REALIZE_C1/REALIZE_C0/REALIZE_BUF mark_tag is equal to its MemType.
    *  For mem_type is DDR, mark_tag is empty string "".
    * */
   switch (mem_type) {
-    case MemType::L1_:
-      if (mem_flow.size() == 3 && mem_flow[0] == MemType::DDR && mem_flow[1] == MemType::L1_ &&
-          mem_flow[2] == MemType::UBL1_)
-        return REALIZE_L1UBL1;
-      return REALIZE_L1;
-    case MemType::UB_:
+    case MemType::C1_:
+      if (mem_flow.size() == 3 && mem_flow[0] == MemType::DDR && mem_flow[1] == MemType::C1_ &&
+          mem_flow[2] == MemType::BUF_C1_)
+        return REALIZE_C1BUFC1;
+      return REALIZE_C1;
+    case MemType::BUF_:
       // ordinary conv condition no fusion
       if (mem_flow.size() == 3 && mem_flow[0] == MemType::DDR && mem_flow[1] == mem_type &&
-          mem_flow[2] == MemType::L0C_)
-        return REALIZE_L0;
-      return REALIZE_UB;
-    case MemType::L0A_:
-      return REALIZE_L0;
-    case MemType::L0B_:
-      return REALIZE_L0;
-    case MemType::L0C_:
-      return REALIZE_L0;
-    case MemType::UBL0_:
-      return REALIZE_UBL0;
-    case MemType::UBL1_:
-      if (mem_flow.size() == 2 && mem_flow[0] == MemType::DDR && mem_flow[1] == MemType::UBL1_) return REALIZE_L1;
-      return REALIZE_UBL1;
+          mem_flow[2] == MemType::C0C_)
+        return REALIZE_C0;
+      return REALIZE_BUF;
+    case MemType::C0A_:
+      return REALIZE_C0;
+    case MemType::C0B_:
+      return REALIZE_C0;
+    case MemType::C0C_:
+      return REALIZE_C0;
+    case MemType::BUF_C0_:
+      return REALIZE_BUFC0;
+    case MemType::BUF_C1_:
+      if (mem_flow.size() == 2 && mem_flow[0] == MemType::DDR && mem_flow[1] == MemType::BUF_C1_) return REALIZE_C1;
+      return REALIZE_BUFC1;
     case MemType::DDR:
       return "";
     default:
@@ -243,7 +243,7 @@ bool Scop::MayWriteAfterRead(const std::string &name) const {
 
 bool Scop::IsA(const std::string &name) const {
   for (auto &info : data_.stmt_op_Info) {
-    if (info.second.isCube) {
+    if (info.second.isMMU) {
       if (info.second.A_ == name) {
         return true;
       }
@@ -254,7 +254,7 @@ bool Scop::IsA(const std::string &name) const {
 
 bool Scop::IsB(const std::string &name) const {
   for (auto &info : data_.stmt_op_Info) {
-    if (info.second.isCube) {
+    if (info.second.isMMU) {
       if (info.second.B_ == name) {
         return true;
       }
@@ -265,7 +265,7 @@ bool Scop::IsB(const std::string &name) const {
 
 bool Scop::IsC(const std::string &name) const {
   for (auto &info : data_.stmt_op_Info) {
-    if (info.second.isCube) {
+    if (info.second.isMMU) {
       if (info.second.C_ == name) {
         return true;
       }
@@ -274,10 +274,10 @@ bool Scop::IsC(const std::string &name) const {
   return false;
 }
 
-bool Scop::IsCUB(const std::string &name) const {
+bool Scop::IsCBUF(const std::string &name) const {
   for (auto &info : data_.stmt_op_Info) {
-    if (info.second.isCube) {
-      if (info.second.C_ + "_local_UB" == name) {
+    if (info.second.isMMU) {
+      if (info.second.C_ + LOCAL_BUF == name) {
         return true;
       }
     }
@@ -287,7 +287,7 @@ bool Scop::IsCUB(const std::string &name) const {
 
 std::string Scop::GetAName() const {
   for (auto &info : data_.stmt_op_Info) {
-    if (info.second.isCube) {
+    if (info.second.isMMU) {
       return info.second.A_;
     }
   }
@@ -296,7 +296,7 @@ std::string Scop::GetAName() const {
 
 std::string Scop::GetBName() const {
   for (auto &info : data_.stmt_op_Info) {
-    if (info.second.isCube) {
+    if (info.second.isMMU) {
       return info.second.B_;
     }
   }
@@ -305,7 +305,7 @@ std::string Scop::GetBName() const {
 
 std::string Scop::GetCName() const {
   for (auto &info : data_.stmt_op_Info) {
-    if (info.second.isCube) {
+    if (info.second.isMMU) {
       return info.second.C_;
     }
   }
@@ -319,16 +319,16 @@ bool Scop::IsIm2col() const {
   return false;
 }
 
-bool Scop::IsLoad3dL1Ub() const {
+bool Scop::IsLoadIm2colC1BUF() const {
   for (auto &info : data_.stmt_op_Info) {
-    if (info.second.isLoad3d) return true;
+    if (info.second.is_load_im2col) return true;
   }
   return false;
 }
 
-bool Scop::IsLoad3dL1UBStmt(const std::string &stmt_name) const {
+bool Scop::IsLoadIm2colC1BUFStmt(const std::string &stmt_name) const {
   for (auto &info : data_.stmt_op_Info) {
-    if (info.second.isLoad3d && info.first.name() == stmt_name) {
+    if (info.second.is_load_im2col && info.first.name() == stmt_name) {
       return true;
     }
   }
@@ -337,7 +337,7 @@ bool Scop::IsLoad3dL1UBStmt(const std::string &stmt_name) const {
 
 bool Scop::HasCube() const {
   for (auto &info : data_.stmt_op_Info) {
-    if (info.second.isCube) return true;
+    if (info.second.isMMU) return true;
   }
   return false;
 }
@@ -402,13 +402,13 @@ Tensor Scop::FindTensorInOrig(const std::string &str) {
 void Scop::UpdateComputeAttrInfo() {
   if (IsConv()) {
     FindComputeAttr(ConvATTRList);
-  } else if (IsLoad3dL1Ub()) {
+  } else if (IsLoadIm2colC1BUF()) {
     FindComputeAttr(FastPoolingATTRList);
   }
 }
 void Scop::FindComputeAttr(const std::vector<std::string> &op_keys) {
   for (auto i : data_.stmt_op_Info) {
-    if (i.second.isCube || i.second.isLoad3d) {
+    if (i.second.isMMU || i.second.is_load_im2col) {
       const Node *stmt_node = data_.statements.at(i.first);
       if (stmt_node->IsInstance<Provide>()) {
         auto provide = static_cast<const Provide *>(stmt_node);
@@ -456,7 +456,7 @@ bool Scop::IsInBinds(const std::string &name) const {
 
 std::string Scop::ConvOutName() {
   for (auto stmt : data_.stmt_op_Info) {
-    if (stmt.second.isCube) {
+    if (stmt.second.isMMU) {
       return stmt.second.C_;
     }
   }
@@ -465,7 +465,7 @@ std::string Scop::ConvOutName() {
 
 air::DataType Scop::MadCastType() {
   for (auto stmt : data_.stmt_op_Info) {
-    if (stmt.second.isCube) {
+    if (stmt.second.isMMU) {
       return stmt.second.MadType_;
     }
   }
@@ -483,7 +483,7 @@ bool Scop::IsFilterCanByPass() {
   auto filter_name = ExtractStringFromAttrs(ATTR_CONV_FILTER_NAME);
   if (tensor_mem_flows_.count(filter_name)) {
     auto filter_memflow = tensor_mem_flows_[filter_name];
-    auto it = find(filter_memflow.begin(), filter_memflow.end(), UBL1_);
+    auto it = find(filter_memflow.begin(), filter_memflow.end(), BUF_C1_);
     if (it != filter_memflow.end()) can_bypass = false;
   }
   return can_bypass;
@@ -564,7 +564,7 @@ void Scop::SetAttrs(const Map<std::string, NodeRef> &attrs) {
   ParseIntAttr(attrs, "kernel_h", &matB_dim_h_);
   ParseIntAttr(attrs, "kernel_w", &matB_dim_w_);
   ParseIntAttr(attrs, "conv_backprop_filter", &conv_back_prop_filter_);
-  ParseIntAttr(attrs, "bypassL1", &bypassL1_);
+  ParseIntAttr(attrs, "bypassC1", &bypathC1_);
   ParseIntAttr(attrs, "dump_tuning_level", &dump_tuning_level_);
   ParseBoolAttr(attrs, "pragma_rmselfdep", &remove_self_dependence_);
   ParseBoolAttr(attrs, "pragma_force_rmselfdep", &force_remove_self_dependence_);
@@ -578,7 +578,7 @@ void Scop::SetAttrs(const Map<std::string, NodeRef> &attrs) {
   ParseBoolAttr(attrs, "pragma_modshift", &mod_schedule_shift_);
   ParseBoolAttr(attrs, "pragma_conv_special_dma", &conv_special_dma_);
   ParseBoolAttr(attrs, "pragma_checkcoincident", &tile_check_coincident_);
-  ParseBoolAttr(attrs, "pragma_opt_for_davinci", &optimize_for_davinci_);
+  ParseBoolAttr(attrs, "pragma_opt_for_dsa", &optimize_for_npu_);
   ParseBoolAttr(attrs, "pragma_sink_last_axis", &sink_last_axis_);
   ParseBoolAttr(attrs, "pragma_keep_outer_band_order", &keep_outer_band_order_);
   ParseBoolAttr(attrs, "pragma_disable_group", &disable_group_);
@@ -768,8 +768,8 @@ std::unordered_map<std::string, Expr> Scop::GetConvInfoForTiling() {
 }
 
 void Scop::GetConvMNKInfo(std::vector<DimensionInfo> &dimInfos_conv) {
-  std::vector<DimensionInfo> L1_factors;
-  std::vector<DimensionInfo> L0_factors;
+  std::vector<DimensionInfo> C1_factors;
+  std::vector<DimensionInfo> C0_factors;
 
   std::unordered_set<std::string> conv_pragmas = {
     ATTR_CONV_TILE_W, ATTR_CONV_TILE_H,  ATTR_CONV_TILE_CO, ATTR_CONV_TILE_M,  ATTR_CONV_TILE_N,
@@ -778,13 +778,13 @@ void Scop::GetConvMNKInfo(std::vector<DimensionInfo> &dimInfos_conv) {
 
   for (auto dim : dimInfos_conv) {
     if (conv_pragmas.find(dim.axis) != conv_pragmas.end()) {
-      L0_factors.emplace_back(dim);
+      C0_factors.emplace_back(dim);
     } else {
-      L1_factors.emplace_back(dim);
+      C1_factors.emplace_back(dim);
     }
   }
-  dimInfos_conv = L1_factors;
-  conv_mnk_dims_ = L0_factors;
+  dimInfos_conv = C1_factors;
+  conv_mnk_dims_ = C0_factors;
   if (is_dynamic_) {
     for (const auto &dim : conv_mnk_dims_) {
       fractal_int_info_[dim.axis] = IntImm::make(Int(32), dim.l1_tiling_size);
@@ -1011,7 +1011,7 @@ void Scop::CreateConvModel(bool is_dynamic) {
       }
     }
     if (model_) {
-      static_cast<void>(model_->infer_L1_tile());
+      static_cast<void>(model_->infer_CA1_tile());
     }
   }
 }
@@ -1285,7 +1285,7 @@ bool Scop::IsConvHeadTail(const std::string &conv_output, const isl::id &stmtId,
                           const StmtIdHashMap &op_write_map) {
   if (!IsConv()) return false;
 
-  if (op_info.isCube || op_info.isCubeAssign) return false;
+  if (op_info.isMMU || op_info.isMMUAssign) return false;
 
   if (op_info.ops.size() != 1) return false;
 
@@ -1322,32 +1322,32 @@ void Scop::CreateDataFlowInfo() {
     if (endptr == nullptr || *endptr != '\0') LOG(FATAL) << "failed to convert string " << subNum << " to number";
 
     if (IsConv() && IsConvHeadTail(conv_output, stmt.first, stmt.second, op_write_map)) {
-      stmt_type_[num] = std::make_pair(stmt.first.get_name(), STMT_OP_TYPE::VECTOR);
+      stmt_type_[num] = std::make_pair(stmt.first.get_name(), STMT_OP_TYPE::INST);
       continue;
     }
 
-    if (stmt.second.isCube && IsConv()) {
-      stmt_type_[num] = std::make_pair(stmt.first.get_name(), STMT_OP_TYPE::CUBE_CONV);
-      dma_dataflow.CreateStmtDataFlow(STMT_OP_TYPE::CUBE_CONV, stmt.first, stmt.second, op_read_map, op_write_map);
+    if (stmt.second.isMMU && IsConv()) {
+      stmt_type_[num] = std::make_pair(stmt.first.get_name(), STMT_OP_TYPE::MMU_CONV);
+      dma_dataflow.CreateStmtDataFlow(STMT_OP_TYPE::MMU_CONV, stmt.first, stmt.second, op_read_map, op_write_map);
     }
 
-    if (stmt.second.isCube && !IsConv()) {
-      stmt_type_[num] = std::make_pair(stmt.first.get_name(), STMT_OP_TYPE::CUBE_GEMM);
-      dma_dataflow.CreateStmtDataFlow(STMT_OP_TYPE::CUBE_GEMM, stmt.first, stmt.second, op_read_map, op_write_map);
+    if (stmt.second.isMMU && !IsConv()) {
+      stmt_type_[num] = std::make_pair(stmt.first.get_name(), STMT_OP_TYPE::MMU_GEMM);
+      dma_dataflow.CreateStmtDataFlow(STMT_OP_TYPE::MMU_GEMM, stmt.first, stmt.second, op_read_map, op_write_map);
     }
 
-    if (stmt.second.isIm2col || stmt.second.isLoad3d) {
-      stmt_type_[num] = std::make_pair(stmt.first.get_name(), STMT_OP_TYPE::IM2COL_UB);
-      dma_dataflow.CreateStmtDataFlow(STMT_OP_TYPE::IM2COL_UB, stmt.first, stmt.second, op_read_map, op_write_map);
+    if (stmt.second.isIm2col || stmt.second.is_load_im2col) {
+      stmt_type_[num] = std::make_pair(stmt.first.get_name(), STMT_OP_TYPE::IM2COL_BUF);
+      dma_dataflow.CreateStmtDataFlow(STMT_OP_TYPE::IM2COL_BUF, stmt.first, stmt.second, op_read_map, op_write_map);
     }
 
-    if (!stmt.second.isCube && !stmt.second.isCubeAssign) {
-      stmt_type_[num] = std::make_pair(stmt.first.get_name(), STMT_OP_TYPE::VECTOR);
-      dma_dataflow.CreateStmtDataFlow(STMT_OP_TYPE::VECTOR, stmt.first, stmt.second, op_read_map, op_write_map);
+    if (!stmt.second.isMMU && !stmt.second.isMMUAssign) {
+      stmt_type_[num] = std::make_pair(stmt.first.get_name(), STMT_OP_TYPE::INST);
+      dma_dataflow.CreateStmtDataFlow(STMT_OP_TYPE::INST, stmt.first, stmt.second, op_read_map, op_write_map);
     }
 
-    if (stmt.second.isCubeAssign) {
-      stmt_type_[num] = std::make_pair(stmt.first.get_name(), STMT_OP_TYPE::VECTOR);
+    if (stmt.second.isMMUAssign) {
+      stmt_type_[num] = std::make_pair(stmt.first.get_name(), STMT_OP_TYPE::INST);
     }
   }
   dma_dataflow.FusionAnalysis();
@@ -1356,28 +1356,28 @@ void Scop::CreateDataFlowInfo() {
 
 void Scop::AddStateTensorsDataFlow() {
   // build init list
-  // init list   TensorID   input0      DDR --> L1 --> L1 --> L0A
-  //             TensorID   input1      DDR --> L0B
-  //             TensorID   input2      DDR --> UB
-  //             TensorID   output0     DDR <-- UB <-- L0C
-  //             TensorID   max_1       UB  --> DDR
+  // init list   TensorID   input0      DDR --> C1 --> C1 --> C0A
+  //             TensorID   input1      DDR --> C0B
+  //             TensorID   input2      DDR --> BUF
+  //             TensorID   output0     DDR <-- BUF <-- C0C
+  //             TensorID   max_1       BUF  --> DDR
   // build whole list
   // add below node
-  //   TensorID  input0_local_L1               L1 --> L1 --> L0A
-  //   TensorID  input0_fractal_L1             L1 --> L0A
-  //   TensorID  input0_fractal_L1_local_L0A   L0A
-  //   TensorID  input1_local_L1_local_L0B     L0B
-  //   TensorID  output0_local_UB               UB <-- L0C
-  //   TensorID  output0_local_UB_local_L0C     L0C
-  //   TensorID  input2_local_UB               UB
-  //   TensorID   max_1_local_UB               UB
+  //   TensorID  input0_local_C1               C1 --> C1 --> C0A
+  //   TensorID  input0_fractal_C1             C1 --> C0A
+  //   TensorID  input0_fractal_C1_local_C0A   C0A
+  //   TensorID  input1_local_C1_local_C0B     C0B
+  //   TensorID  output0_local_BUF               BUF <-- C0C
+  //   TensorID  output0_local_BUF_local_C0C     C0C
+  //   TensorID  input2_local_BUF               BUF
+  //   TensorID   max_1_local_BUF               BUF
   CHECK_EQ(tensor_mem_flows_.size(), tensor_name_flows_.size());
   CHECK_GT(tensor_mem_flows_.size(), 0);
   for (const auto &tensor : tensor_mem_flows_) {
     std::string name = tensor.first;
     if (tensor_name_flows_.find(name) == tensor_name_flows_.end()) continue;
-    auto it = std::find(tensor_mem_flows_[name].begin(), tensor_mem_flows_[name].end(), UBL1_);
-    auto it2 = std::find(tensor_mem_flows_[name].begin(), tensor_mem_flows_[name].end(), L1_);
+    auto it = std::find(tensor_mem_flows_[name].begin(), tensor_mem_flows_[name].end(), BUF_C1_);
+    auto it2 = std::find(tensor_mem_flows_[name].begin(), tensor_mem_flows_[name].end(), C1_);
     if (it != tensor_mem_flows_[name].end() && it2 != tensor_mem_flows_[name].end()) {
       std::vector<std::string> name_flow1, name_flow2;
       MemFlow mem_flow1, mem_flow2;
@@ -1468,11 +1468,11 @@ void Scop::AddTensorDataFlow(const std::vector<MemType> &memflow, const std::vec
    *
    * init mem_type:        DDR
    * init tensor_id:       input0
-   * init dst_tensorId:    input0_local_L1
+   * init dst_tensorId:    input0_local_C1
    * init ancestor_id:     input0
    *
-   * init mark_tag:        base on dst_tensorId mem_type, realize_L1
-   * init data_stream:     input0 --> input0_local_L1 --> input0_fractal_L1 --> input0_fractal_L1_local_L0A
+   * init mark_tag:        base on dst_tensorId mem_type, realize_C1
+   * init data_stream:     input0 --> input0_local_C1 --> input0_fractal_C1 --> input0_fractal_C1_local_C0A
    **********************************************/
   std::string tensor_name = nameflow[i];
   MemType mem_type = memflow[i];
@@ -1497,13 +1497,13 @@ void Scop::AddTensorDataFlow(const std::vector<MemType> &memflow, const std::vec
     dst_mem_type = data_stream[1].second;
   }
   std::string mark_tag = TensorMarkTag(dst_mem_type, memflow);
-  if (IsIm2col() && mark_tag == REALIZE_L1) {
-    mark_tag = REALIZE_UB;
+  if (IsIm2col() && mark_tag == REALIZE_C1) {
+    mark_tag = REALIZE_BUF;
   }
 
   bool isCopyin = IsCopyinTensor(tensor_id.get_name());
-  if (!isCopyin && dst_mem_type == MemType::UBL1_) {
-    mark_tag = REALIZE_L1UBL1;
+  if (!isCopyin && dst_mem_type == MemType::BUF_C1_) {
+    mark_tag = REALIZE_C1BUFC1;
   }
 
   std::vector<size_t> sizes;
@@ -1567,14 +1567,14 @@ void Scop::AddPartitionInfoToData(const std::vector<std::vector<int>> &partition
   }
 }
 
-void Scop::ComputeByPassL1() {
-  if (bypassL1_ == 0) {
-    int value = ExtractIntFromAttrs(ATTR_CONV_BYPASS_L1);
+void Scop::ComputeByPassC1() {
+  if (bypathC1_ == 0) {
+    int value = ExtractIntFromAttrs(ATTR_CONV_BYPASS_C1);
     if (value >= 0) {
-      bypassL1_ = value;
+      bypathC1_ = value;
     }
   }
-  bypassL1_ = (IsFilterCanByPass()) ? bypassL1_ : 0;
+  bypathC1_ = (IsFilterCanByPass()) ? bypathC1_ : 0;
 }
 
 }  // namespace poly

@@ -1,4 +1,4 @@
-# Copyright 2019 Huawei Technologies Co., Ltd
+# Copyright 2019-2021 Huawei Technologies Co., Ltd
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -26,7 +26,7 @@ import os
 
 from base import TestBase
 import pytest
-from test_run.load3d_run import load3d_run
+from test_run.load_im2col_run import load_im2col_run
 
 
 ############################################################
@@ -58,7 +58,7 @@ class TestCase(TestBase):
         testflag,opfuncname,testRunArgs, setdimArgs
         """
 
-        case_name = "test_akg_load3d_001"
+        case_name = "test_akg_load_im2col_001"
         case_path = os.getcwd()
 
         # params init
@@ -67,25 +67,25 @@ class TestCase(TestBase):
         self.caseresult = True
         self._log.info("============= {0} Setup case============".format(self.casename))
         self.testarg = [
-            ("001_load3d_input", load3d_run, ((32, 16, 224, 224), (7,7), (2,2), (3,3,3,3), "float16")),
-            ("002_load3d_input", load3d_run, ((32,64, 56, 56), (1,1), (1,1), (0,0,0,0), "float16")),
-            # ("003_load3d_input", load3d_run, ((32,64, 56, 56), (3,3), (1,1), (1,1,1,1),"float16")),
-            ("004_load3d_input", load3d_run, ((32,256, 56, 56), (1,1), (1,1), (0,0,0,0),"float16")),
-            ("005_load3d_input", load3d_run, ((32,256, 56, 56), (1,1), (2,2), (0,0,0,0),"float16")),
-            # ("006_load3d_input", load3d_run, ((32,128, 56, 56), (3,3), (2,2), (1,1,1,1),"float16")),
-            ("007_load3d_input", load3d_run, ((32,128, 28, 28), (1,1), (1,1), (0,0,0,0),"float16")),
-            ("008_load3d_input", load3d_run, ((32,512, 28, 28), (1,1), (1,1), (0,0,0,0),"float16")),
-            ("009_load3d_input", load3d_run, ((32,128, 28, 28), (3,3), (1,1), (1,1,1,1),"float16")),
-            ("0010_load3d_input", load3d_run, ((32,512, 28, 28), (1,1), (2,2), (0,0,0,0),"float16")),
-            # ("0011_load3d_input", load3d_run, ((32,256, 28, 28), (3,3), (2,2), (1,1,1,1),"float16")),
-            ("0012_load3d_input", load3d_run, ((32,256, 14, 14), (1,1), (1,1), (0,0,0,0),"float16")),
-            ("0013_load3d_input", load3d_run, ((32,1024, 14, 14), (1,1), (1,1), (0,0,0,0),"float16")),
-            ("0014_load3d_input", load3d_run, ((32,256, 14, 14), (1,1), (1,1), (0,0,0,0),"float16")),
-            ("0015_load3d_input", load3d_run, ((32,1024, 14, 14), (1,1), (2,2), (0,0,0,0),"float16")),
-            # ("0016_load3d_input", load3d_run, ((32,512, 14, 14), (3,3), (2,2), (1,1,1,1),"float16")),
-            ("017_load3d_input", load3d_run, ((32,512, 7,  7), (1,1), (1,1), (0,0,0,0),"float16")),
-            ("018_load3d_input", load3d_run, ((32,2048, 7, 7), (1,1), (1,1), (0,0,0,0), "float16")),
-            ("019_load3d_input", load3d_run, ((32,512, 7, 7), (3,3), (1,1), (1,1,1,1), "float16")),
+            ("001_load_im2col_input", load_im2col_run, ((32, 16, 224, 224), (7,7), (2,2), (3,3,3,3), "float16")),
+            ("002_load_im2col_input", load_im2col_run, ((32,64, 56, 56), (1,1), (1,1), (0,0,0,0), "float16")),
+            # ("003_load_im2col_input", load_im2col_run, ((32,64, 56, 56), (3,3), (1,1), (1,1,1,1),"float16")),
+            ("004_load_im2col_input", load_im2col_run, ((32,256, 56, 56), (1,1), (1,1), (0,0,0,0),"float16")),
+            ("005_load_im2col_input", load_im2col_run, ((32,256, 56, 56), (1,1), (2,2), (0,0,0,0),"float16")),
+            # ("006_load_im2col_input", load_im2col_run, ((32,128, 56, 56), (3,3), (2,2), (1,1,1,1),"float16")),
+            ("007_load_im2col_input", load_im2col_run, ((32,128, 28, 28), (1,1), (1,1), (0,0,0,0),"float16")),
+            ("008_load_im2col_input", load_im2col_run, ((32,512, 28, 28), (1,1), (1,1), (0,0,0,0),"float16")),
+            ("009_load_im2col_input", load_im2col_run, ((32,128, 28, 28), (3,3), (1,1), (1,1,1,1),"float16")),
+            ("0010_load_im2col_input", load_im2col_run, ((32,512, 28, 28), (1,1), (2,2), (0,0,0,0),"float16")),
+            # ("0011_load_im2col_input", load_im2col_run, ((32,256, 28, 28), (3,3), (2,2), (1,1,1,1),"float16")),
+            ("0012_load_im2col_input", load_im2col_run, ((32,256, 14, 14), (1,1), (1,1), (0,0,0,0),"float16")),
+            ("0013_load_im2col_input", load_im2col_run, ((32,1024, 14, 14), (1,1), (1,1), (0,0,0,0),"float16")),
+            ("0014_load_im2col_input", load_im2col_run, ((32,256, 14, 14), (1,1), (1,1), (0,0,0,0),"float16")),
+            ("0015_load_im2col_input", load_im2col_run, ((32,1024, 14, 14), (1,1), (2,2), (0,0,0,0),"float16")),
+            # ("0016_load_im2col_input", load_im2col_run, ((32,512, 14, 14), (3,3), (2,2), (1,1,1,1),"float16")),
+            ("017_load_im2col_input", load_im2col_run, ((32,512, 7,  7), (1,1), (1,1), (0,0,0,0),"float16")),
+            ("018_load_im2col_input", load_im2col_run, ((32,2048, 7, 7), (1,1), (1,1), (0,0,0,0), "float16")),
+            ("019_load_im2col_input", load_im2col_run, ((32,512, 7, 7), (3,3), (1,1), (1,1,1,1), "float16")),
 
         ]
 
@@ -96,10 +96,6 @@ class TestCase(TestBase):
 
         return
 
-    @pytest.mark.rpc_mini
-    @pytest.mark.level0
-    @pytest.mark.env_onecard
-    @pytest.mark.platform_x86_ascend_training
     def test_run(self):
         """
         run case.#
@@ -107,9 +103,6 @@ class TestCase(TestBase):
         """
         self.common_run(self.testarg)
 
-    @pytest.mark.rpc_cloud
-    @pytest.mark.env_onecard
-    @pytest.mark.platform_x86_ascend_training
     def test_rpc_cloud(self):
         """
         run case.#
@@ -117,9 +110,6 @@ class TestCase(TestBase):
         """
         self.common_run([self.testarg_rpc_cloud[0]])
 
-    @pytest.mark.level1
-    @pytest.mark.env_onecard
-    @pytest.mark.platform_x86_ascend_training
     def test_run_level1(self):
         """
         run case.#

@@ -1,5 +1,5 @@
 /**
- * Copyright 2019 Huawei Technologies Co., Ltd
+ * Copyright 2019-2021 Huawei Technologies Co., Ltd
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -390,8 +390,8 @@ Stmt EmitAccessNodeCall(const Node *node, const VarMap &var_map_tmp, Scop::Buffe
   // Not hoisted, emitting just the mapped subscript.
   if (!buffer_footprint_info.cluster_id) {
     std::string call_name = call->name;
-    if (is_transfer_stmt && (std::string::npos == call_name.find("_local_UB"))) {
-      call_name = call_name + "_local_UB";
+    if (is_transfer_stmt && (std::string::npos == call_name.find(LOCAL_BUF))) {
+      call_name = call_name + LOCAL_BUF;
       Tensor t = scop.FindTensor(call_name);
       if (t.defined()) {
         return Evaluate::make(Call::make(call->type, call_name, args, call->call_type, t->op, call->value_index));

@@ -1,5 +1,5 @@
 /**
- * Copyright 2019 Huawei Technologies Co., Ltd
+ * Copyright 2019-2021 Huawei Technologies Co., Ltd
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -458,7 +458,7 @@ void Scop::DumpScopDataScheduleAttrs(std::ofstream &of) {
   of << "kernel_h : " << matB_dim_h_ << std::endl;
   of << "kernel_w : " << matB_dim_w_ << std::endl;
   of << "conv_backprop_filter : " << conv_back_prop_filter_ << std::endl;
-  of << "bypassL1 : " << bypassL1_ << std::endl;
+  of << "bypassC1 : " << bypathC1_ << std::endl;
   of << "dump_tuning_level : " << dump_tuning_level_ << std::endl;
   of << "pragma_rmselfdep : " << remove_self_dependence_ << std::endl;
   of << "pragma_force_rmselfdep : " << force_remove_self_dependence_ << std::endl;
@@ -471,7 +471,7 @@ void Scop::DumpScopDataScheduleAttrs(std::ofstream &of) {
   of << "pragma_conv_special_dma : " << conv_special_dma_ << std::endl;
   of << "pragma_reorder_schedule : " << reorder_schedule_ << std::endl;
   of << "pragma_checkcoincident : " << tile_check_coincident_ << std::endl;
-  of << "pragma_opt_for_davinci : " << optimize_for_davinci_ << std::endl;
+  of << "pragma_opt_for_dsa : " << optimize_for_npu_ << std::endl;
   of << "pragma_sink_last_axis : " << sink_last_axis_ << std::endl;
   of << "pragma_keep_outer_band_order : " << keep_outer_band_order_ << std::endl;
   of << "pragma_disable_group : " << disable_group_ << std::endl;

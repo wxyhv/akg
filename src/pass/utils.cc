@@ -1,5 +1,5 @@
 /**
- * Copyright 2019 Huawei Technologies Co., Ltd
+ * Copyright 2019-2021 Huawei Technologies Co., Ltd
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -40,60 +40,6 @@ using std::min;
 
 using UnorderSet = std::unordered_set<Var, NodeHash, NodeEqual>;
 using UnorderMap = std::unordered_map<Var, Expr, NodeHash, NodeEqual>;
-std::map<int, std::string> pipelines = {
-  {1, "PIPE_S"}, {2, "PIPE_V"}, {3, "PIPE_M"}, {4, "PIPE_MTE1"}, {5, "PIPE_MTE2"}, {6, "PIPE_MTE3"}, {7, "PIPE_ALL"},
-};
-
-std::vector<std::string> events = {"EVENT_ID0", "EVENT_ID1", "EVENT_ID2", "EVENT_ID3"};
-
-TVM_REGISTER_GLOBAL("tvm.intrin.rule.cce.cce.coproc_sync").set_body([](const TVMArgs &args, TVMRetValue *rv) {
-  int key = 7;
-  if (args.size() >= 1) {
-    Expr e = args[0];
-    auto call = e.as<Call>();
-    CHECK(call);
-    if (call->args.size()) {
-      auto intImm = call->args[0].as<IntImm>();
-      CHECK(intImm);
-      key = intImm->value;
-    }
-  }
-
-  auto b = Call::make(Int(32), "tvm_cce_string_print", {pipelines[key]}, Call::PureIntrinsic);
-  *rv = Call::make(Int(32), "pipe_barrier", {b}, Call::Extern);
-});
-
-TVM_REGISTER_GLOBAL("tvm.intrin.rule.cce.cce.coproc_dep_push").set_body([](const TVMArgs &args, TVMRetValue *rv) {
-  Expr e = args[0];
-  auto call = e.as<Call>();
-  CHECK(call);
-
-  CHECK_GE(call->args.size(), 3);
-  auto arg0 = call->args[0].as<IntImm>();
-  auto arg1 = call->args[1].as<IntImm>();
-  auto arg2 = call->args[2].as<IntImm>();
-  CHECK(arg0 && arg1 && arg2);
-
-  auto b = Call::make(Int(32), "tvm_cce_string_print",
-                      {pipelines[arg0->value], pipelines[arg1->value], events[arg2->value]}, Call::PureIntrinsic);
-  *rv = Call::make(Int(32), "set_flag", {b}, Call::Extern);
-});
-
-TVM_REGISTER_GLOBAL("tvm.intrin.rule.cce.cce.coproc_dep_pop").set_body([](const TVMArgs &args, TVMRetValue *rv) {
-  Expr e = args[0];
-  auto call = e.as<Call>();
-  CHECK(call);
-
-  CHECK_GE(call->args.size(), 3);
-  auto arg0 = call->args[0].as<IntImm>();
-  auto arg1 = call->args[1].as<IntImm>();
-  auto arg2 = call->args[2].as<IntImm>();
-  CHECK(arg0 && arg1 && arg2);
-
-  auto b = Call::make(Int(32), "tvm_cce_string_print",
-                      {pipelines[arg0->value], pipelines[arg1->value], events[arg2->value]}, Call::PureIntrinsic);
-  *rv = Call::make(Int(32), "wait_flag", {b}, Call::Extern);
-});
 
 template <typename T>
 std::vector<T> ArrayToVector(const Array<T> &array) {
@@ -2846,6 +2792,127 @@ std::string ExprToVarName(const Expr &expr) {
     name = "_" + name;
   }
   return name;
+}
+
+/// Get the children of expr of binary operation
+/// \param e - Expr to be processed
+/// \return Array<Expr> e.a and e.b - If e is not binary op, then return empty Array.
+Array<Expr> GetBinaryOpExprChildren(const Expr &e) {
+  Array<Expr> children;
+  if (auto add = e.as<Add>()) {
+    children.push_back(add->a);
+    children.push_back(add->b);
+    return children;
+  } else if (auto sub = e.as<Sub>()) {
+    children.push_back(sub->a);
+    children.push_back(sub->b);
+    return children;
+  } else if (auto mul = e.as<Mul>()) {
+    children.push_back(mul->a);
+    children.push_back(mul->b);
+    return children;
+  } else if (auto div = e.as<Div>()) {
+    children.push_back(div->a);
+    children.push_back(div->b);
+    return children;
+  } else if (auto f_div = e.as<FloorDiv>()) {
+    children.push_back(f_div->a);
+    children.push_back(f_div->b);
+    return children;
+  } else if (auto mod = e.as<Mod>()) {
+    children.push_back(mod->a);
+    children.push_back(mod->b);
+    return children;
+  } else if (auto f_mod = e.as<FloorMod>()) {
+    children.push_back(f_mod->a);
+    children.push_back(f_mod->b);
+    return children;
+  } else if (auto min = e.as<Min>()) {
+    children.push_back(min->a);
+    children.push_back(min->b);
+    return children;
+  } else if (auto max = e.as<Max>()) {
+    children.push_back(max->a);
+    children.push_back(max->b);
+    return children;
+  } else if (auto eq = e.as<EQ>()) {
+    children.push_back(eq->a);
+    children.push_back(eq->b);
+    return children;
+  } else if (auto ne = e.as<NE>()) {
+    children.push_back(ne->a);
+    children.push_back(ne->b);
+    return children;
+  } else if (auto lt = e.as<LT>()) {
+    children.push_back(lt->a);
+    children.push_back(lt->b);
+    return children;
+  } else if (auto le = e.as<LE>()) {
+    children.push_back(le->a);
+    children.push_back(le->b);
+    return children;
+  } else if (auto gt = e.as<GT>()) {
+    children.push_back(gt->a);
+    children.push_back(gt->b);
+    return children;
+  } else if (auto ge = e.as<GE>()) {
+    children.push_back(ge->a);
+    children.push_back(ge->b);
+    return children;
+  } else if (auto and_op = e.as<And>()) {
+    children.push_back(and_op->a);
+    children.push_back(and_op->b);
+    return children;
+  } else if (auto or_op = e.as<Or>()) {
+    children.push_back(or_op->a);
+    children.push_back(or_op->b);
+    return children;
+  } else {
+    return children;
+  }
+}
+
+/// Get all Var in expr
+/// \param expr - Expr to be processed
+/// \return Array<VarExpr> - List of var in expr
+Array<VarExpr> GetVarsInExpr(const Expr &expr, bool exclude_upper_case_vars) {
+  class VariableMutator : public IRMutator {
+   public:
+    explicit VariableMutator(Array<Var> &ivar_set, bool exclude_upper = false)
+        : ivar_set_(ivar_set), exclude_upper_(exclude_upper) {}
+    ~VariableMutator() override = default;
+
+    Expr Mutate_(const Variable *op, const Expr &e) final {
+      bool find_var = true;
+      if (exclude_upper_) {
+        for (auto c : op->name_hint) {
+          if (c >= 'A' && c <= 'Z') {
+            find_var = false;
+            break;
+          }
+        }
+      }
+      if (find_var) {
+        bool find = false;
+        for (auto iter = ivar_set_.begin(); iter != ivar_set_.end(); ++iter) {
+          if ((*iter).get() == op) {
+            find = true;
+            break;
+          }
+        }
+        if (!find) {
+          ivar_set_.push_back(Downcast<Var>(e));
+        }
+      }
+      return e;
+    }
+    Array<Var> &ivar_set_;
+    bool exclude_upper_{false};
+  };
+
+  Array<Var> ivar_set;
+  VariableMutator(ivar_set, exclude_upper_case_vars).Mutate(expr);
+  return ivar_set;
 }
 }  // namespace ir
 }  // namespace akg

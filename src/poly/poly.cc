@@ -1,5 +1,5 @@
 /**
- * Copyright 2019 Huawei Technologies Co., Ltd
+ * Copyright 2019-2021 Huawei Technologies Co., Ltd
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -58,8 +58,8 @@ class Poly {
     // generate Halide from isl schedule
     stmt_ = scop_->GenHalide(scht);
 
-    // optimize post poly Halide IR for Davinci
-    if (scop_->enable_feature_library_ || scop_->optimize_for_davinci_) {
+    // optimize post poly Halide IR
+    if (scop_->enable_feature_library_ || scop_->optimize_for_npu_) {
       stmt_ = poly::OptimizeHalide(stmt_, !scop_->params_.empty());
     }
     gen_empty_tiling = scop_->is_tiled_;

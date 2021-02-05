@@ -1,5 +1,5 @@
 /**
- * Copyright 2019 Huawei Technologies Co., Ltd
+ * Copyright 2019-2021 Huawei Technologies Co., Ltd
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -288,7 +288,7 @@ isl::schedule_node Transform::SetIsolateLoopType(isl::schedule_node node) {
 
 void Transform::IsolateLevelInfo(size_t &tile_type, isl::set &tiles, isl::set &all) {
   // which level do we need isolate info?
-  if (L1 == tile_type || UB == tile_type) {
+  if (C1 == tile_type || BUF == tile_type) {
     partition_info_.clear();
     auto tiles_hull = tiles.simple_hull();
     auto tiles_lexmin = tiles_hull.lexmin().simple_hull();
@@ -417,8 +417,8 @@ bool Transform::GetIsolated() const { return isolated_; }
 isl::schedule_node Transform::MarkTileBand(isl::schedule_node node, size_t tile_type) {
   std::string markTag;
 
-  if (tile_type == L0) {
-    markTag = REALIZE_L0;
+  if (tile_type == C0) {
+    markTag = REALIZE_C0;
     node = node.insert_mark(isl::id(node.ctx(), markTag));
 #if SPEC_GEMM
     if (IsConv()) {
@@ -427,24 +427,24 @@ isl::schedule_node Transform::MarkTileBand(isl::schedule_node node, size_t tile_
     }
 #endif
   }
-  if (tile_type == L1) {
-    markTag = REALIZE_L1;
+  if (tile_type == C1) {
+    markTag = REALIZE_C1;
     node = node.insert_mark(isl::id(node.ctx(), markTag));
   }
-  if (tile_type == UB) {
-    markTag = REALIZE_UB;
+  if (tile_type == BUF) {
+    markTag = REALIZE_BUF;
     node = node.insert_mark(isl::id(node.ctx(), markTag));
   }
-  if (tile_type == UBL0) {
-    markTag = REALIZE_UBL0;
+  if (tile_type == BUFC0) {
+    markTag = REALIZE_BUFC0;
     node = node.insert_mark(isl::id(node.ctx(), markTag));
   }
-  if (tile_type == UBL1) {
-    markTag = REALIZE_UBL1;
+  if (tile_type == BUFC1) {
+    markTag = REALIZE_BUFC1;
     node = node.insert_mark(isl::id(node.ctx(), markTag));
   }
-  if (tile_type == L1UBL1) {
-    markTag = REALIZE_L1UBL1;
+  if (tile_type == C1BUFC1) {
+    markTag = REALIZE_C1BUFC1;
     node = node.insert_mark(isl::id(node.ctx(), markTag));
   }
 
@@ -571,11 +571,11 @@ void Transform::PaddingIsolate(int &h_head, int &h_tail, int &w_head, int &w_tai
 
   ComputeWInfo(w_base, head, tail, w_head, w_tail, win_w, win_cut_w);
 }
-bool Transform::NeedIsolate() { return IsConv() || scop_.IsLoad3dL1Ub(); }
+bool Transform::NeedIsolate() { return IsConv() || scop_.IsLoadIm2colC1BUF(); }
 
 bool Transform::IsConv() {
   for (auto &info : data_.stmt_op_Info) {
-    if (info.second.isCube) {
+    if (info.second.isMMU) {
       const Node *stmt_node = data_.statements.at(info.first);
       if (stmt_node->IsInstance<Provide>()) {
         auto provide = static_cast<const Provide *>(stmt_node);
@@ -611,7 +611,7 @@ isl::multi_val Transform::ComputeBandTilesSizes(const isl::schedule_node &node, 
   return MultiValFromIntList(space, dim, tile_size);
 }
 
-void Transform::TileTypeL1(isl::schedule_node &node, int *full_tile_min, int *full_tile_max, size_t &tile_type,
+void Transform::TileTypeC1(isl::schedule_node &node, int *full_tile_min, int *full_tile_max, size_t &tile_type,
                            bool &isolate, isl::multi_val &sizes) {
   const unsigned int n_member = node.as<isl::schedule_node_band>().n_member();
   auto title_size = static_cast<unsigned int>(tile_sizes_.size());
@@ -643,25 +643,25 @@ void Transform::TileTypeL1(isl::schedule_node &node, int *full_tile_min, int *fu
   node = TileBand(node, sizes, tile_type, full_tile_min, full_tile_max, isolate);
   node = MarkTileBand(node, tile_type);
 
-  // L0 tiling
-  node = TileL0(node.child(0));
+  // C0 tiling
+  node = TileC0(node.child(0));
 }
 
-void Transform::TileTypeL0(isl::schedule_node &node, int *full_tile_min, int *full_tile_max, size_t &tile_type,
+void Transform::TileTypeC0(isl::schedule_node &node, int *full_tile_min, int *full_tile_max, size_t &tile_type,
                            bool &isolate, isl::multi_val &sizes) {
   isl::set_list domain_list = node.get_domain().get_set_list();
   isl::union_set filter_cube = isl::union_set();
-  isl::union_set filter_after_cube = isl::union_set();
+  isl::union_set filter_after_mmu = isl::union_set();
 
-  unsigned int cube_index = 0;
-  for (; cube_index < scop_.stmt_type_.size() - 1; ++cube_index) {
-    if (scop_.stmt_type_[cube_index].second == STMT_OP_TYPE::CUBE_CONV ||
-        scop_.stmt_type_[cube_index].second == STMT_OP_TYPE::CUBE_GEMM ||
-        scop_.stmt_type_[cube_index].second == STMT_OP_TYPE::IM2COL_UB) {
+  unsigned int mmu_index = 0;
+  for (; mmu_index < scop_.stmt_type_.size() - 1; ++mmu_index) {
+    if (scop_.stmt_type_[mmu_index].second == STMT_OP_TYPE::MMU_CONV ||
+        scop_.stmt_type_[mmu_index].second == STMT_OP_TYPE::MMU_GEMM ||
+        scop_.stmt_type_[mmu_index].second == STMT_OP_TYPE::IM2COL_BUF) {
       break;
     }
   }
-  std::vector<isl::union_set> filter_before_cube;
+  std::vector<isl::union_set> filter_before_mmu;
 
   for (unsigned int set_index = 0; set_index < domain_list.size(); ++set_index) {
     isl::set set_i = domain_list.get_at(set_index);
@@ -669,46 +669,46 @@ void Transform::TileTypeL0(isl::schedule_node &node, int *full_tile_min, int *fu
     CHECK(name.find('_') != std::string::npos) << "invalid name " << name;
     unsigned int index = WrappedStrtol(name.substr(name.find('_') + 1));
     set_i = isl::manage(isl_set_eliminate_dims(set_i.copy(), 0, isl_set_n_dim(set_i.get())));
-    if (index + 1 < cube_index) {
-      filter_before_cube.resize(cube_index - 1);
-      filter_before_cube[index] = isl::union_set(set_i);
+    if (index + 1 < mmu_index) {
+      filter_before_mmu.resize(mmu_index - 1);
+      filter_before_mmu[index] = isl::union_set(set_i);
     }
-    if (index + 1 == cube_index || index == cube_index) {
+    if (index + 1 == mmu_index || index == mmu_index) {
       filter_cube = filter_cube.is_null() ? isl::union_set(set_i) : filter_cube.add_set(set_i);
     }
-    if (index > cube_index) {
-      filter_after_cube = filter_after_cube.is_null() ? isl::union_set(set_i) : filter_after_cube.add_set(set_i);
+    if (index > mmu_index) {
+      filter_after_mmu = filter_after_mmu.is_null() ? isl::union_set(set_i) : filter_after_mmu.add_set(set_i);
     }
   }
 
   isl::union_set_list filters = isl::union_set_list(node.ctx(), static_cast<int>(scop_.stmt_type_.size() - 1));
-  for (const auto &a : filter_before_cube) {
+  for (const auto &a : filter_before_mmu) {
     filters = a.is_null() ? filters : filters.add(a);
   }
   filters = filter_cube.is_null() ? filters : filters.add(filter_cube);
-  filters = filter_after_cube.is_null() ? filters : filters.add(filter_after_cube);
+  filters = filter_after_mmu.is_null() ? filters : filters.add(filter_after_mmu);
 
-  if (scop_.IsLoad3dL1Ub()) {
-    node = TileBand(node, sizes, UB, full_tile_min, full_tile_max, isolate);
-    node = MarkTileBand(node, UB);
-  } else if ((!filter_before_cube.empty() || !filter_after_cube.is_null()) && !filter_cube.is_null()) {
+  if (scop_.IsLoadIm2colC1BUF()) {
+    node = TileBand(node, sizes, BUF, full_tile_min, full_tile_max, isolate);
+    node = MarkTileBand(node, BUF);
+  } else if ((!filter_before_mmu.empty() || !filter_after_mmu.is_null()) && !filter_cube.is_null()) {
     auto pos = 0;
     node = node.insert_sequence(filters);
-    for (auto a : filter_before_cube) {
+    for (auto a : filter_before_mmu) {
       node = TileBand(node.child(pos).child(0), sizes, tile_type, full_tile_min, full_tile_max, isolate);
-      node = MarkTileBand(node, UBL1);
+      node = MarkTileBand(node, BUFC1);
       node = node.parent().parent();
       ++pos;
     }
     if (!filter_cube.is_null()) {
       node = TileBand(node.child(pos).child(0), sizes, tile_type, full_tile_min, full_tile_max, isolate);
-      node = MarkTileBand(node, L0);
+      node = MarkTileBand(node, C0);
       node = node.parent().parent();
       ++pos;
     }
-    if (!filter_after_cube.is_null()) {
+    if (!filter_after_mmu.is_null()) {
       node = TileBand(node.child(pos).child(0), sizes, tile_type, full_tile_min, full_tile_max, isolate);
-      node = MarkTileBand(node, UBL0);
+      node = MarkTileBand(node, BUFC0);
       node = node.parent().parent();
       ++pos;
     }
@@ -723,15 +723,15 @@ isl::schedule_node Transform::TileBandAndCollectMark(isl::schedule_node node, co
                                                      int *full_tile_max, size_t tile_type, bool isolate) {
   isl::multi_val sizes = ComputeBandTilesSizes(node, tile_size);
 
-  if (tile_type == L1) {
-    TileTypeL1(node, full_tile_min, full_tile_max, tile_type, isolate, sizes);
-  } else if (tile_type == L0) {
-    TileTypeL0(node, full_tile_min, full_tile_max, tile_type, isolate, sizes);
-  } else if (tile_type == L1UBL1) {
+  if (tile_type == C1) {
+    TileTypeC1(node, full_tile_min, full_tile_max, tile_type, isolate, sizes);
+  } else if (tile_type == C0) {
+    TileTypeC0(node, full_tile_min, full_tile_max, tile_type, isolate, sizes);
+  } else if (tile_type == C1BUFC1) {
     node = TileBand(node, sizes, tile_type, full_tile_min, full_tile_max, isolate);
     node = MarkTileBand(node, tile_type);
-    node = TileUbL1(node.child(0));
-  } else if (tile_type == UBL1) {
+    node = TileUbC1(node.child(0));
+  } else if (tile_type == BUFC1) {
     node = TileBand(node, sizes, tile_type, full_tile_min, full_tile_max, isolate);
     node = MarkTileBand(node, tile_type);
     node = node.parent().parent();
@@ -742,7 +742,7 @@ isl::schedule_node Transform::TileBandAndCollectMark(isl::schedule_node node, co
   return node;
 }
 
-isl::schedule_node Transform::TileUbL1(isl::schedule_node node) {
+isl::schedule_node Transform::TileUbC1(isl::schedule_node node) {
   const unsigned int n_member = node.child(0).as<isl::schedule_node_band>().n_member();
   unsigned int dim_num = (n_member <= static_cast<unsigned int>(tile_sizes_.size()))
                            ? n_member
@@ -763,11 +763,11 @@ isl::schedule_node Transform::TileUbL1(isl::schedule_node node) {
       }
     }
   }
-  node = TileBandAndCollectMark(node.child(0), &ts[0], nullptr, &full_tile_max[0], UBL1, true);
+  node = TileBandAndCollectMark(node.child(0), &ts[0], nullptr, &full_tile_max[0], BUFC1, true);
   return node;
 }
 
-isl::schedule_node Transform::TileL0(isl::schedule_node node) {
+isl::schedule_node Transform::TileC0(isl::schedule_node node) {
   auto title_size = static_cast<unsigned int>(tile_sizes_.size());
   const unsigned int n_member = node.child(0).as<isl::schedule_node_band>().n_member();
   unsigned int dim_num = (n_member <= title_size) ? n_member : title_size;
@@ -787,7 +787,7 @@ isl::schedule_node Transform::TileL0(isl::schedule_node node) {
       }
     }
   }
-  node = TileBandAndCollectMark(node.child(0), &ts[0], nullptr, &full_tile_max[0], L0, true);
+  node = TileBandAndCollectMark(node.child(0), &ts[0], nullptr, &full_tile_max[0], C0, true);
   return node;
 }
 
@@ -873,8 +873,8 @@ isl::schedule_node Transform::MarkOuterPermutable(isl::schedule_node node) {
   auto title_size = static_cast<unsigned int>(tile_sizes_.size());
   unsigned int dim_num = (n_member <= title_size) ? n_member : title_size;
   if (dim_num == 0) {
-    // direct scalar computation in GM is not allowed, need to promote to UB
-    return MarkTileBand(node, UB);
+    // direct scalar computation in GM is not allowed, need to promote to BUF
+    return MarkTileBand(node, BUF);
   }
 
   // get tile size
@@ -885,10 +885,10 @@ isl::schedule_node Transform::MarkOuterPermutable(isl::schedule_node node) {
     if (j < dim_num) tile_size[j] = static_cast<int>(tile_sizes_[j].l1_tiling_size);
   }
 
-  bool isCube = false;
+  bool isMMU = false;
   for (auto &info : data_.stmt_op_Info) {
-    if (info.second.isCube) {
-      isCube = true;
+    if (info.second.isMMU) {
+      isMMU = true;
       break;
     }
   }
@@ -897,11 +897,11 @@ isl::schedule_node Transform::MarkOuterPermutable(isl::schedule_node node) {
   bool is_in_cube = false;
   unsigned int i = 0;
   for (; i < scop_.stmt_type_.size() - 1; ++i) {
-    if (scop_.stmt_type_[i].second == STMT_OP_TYPE::CUBE_CONV) {
+    if (scop_.stmt_type_[i].second == STMT_OP_TYPE::MMU_CONV) {
       break;
     }
   }
-  bool is_in_load3d = scop_.is_dynamic_ ? false : scop_.IsLoad3dL1Ub();
+  bool is_in_load_im2col = scop_.is_dynamic_ ? false : scop_.IsLoadIm2colC1BUF();
   isl::set_list domain_list = node.get_domain().get_set_list();
   for (unsigned int set_index = 0; set_index < domain_list.size(); ++set_index) {
     isl::set set_i = domain_list.get_at(set_index);
@@ -918,18 +918,18 @@ isl::schedule_node Transform::MarkOuterPermutable(isl::schedule_node node) {
       is_in_cube = true;
     }
     if (scop_.is_dynamic_) {
-      if (scop_.IsLoad3dL1UBStmt(set_i.get_tuple_name())) {
-        is_in_load3d = true;
+      if (scop_.IsLoadIm2colC1BUFStmt(set_i.get_tuple_name())) {
+        is_in_load_im2col = true;
       }
     }
   }
 
-  if (isCube && is_before_cube && !is_in_cube) {
-    node = TileBandAndCollectMark(node, &tile_size[0], nullptr, nullptr, L1UBL1, true);
-  } else if (isCube || is_in_load3d) {
-    node = TileBandAndCollectMark(node, &tile_size[0], nullptr, nullptr, L1, true);
+  if (isMMU && is_before_cube && !is_in_cube) {
+    node = TileBandAndCollectMark(node, &tile_size[0], nullptr, nullptr, C1BUFC1, true);
+  } else if (isMMU || is_in_load_im2col) {
+    node = TileBandAndCollectMark(node, &tile_size[0], nullptr, nullptr, C1, true);
   } else {
-    node = TileBandAndCollectMark(node, &tile_size[0], nullptr, nullptr, UB, true);
+    node = TileBandAndCollectMark(node, &tile_size[0], nullptr, nullptr, BUF, true);
   }
 
   return node;
@@ -1024,27 +1024,27 @@ void Transform::DumpTransform(const std::string &file_name) {
   }
   static_cast<void>(isl_printer_free(p));
 
-  PrintHeader(of, "L1/UB tile band build options");
+  PrintHeader(of, "C1/BUF tile band build options");
   for (const auto &option : l1_build_options_) {
     of << option << std::endl;
   }
 
-  PrintHeader(of, "L0 tile band build options");
+  PrintHeader(of, "C0 tile band build options");
   for (const auto &option : l0_build_options_) {
     of << option << std::endl;
   }
 
-  PrintHeader(of, "nodes from root to L1/UB band");
+  PrintHeader(of, "nodes from root to C1/BUF band");
   for (const auto &node : node_list_0_) {
     of << node << std::endl;
   }
 
-  PrintHeader(of, "nodes from L1/UB band to L0/UBL0 band");
+  PrintHeader(of, "nodes from C1/BUF band to C0/BUFC0 band");
   for (const auto &node : node_list_1_) {
     of << node << std::endl;
   }
 
-  PrintHeader(of, "nodes from L0/UBL0 band to point band");
+  PrintHeader(of, "nodes from C0/BUFC0 band to point band");
   for (const auto &node : node_list_2_) {
     of << node << std::endl;
   }
@@ -1601,7 +1601,7 @@ isl::schedule Transform::Ungroup(isl::schedule schedule, const isl::union_pw_mul
   return schedule;
 }
 
-/* Mark each scalar statement with a "realize_UB" mark node. "root" should be
+/* Mark each scalar statement with a REALIZE_BUF mark node. "root" should be
  * either a domain node or a filter node.
  *
  * First, check whether each statement in "root" is scalar. Each set of the
@@ -1615,10 +1615,10 @@ isl::schedule Transform::Ungroup(isl::schedule schedule, const isl::union_pw_mul
  * node or a sequence/set node.
  *
  * If it comes to a leaf node, "root" represents a single scalar statement. Insert
- * an empty band and mark this empty band with a "realize_UB" mark.
+ * an empty band and mark this empty band with a REALIZE_BUF mark.
  *
  * If a sequence/set node is encountered, meaning "root" represents multiple
- * scalar statements. Mark each child recursively with a "realize_UB" mark.
+ * scalar statements. Mark each child recursively with a REALIZE_BUF mark.
  *
  * Return the original "root" in other cases.
  */
@@ -1634,10 +1634,10 @@ isl::schedule_node Transform::TryMarkScalarStmts(const isl::schedule_node &root)
   if (SubtreeHasPermutableBands(root)) return root;
 
   auto node = GetOuterBand(root);
-  // Mark to copy to UB
+  // Mark to copy to BUF
   if (node.isa<isl::schedule_node_leaf>() || (IsSequenceOrSet(node))) {
     node = InsertEmptyPermutableBand(node);
-    auto tag = REALIZE_UB;
+    auto tag = REALIZE_BUF;
     node = node.insert_mark(isl::id(node.ctx(), tag));
     return node;
   }
@@ -1846,10 +1846,10 @@ isl::schedule Transform::SetAllCoincident(const isl::schedule &schedule) {
 
 /*
  * "with" stmt aims to work around the irregular problem.
- * By default, the "realize_UB" mark is on the outer band. However, for tensor-of-tensor,
+ * By default, the REALIZE_BUF mark is on the outer band. However, for tensor-of-tensor,
  * the intermediate tensor may be too large if realized in the outermost scope.
- * To narrow down the scope, we move "realize_UB" mark to the filter node.
- * If all filter nodes of the band are "with" stmts, we remove the outer "realize_UB" mark.
+ * To narrow down the scope, we move REALIZE_BUF mark to the filter node.
+ * If all filter nodes of the band are "with" stmts, we remove the outer REALIZE_BUF mark.
  */
 isl::schedule Scop::ChangeMarkNodePosition(const isl::schedule &sch_mark) {
   std::unordered_set<std::string> ids = ExtractWithStmtId();
@@ -1860,7 +1860,7 @@ isl::schedule Scop::ChangeMarkNodePosition(const isl::schedule &sch_mark) {
   auto fn = [&ids](isl::schedule_node node) -> isl::schedule_node {
     if (node.isa<isl::schedule_node_mark>()) {
       std::string mark_id = node.as<isl::schedule_node_mark>().get_id().get_name();
-      if (mark_id == "realize_UB" && node.child(0).isa<isl::schedule_node_band>()) {
+      if (mark_id == REALIZE_BUF && node.child(0).isa<isl::schedule_node_band>()) {
         if (node.child(0).child(0).isa<isl::schedule_node_sequence>()) {
           node = node.get_child(0).get_child(0);  // sequence
           bool delete_outer_mark = true;
@@ -1894,7 +1894,7 @@ isl::schedule Scop::ChangeMarkNodePosition(const isl::schedule &sch_mark) {
 isl::schedule Scop::LabelRealizeOutPosition(const isl::schedule &sch_label) const {
   auto fn_ = [](isl::schedule_node node) -> isl::schedule_node {
     if (node.isa<isl::schedule_node_mark>()) {
-      if (REALIZE_UB == node.as<isl::schedule_node_mark>().get_id().get_name() &&
+      if (REALIZE_BUF == node.as<isl::schedule_node_mark>().get_id().get_name() &&
           node.child(0).isa<isl::schedule_node_band>()) {
         auto band = node.child(0).as<isl::schedule_node_band>();
 
@@ -1930,7 +1930,7 @@ isl::schedule Scop::LabelRealizeOutPosition(const isl::schedule &sch_label) cons
           node = node.del();
           node = node.as<isl::schedule_node_band>().split(pos);
           node = node.child(0);
-          node = node.insert_mark(isl::id(node.ctx(), REALIZE_UB));
+          node = node.insert_mark(isl::id(node.ctx(), REALIZE_BUF));
           node = node.insert_mark(isl::id(node.ctx(), ALLOC_REALIZE_OUT));
           node = node.parent();
         }
@@ -2067,7 +2067,7 @@ isl::schedule Scop::MarkFuseOp(const isl::schedule &schedule_mark) const {
   auto fn = [](isl::schedule_node node) -> isl::schedule_node {
     if (node.isa<isl::schedule_node_mark>()) {
       std::string mark_id = node.as<isl::schedule_node_mark>().get_id().get_name();
-      size_t pos = mark_id.find("UBL0");
+      size_t pos = mark_id.find("BUFC0");
       if (pos != std::string::npos) {
         std::string m = "fuse_vector";
         node = node.insert_mark(isl::id(node.ctx(), m));
@@ -2350,12 +2350,12 @@ void Scop::TransferStmt(isl::schedule &t_sch) {
 
 isl::schedule_node InsertNodeForAllocCImpl(isl::schedule_node node) {
   if (node.isa<isl::schedule_node_mark>()) {
-    if (node.as<isl::schedule_node_mark>().get_id().get_name() == REALIZE_L1) {
+    if (node.as<isl::schedule_node_mark>().get_id().get_name() == REALIZE_C1) {
       node = node.del();
       node =
         node.as<isl::schedule_node_band>().split(static_cast<int>(node.as<isl::schedule_node_band>().n_member()) - 1);
       node = node.child(0);
-      node = node.insert_mark(isl::id(node.ctx(), REALIZE_L1));
+      node = node.insert_mark(isl::id(node.ctx(), REALIZE_C1));
       node = node.insert_mark(isl::id(node.ctx(), ALLOC_C));
       node = node.parent();
     }

@@ -1,5 +1,5 @@
 /**
- * Copyright 2019 Huawei Technologies Co., Ltd
+ * Copyright 2019-2021 Huawei Technologies Co., Ltd
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -23,10 +23,10 @@
 #include <iostream>
 #include <stack>
 
+#include "common/util_cce.h"
 #include "pass/utils.h"
 #include "tvm.h"
-#include "emit_insn/insn_info.h"
-#include "emit_insn/cce_params.h"
+#include "poly/dsa_utils.h"
 
 namespace akg {
 namespace ir {
@@ -142,8 +142,8 @@ class OpDetector : public IRVisitor {
         // attr [0] pass_down = 16
         for (cc11, 0, 16) {
           if (!(cc9 == 0)) {
-            max_pool_hybrid_0_local_UB(0, 0, 0, cc9, cc11) =max(max_pool_hybrid_0_local_UB(0, 0, 0, cc9, cc11), i
- nput_1_local_UB(0, 0, ((2*0) + 0), ((2*cc9) - 1), cc11))
+            max_pool_hybrid_0_local_BUF(0, 0, 0, cc9, cc11) =max(max_pool_hybrid_0_local_BUF(0, 0, 0, cc9, cc11), i
+ nput_1_local_BUF(0, 0, ((2*0) + 0), ((2*cc9) - 1), cc11))
           }
         }
     }
@@ -152,8 +152,8 @@ class OpDetector : public IRVisitor {
    for (cc9, 0, 56) {
        if (!(cc9 == 0)) {
          for (cc11, 0, 16) {
-           max_pool_hybrid_0_local_UB(0, 0, 0, cc9, cc11) =max(max_pool_hybrid_0_local_UB(0, 0, 0, cc9, cc11), i
- nput_1_local_UB(0, 0, ((2*0) + 0), ((2*cc9) - 1), cc11))
+           max_pool_hybrid_0_local_BUF(0, 0, 0, cc9, cc11) =max(max_pool_hybrid_0_local_BUF(0, 0, 0, cc9, cc11), i
+ nput_1_local_BUF(0, 0, ((2*0) + 0), ((2*cc9) - 1), cc11))
          }
        }
    }
@@ -205,17 +205,17 @@ class PassDownForAxis : public IRMutator {
 
 /***********************************************************************
  * After the condition is removed, the sinked tensor write back to promotion
- // attr [placeholder(gather_output_local_UB, 0x2f725f0)] realize_scope = "local.UB"
-  realize gather_output_local_UB<float16>([0, 1], [0, 59], [0, 212]) {
+ // attr [placeholder(gather_output_local_BUF, 0x2f725f0)] realize_scope = DOT_LOCAL_BUF
+  realize gather_output_local_BUF<float16>([0, 1], [0, 59], [0, 212]) {
     for (cc4, 0, 212) {
       // attr [reg0_local_REG] storage_scope = "local.REG"
       allocate reg0_local_REG[int32 * 1]
-      reg0_local_REG[0] = input_2_local_UB(cc4)
+      reg0_local_REG[0] = input_2_local_BUF(cc4)
       for (cc7, 0, 59) {
-        gather_output_local_UB(0, cc7, cc4) = input_1_local_UB(0, cc7, reg0_local_REG[0])
+        gather_output_local_BUF(0, cc7, cc4) = input_1_local_BUF(0, cc7, reg0_local_REG[0])
       }
       for (cc7, 0, 59) {
-        gather_output(cc0, ((59*cc1) + cc7), cc4) = gather_output_local_UB(0, cc7, cc4)
+        gather_output(cc0, ((59*cc1) + cc7), cc4) = gather_output_local_BUF(0, cc7, cc4)
       }
     }
   }
@@ -223,19 +223,19 @@ class PassDownForAxis : public IRMutator {
   |
   v
 
- * // attr [placeholder(gather_output_local_UB, 0x2f725f0)] realize_scope = "local.UB"
-  realize gather_output_local_UB<float16>([0, 1], [0, 59], [0, 212]) {
+ * // attr [placeholder(gather_output_local_BUF, 0x2f725f0)] realize_scope = DOT_LOCAL_BUF
+  realize gather_output_local_BUF<float16>([0, 1], [0, 59], [0, 212]) {
     for (cc4, 0, 212) {
       // attr [reg0_local_REG] storage_scope = "local.REG"
       allocate reg0_local_REG[int32 * 1]
-      reg0_local_REG[0] = input_2_local_UB(cc4)
+      reg0_local_REG[0] = input_2_local_BUF(cc4)
       for (cc7, 0, 59) {
-        gather_output_local_UB(0, cc7, cc4) = input_1_local_UB(0, cc7, reg0_local_REG[0])
+        gather_output_local_BUF(0, cc7, cc4) = input_1_local_BUF(0, cc7, reg0_local_REG[0])
       }
     }
     for (cc7, 0, 59) {
        for (cc4, 0, 212) {
-        gather_output(cc0, ((59*cc1) + cc7), cc4) = gather_output_local_UB(0, cc7, cc4)
+        gather_output(cc0, ((59*cc1) + cc7), cc4) = gather_output_local_BUF(0, cc7, cc4)
        }
     }
   }
@@ -243,7 +243,7 @@ class PassDownForAxis : public IRMutator {
 class GatherWritePromotion : public IRMutator {
  public:
   explicit GatherWritePromotion(const std::set<const Variable *> &conditionRemovedGatherVars)
-      : gatherVars(conditionRemovedGatherVars) {}
+      : gather_vars_(conditionRemovedGatherVars) {}
   ~GatherWritePromotion() override = default;
 
   Stmt run(const Stmt &s) {
@@ -279,9 +279,9 @@ class GatherWritePromotion : public IRMutator {
 
   Stmt Mutate_(const Realize *op, const Stmt &s) final {
     auto tensor = op->func.get();
-    if (gatherWriteSink_.count(tensor) > 0) {
+    if (gather_write_sink_.count(tensor) > 0) {
       auto gatherWriteTensor = tensor;
-      auto gatherWriteTensorGm_ = gatherWriteSink_[tensor];
+      auto gatherWriteTensorGm_ = gather_write_sink_[tensor];
       bool record = true;
       std::unordered_map<const Variable *, const For *> var2For;
       Stmt gatherWriteProvide_;
@@ -321,7 +321,7 @@ class GatherWritePromotion : public IRMutator {
     auto op = node.as<Block>();
     if (op && op->first.as<Store>()) {
       auto store = node.as<Block>()->first.as<Store>();
-      if (gatherVars.count(store->buffer_var.get()) > 0) {
+      if (gather_vars_.count(store->buffer_var.get()) > 0) {
         gatherVar = store->buffer_var.get();
       }
     }
@@ -329,42 +329,67 @@ class GatherWritePromotion : public IRMutator {
       return;
     }
 
-    const Node *gatherWriteSinkTensor = nullptr;
-    const Node *gatherWriteSinkTensorGm = nullptr;
-    PostOrderVisit(op->rest, [&gatherVar, &gatherWriteSinkTensor, &gatherWriteSinkTensorGm](const NodeRef &node) {
-      if (gatherWriteSinkTensor == nullptr) {
-        if (auto provide = node.as<Provide>()) {
-          bool valueHasGatherVar = false;
-          PostOrderVisit(provide->value, [&gatherVar, &valueHasGatherVar](const NodeRef &node_) {
-            auto load = node_.as<Load>();
-            if (load && load->buffer_var.get() == gatherVar) {
-              valueHasGatherVar = true;
-            }
-          });
-          if (valueHasGatherVar && provide->func->IsInstance<OperationNode>()) {
-            gatherWriteSinkTensor = provide->func.get();
-          }
-        }
-      } else {
-        if (auto provide = node.as<Provide>()) {
-          if (auto value = provide->value.as<Call>()) {
-            if (value->func.get() == gatherWriteSinkTensor &&
-                GetBufScope(provide->func->func_name()) == DMA_COPY_GLOBAL) {
-              gatherWriteSinkTensorGm = provide->func.get();
-            }
-          }
-        }
-      }
-    });
+    const Node *gather_write_sink_tensor = nullptr;
+    const Node *gather_write_sink_tensor_gm = nullptr;
+    PostOrderVisit(op->rest,
+                   [&gatherVar, &gather_write_sink_tensor, &gather_write_sink_tensor_gm, this](const NodeRef &node) {
+                     if (gather_write_sink_tensor == nullptr) {
+                       if (auto provide = node.as<Provide>()) {
+                         bool valueHasGatherVar = false;
+                         PostOrderVisit(provide->value, [&gatherVar, &valueHasGatherVar](const NodeRef &node_) {
+                           auto load = node_.as<Load>();
+                           if (load && load->buffer_var.get() == gatherVar) {
+                             valueHasGatherVar = true;
+                           }
+                         });
+                         if (valueHasGatherVar && provide->func->IsInstance<OperationNode>()) {
+                           gather_write_sink_tensor = provide->func.get();
+                         }
+                       }
+                     } else {
+                       if (auto provide = node.as<Provide>()) {
+                         if (auto value = provide->value.as<Call>()) {
+                           if (value->func.get() == gather_write_sink_tensor &&
+                               this->dataScope(provide->func->func_name()) == "global") {
+                             gather_write_sink_tensor_gm = provide->func.get();
+                           }
+                         }
+                       }
+                     }
+                   });
 
-    if (gatherWriteSinkTensorGm != nullptr) {
-      gatherWriteSink_[gatherWriteSinkTensor] = gatherWriteSinkTensorGm;
+    if (gather_write_sink_tensor_gm != nullptr) {
+      gather_write_sink_[gather_write_sink_tensor] = gather_write_sink_tensor_gm;
     }
   }
 
+  std::string dataScope(const std::string &name) {
+    std::string local = "local.";
+    std::map<std::string, std::string> mem_dict{{"BUF", local + "BUF"}, {"C1", local + "C1"},   {C0A, local + C0A},
+                                                {C0B, local + C0B}, {C0C, local + C0C}, {REG, local + REG}};
+    std::vector<std::string> split_list = akg::common::Split(name, ".");
+    if (split_list.size() == 1) {
+      split_list = akg::common::Split(name, "_local_");
+    }
+
+    std::string key = split_list[split_list.size() - 1];
+    for (auto &iter : mem_dict) {
+      std::string::size_type pos = split_list[split_list.size() - 1].find(iter.first);
+      if (pos != std::string::npos) {
+        key = iter.first;
+        break;
+      }
+    }
+    if (split_list.size() == 1) {
+      return "global";
+    }
+
+    return mem_dict[key];
+  }
+
  private:
-  std::set<const Variable *> gatherVars;
-  std::unordered_map<const Node *, const Node *> gatherWriteSink_;
+  std::set<const Variable *> gather_vars_;
+  std::unordered_map<const Node *, const Node *> gather_write_sink_;
 };
 
 class GatherTransform : public IRMutator {
@@ -525,7 +550,7 @@ class DynamicPaddingFix : public IRMutator {
     bool need_fix = false;
     PostOrderVisit(s, [&](const NodeRef &descendant) {
       if (auto call = descendant.as<Call>()) {
-        if (call->name == "load3d_l1_ub") {
+        if (call->name == "load_im2col_c1_buf") {
           need_fix = true;
         }
       }
@@ -536,7 +561,7 @@ class DynamicPaddingFix : public IRMutator {
   Stmt Mutate_(const ProducerConsumer *op, const Stmt &s) final {
     auto ph = op->func.as<PlaceholderOpNode>();
     CHECK(ph);
-    if (ph->name.find("_local_L1") != std::string::npos) {
+    if (ph->name.find(LOCAL_C1) != std::string::npos) {
       fm_l1_ = ph->name;
       CHECK(op->body.as<For>());
       fm_h_ = op->body.as<For>();
@@ -549,7 +574,7 @@ class DynamicPaddingFix : public IRMutator {
 
   Stmt Mutate_(const Realize *op, const Stmt &s) final {
     if (op->func.as<PlaceholderOpNode>() &&
-        op->func.as<PlaceholderOpNode>()->name.find("_local_L1") != std::string::npos) {
+        op->func.as<PlaceholderOpNode>()->name.find(LOCAL_C1) != std::string::npos) {
       Stmt body = Mutate(op->body);
       Array<Range> bounds;
       for (auto item : op->bounds) {

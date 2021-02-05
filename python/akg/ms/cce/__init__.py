@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # coding: utf-8
-# Copyright 2019 Huawei Technologies Co., Ltd
+# Copyright 2019-2021 Huawei Technologies Co., Ltd
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -43,8 +43,6 @@ from .assign_add import AssignAdd
 from .less import Less
 from .equal_count import EqualCount
 from .gather_v2 import GatherV2
-from .max_pool_with_argmax import MaxPoolWithArgmax
-from .max_pool_grad_with_arg_max import MaxPoolGradWithArgmax
 
 from .softmax import Softmax
 from .argmax import Argmax

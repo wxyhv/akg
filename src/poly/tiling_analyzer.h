@@ -1,5 +1,5 @@
 /**
- * Copyright 2019 Huawei Technologies Co., Ltd
+ * Copyright 2019-2021 Huawei Technologies Co., Ltd
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -30,19 +30,19 @@
 #include <utility>
 
 #include "build_module.h"
-#include "contrib/cce_parm/cceconf.h"
 #include "common/util_cce.h"
 #include "pass/expr_alg_simplify.h"
 #include "pass/utils.h"
 #include "poly/scop.h"
 #include "poly/tiling_utils.h"
+#include "poly/dsa_utils.h"
 
 namespace akg {
 namespace ir {
 namespace poly {
 // common integers
 constexpr auto ALIGN_BYTES = 32;
-constexpr auto CUBE_UNIT = 16;
+constexpr auto MMU_UNIT = 16;
 constexpr auto MIN_TILE = 1;
 constexpr auto EXCEED_MEM_CODE = -2;
 constexpr auto BISEC_REDUCE_MEM_EXPANSION = 2;
@@ -51,7 +51,7 @@ constexpr auto DUMP_LEVEL_CANDIDATE = 2;
 constexpr auto DUMP_LEVEL_TUNING = 3;
 constexpr auto DUMP_LINE_BREAK_NUM = 100;
 constexpr auto GEN_PRIME_NUM = 32;
-constexpr auto VECTORIZE_BYTE = 256;
+constexpr auto INSTIZE_BYTE = 256;
 constexpr auto MIN_MULTICORE_BYTES = 256;
 
 // Controlled by custom tiling.
@@ -85,9 +85,9 @@ inline Expr CastInt64ToExpr(const int64_t value) { return air::ir::IntImm::make(
 
 inline Expr CastIntToExpr(const int value) { return air::ir::IntImm::make(Int(32), value); }
 
-enum TileOpType { VECTOR_OP, CONV_OP, GEMM_OP };
+enum TileOpType { INST_OP, CONV_OP, GEMM_OP };
 
-enum TileLevel { LEVEL0 = 0, LEVEL1 };
+enum TileLevel { LEVEC0 = 0, LEVEC1 };
 
 enum TileVarId { UNDEFINE = -1, VAR };
 
@@ -132,7 +132,7 @@ class TileAxis {
   std::string axis_type_{""};  // record the type of special axis type
   std::vector<AttrInfo> attrs;
   inline Constraint GetConstConstraint(TileLevel level) const {
-    Constraint cons = level == LEVEL1 ? this->l1_constraints : this->l0_constraints;
+    Constraint cons = level == LEVEC1 ? this->l1_constraints : this->l0_constraints;
     const auto tile_min = cons.tile_min_.as<IntImm>();
     const auto tile_extent = cons.tile_extent_.as<IntImm>();
     const auto tile_mod = cons.tile_mod_.as<IntImm>();
@@ -170,8 +170,8 @@ class TileAxis {
   void RemoveAttr(const std::string &attr_key);
   void RemoveAttr(const AttrInfo &attr);
   std::vector<std::string> GetAttrValue(const std::string &attr_key) const;
-  void InsertL1CandFactor(const Expr &f);
-  void InsertL0CandFactor(const Expr &f);
+  void InsertC1CandFactor(const Expr &f);
+  void InsertC0CandFactor(const Expr &f);
   void DumpAxis(bool on_screen = false);
 
  private:
@@ -191,7 +191,7 @@ class TilingAnalyzer {
     } else if (scop->IsConv()) {
       op_type_ = CONV_OP;
     } else {
-      op_type_ = VECTOR_OP;
+      op_type_ = INST_OP;
     }
   }
   TilingAnalyzer(Scop *scop, const isl::schedule &sch, const std::vector<NodeRef> &ct, const std::vector<NodeRef> &ds)
@@ -207,7 +207,7 @@ class TilingAnalyzer {
     } else if (scop->IsConv()) {
       op_type_ = CONV_OP;
     } else {
-      op_type_ = VECTOR_OP;
+      op_type_ = INST_OP;
     }
   }
   ~TilingAnalyzer() = default;
@@ -215,7 +215,7 @@ class TilingAnalyzer {
   // represent a buffer
   struct BufferEntry {
     std::string name;
-    DavinciMemScope scope;
+    NpuMemScope scope;
     Expr shape;           // tensor size
     int64_t size;         // data type size
     int64_t align_size;   // determine the bytes used for alignment
@@ -296,7 +296,7 @@ class TileCandidate {
  public:
   explicit TileCandidate(TilingAnalyzer *analyzer) : analyzer_(analyzer) {
     for (const auto &attr : analyzer_->RootAxis()->attrs) {
-      std::string ub_name = attr.attr_value + "_local_UB";
+      std::string ub_name = attr.attr_value + LOCAL_BUF;
       if (attr.attr_key == "ELEMWISE")
         this->elem_align_buf.insert(ub_name);
       else if (attr.attr_key == "BROADCAST")
@@ -349,14 +349,14 @@ class TileCandidate {
   void ResetTileAxis() { this->tile_axis_.clear(); }
   void ResetTileVal() { this->tile_val_.clear(); }
   void UpdateConstTile(const TileAxis *a, int64_t l1_val, const int64_t l0_val = -1);
-  void UpdateL1Tile(const TileAxis *a, const Expr &l1_val);
-  void UpdateL0Tile(const TileAxis *a, const Expr &l0_val);
+  void UpdateC1Tile(const TileAxis *a, const Expr &l1_val);
+  void UpdateC0Tile(const TileAxis *a, const Expr &l0_val);
   void UpdateTile(const TileAxis *a, const Expr &l1_val, const Expr &l0_val = Expr());
   std::pair<Expr, Expr> GetTileVal(const TileAxis *a);
   std::pair<int64_t, int64_t> GetConstTileVal(const TileAxis *a);
 
   bool SpaceVerify(const TileAxis *axis, TileLevel level, int band);
-  std::pair<int64_t, int64_t> MemInfer(DavinciMemScope type, int band);
+  std::pair<int64_t, int64_t> MemInfer(NpuMemScope type, int band);
 
   void InsertAxisBack(TileAxis *a) {
     this->tile_axis_.emplace_back(a);

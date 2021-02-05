@@ -1,5 +1,5 @@
 /**
- * Copyright 2019 Huawei Technologies Co., Ltd
+ * Copyright 2019-2021 Huawei Technologies Co., Ltd
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -38,7 +38,6 @@
 #include "pass/utils.h"
 #include "pass/zero_elimination.h"
 #include "pass/autodiff_cce.h"
-#include "pass/rewrite_simplify_cce.h"
 
 namespace akg {
 namespace ir {

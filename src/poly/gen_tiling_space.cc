@@ -1,6 +1,6 @@
 
 /**
- * Copyright 2020 Huawei Technologies Co., Ltd
+ * Copyright 2020-2021 Huawei Technologies Co., Ltd
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -131,29 +131,29 @@ class TileSpaceCollector {
             *ptr++ = b_idx;
             *ptr++ = a_idx;
           } else {
-            if (con == "L1_range") {
-              TileAxis::Constraint const_cons = all_axes[b_idx][a_idx]->GetConstConstraint(LEVEL1);
+            if (con == "C1_range") {
+              TileAxis::Constraint const_cons = all_axes[b_idx][a_idx]->GetConstConstraint(LEVEC1);
               *ptr++ = const_cons.tile_min_.as<IntImm>()->value;
               *ptr++ = const_cons.tile_extent_.as<IntImm>()->value;
-            } else if (con == "L0_range") {
-              TileAxis::Constraint const_cons = all_axes[b_idx][a_idx]->GetConstConstraint(LEVEL0);
+            } else if (con == "C0_range") {
+              TileAxis::Constraint const_cons = all_axes[b_idx][a_idx]->GetConstConstraint(LEVEC0);
               *ptr++ = const_cons.tile_min_.as<IntImm>()->value;
               *ptr++ = const_cons.tile_extent_.as<IntImm>()->value;
-            } else if (con == "L1_mod") {
-              TileAxis::Constraint const_cons = all_axes[b_idx][a_idx]->GetConstConstraint(LEVEL1);
+            } else if (con == "C1_mod") {
+              TileAxis::Constraint const_cons = all_axes[b_idx][a_idx]->GetConstConstraint(LEVEC1);
               *ptr++ = const_cons.tile_mod_.as<IntImm>()->value;
-            } else if (con == "L0_mod") {
-              TileAxis::Constraint const_cons = all_axes[b_idx][a_idx]->GetConstConstraint(LEVEL0);
+            } else if (con == "C0_mod") {
+              TileAxis::Constraint const_cons = all_axes[b_idx][a_idx]->GetConstConstraint(LEVEC0);
               *ptr++ = const_cons.tile_mod_.as<IntImm>()->value;
             }
           }
         }
       }
       if (con == "index") space_->index_table = array;
-      if (con == "L1_range") space_->l1_tile_range_table = array;
-      if (con == "L0_range") space_->l0_tile_range_table = array;
-      if (con == "L1_mod") space_->l1_tile_mod_table = array;
-      if (con == "L0_mod") space_->l0_tile_mod_table = array;
+      if (con == "C1_range") space_->l1_tile_range_table = array;
+      if (con == "C0_range") space_->l0_tile_range_table = array;
+      if (con == "C1_mod") space_->l1_tile_mod_table = array;
+      if (con == "C0_mod") space_->l0_tile_mod_table = array;
       delete spaceDlPack;
     }
   }
@@ -195,7 +195,7 @@ class TileSpaceCollector {
       for (int64_t tile = tile_min->value; tile <= tile_extent->value; ++tile) {
         if (tile != tile_min->value && tile != tile_extent->value && (tile % tile_mod->value != 0)) continue;
         cand_.UpdateConstTile(axis, tile);
-        if (!cand_.SpaceVerify(axis, LEVEL1, band_idx)) continue;
+        if (!cand_.SpaceVerify(axis, LEVEC1, band_idx)) continue;
         if (!ScanDown(axis_idx + 1, band_idx)) return min_tile_ok;
         if (!min_tile_ok) min_tile_ok = true;
       }
@@ -209,8 +209,8 @@ class TileSpaceCollector {
   bool AppendCand(size_t band_idx) {
     process_++;
     int64_t mem_sz, align_sz;
-    std::tie(mem_sz, align_sz) = cand_.MemInfer(MEM_SCOPE_UB, band_idx);
-    if (align_sz > mem_limit_[MEM_SCOPE_UB]) return false;
+    std::tie(mem_sz, align_sz) = cand_.MemInfer(MEM_SCOPE_BUFFER, band_idx);
+    if (align_sz > mem_limit_[MEM_SCOPE_BUFFER]) return false;
     std::vector<int> tile(tile_axes_.size());
     for (size_t i = 0; i < tile_axes_.size(); ++i) {
       auto tile_val = cand_.GetConstTileVal(tile_axes_[i]);
@@ -254,7 +254,7 @@ class TileSpaceCollector {
   }
 
   void CollectMemLimit() {
-    DavinciInfo &d_info = DavinciInfo::GetInstance();
+    NpuInfo &d_info = NpuInfo::GetInstance();
     for (auto i = 0; i < MEM_SCOPE_BULK; ++i) {
       this->mem_limit_[i] = d_info.GetMemoryLimitInScope(i);
     }
@@ -314,7 +314,7 @@ class TileSpaceCollector {
   DLContext ctx = {kDLCPU, 0};
   std::vector<TileAxis *> tile_axes_;
   std::vector<bool> is_shared_;
-  std::unordered_set<std::string> cared_info_ = {"index", "L1_range", "L0_range", "L1_mod", "L0_mod"};
+  std::unordered_set<std::string> cared_info_ = {"index", "C1_range", "C0_range", "C1_mod", "C0_mod"};
 
   struct Result {
     std::vector<int> tile;
