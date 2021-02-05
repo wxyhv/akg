@@ -1,5 +1,5 @@
 /**
- * Copyright 2019 Huawei Technologies Co., Ltd
+ * Copyright 2019-2021 Huawei Technologies Co., Ltd
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -92,7 +92,7 @@ constexpr auto kEnableSubstituteDivVar = "enable_divide_var";
 constexpr auto kEnableComputeInPlace = "enable_compute_in_place";
 constexpr auto kEnableRewriteScalarCompute = "enable_rewrite_scalar_compute";
 constexpr auto kMaxNumRetryPoly = "max_num_retry_poly";
-constexpr auto kUBRatio = "ub_ratio";
+constexpr auto kBUFRatio = "ub_ratio";
 constexpr auto kErrorInfo = "";
 constexpr auto kErrorScope = "";
 constexpr auto kAllocBits = "alloc_bits";

@@ -1,5 +1,5 @@
 /**
- * Copyright 2020 Huawei Technologies Co., Ltd
+ * Copyright 2020-2021 Huawei Technologies Co., Ltd
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -21,10 +21,6 @@ std::map<std::string, std::string> AutoPolyTestBase::map_mode_ =
 
 std::map<std::string, std::string> AutoPolyTestBase::InitMapMode() {
   std::map<std::string, std::string> res;
-  res["cloud"] = "1.6";
-  res["mini"] = "1.1";
-  res["phoenix"] = "3.5";
-  res["orlando"] = "3.3";
   return res;
 }
 

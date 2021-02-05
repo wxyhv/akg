@@ -1,5 +1,5 @@
 /**
- * Copyright 2020 Huawei Technologies Co., Ltd
+ * Copyright 2020-2021 Huawei Technologies Co., Ltd
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -24,9 +24,9 @@ isl::schedule MarkFuseOp::Run(isl::schedule schedule_mark) {
   auto fn = [](isl::schedule_node node) -> isl::schedule_node {
     if (node.isa<isl::schedule_node_mark>()) {
       std::string mark_id = node.as<isl::schedule_node_mark>().get_id().get_name();
-      size_t pos = mark_id.find(UBL0);
+      size_t pos = mark_id.find(BUFC0);
       if (pos != std::string::npos) {
-        std::string m = FUSE_VECTOR;
+        std::string m = FUSE_INST;
         node = node.insert_mark(isl::id(node.ctx(), m));
         node = node.parent();
       }

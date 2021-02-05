@@ -1,5 +1,5 @@
 /**
- * Copyright 2019 Huawei Technologies Co., Ltd
+ * Copyright 2019-2021 Huawei Technologies Co., Ltd
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -31,7 +31,7 @@ struct PointBandInfo {
 
 // data structure for recording tile band data
 struct TileBandData {
-  // flag indicating whether L0 tiled
+  // flag indicating whether C0 tiled
   bool l0_tiled;
   // mark node of the tile band, if any
   isl::schedule_node mark;
@@ -59,8 +59,8 @@ class Reschedule : public SchedulePass {
   virtual isl::schedule Run(isl::schedule sch);
 
  private:
-  static bool IsL1OrUbMark(const isl::schedule_node &node);
-  static bool IsL0OrUbL0Mark(const isl::schedule_node &node);
+  static bool IsC1OrUbMark(const isl::schedule_node &node);
+  static bool IsC0OrUbC0Mark(const isl::schedule_node &node);
   void CollectTileBandData(const isl::schedule_node &node, TileBandData *tile_band_data);
   static isl::schedule_node RetrieveTileBandData(isl::schedule_node node, TileBandData *tile_band_data);
   static isl::schedule_node RetrieveNodeList(isl::schedule_node node, const std::vector<isl::schedule_node> &node_list);
@@ -81,19 +81,19 @@ class Reschedule : public SchedulePass {
  private:
   ScopInfo &scop_info_;
   PassInfo &pass_info_;
-  // for recording L1/UB tile band build options
+  // for recording C1/BUF tile band build options
   std::vector<isl::union_set> l1_build_options_;
 
-  // for recording L0 tile band build options
+  // for recording C0 tile band build options
   std::vector<isl::union_set> l0_build_options_;
 
-  // for recording nodes along the path from root to L1/UB band
+  // for recording nodes along the path from root to C1/BUF band
   std::vector<isl::schedule_node> node_list_0_;
 
-  // for recording nodes along the path from L1/UB band to L0/UBL0 band
+  // for recording nodes along the path from C1/BUF band to C0/BUFC0 band
   std::vector<isl::schedule_node> node_list_1_;
 
-  // for recording nodes along the path from L0/UBL0 band to point band
+  // for recording nodes along the path from C0/BUFC0 band to point band
   std::vector<isl::schedule_node> node_list_2_;
 };
 

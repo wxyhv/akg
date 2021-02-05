@@ -1,5 +1,5 @@
 /**
- * Copyright 2019 Huawei Technologies Co., Ltd
+ * Copyright 2019-2021 Huawei Technologies Co., Ltd
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -21,6 +21,7 @@
 
 #include "pass/utils.h"
 #include "construct_poly_accesses.h"
+#include "poly/dsa_utils.h"
 
 namespace akg {
 namespace ir {
@@ -334,12 +335,12 @@ void ParseStmtOpCall(const isl::id &id, const Call *call, AnalysisResult &result
       // do nothing
     } else if (0 == strcmp(call->name.c_str(), "sub_relu")) {
       // do nothing
-    } else if (0 == strcmp(call->name.c_str(), "load3d_l1_ub")) {
-      result.GetStmtOpInfoMap().at(id).isLoad3d = true;
+    } else if (0 == strcmp(call->name.c_str(), "load_im2col_c1_buf")) {
+      result.GetStmtOpInfoMap().at(id).is_load_im2col = true;
       ParseStmtOps(id, call->args[0], result, func);
     } else if (0 == strcmp(call->name.c_str(), "mad")) {
       result.GetStmtOpInfoMap().at(id).ops.push_back(PolyOpType::mad);
-      result.GetStmtOpInfoMap().at(id).isCube = true;
+      result.GetStmtOpInfoMap().at(id).isMMU = true;
       // assign + mad
       std::string name = id.get_name();
       size_t index = static_cast<size_t>(WrappedStrtol(name.substr(name.length() - 1)));
@@ -348,7 +349,7 @@ void ParseStmtOpCall(const isl::id &id, const Call *call, AnalysisResult &result
       ss << tmp << index - 1;
       if (result.GetStmtOpInfoMap().count(isl::id(id.ctx(), ss.str())) > 0 &&
           result.GetStmtOpInfoMap().at(isl::id(id.ctx(), ss.str())).ops[0] == PolyOpType::broadcast)
-        result.GetStmtOpInfoMap().at(isl::id(id.ctx(), ss.str())).isCubeAssign = true;
+        result.GetStmtOpInfoMap().at(isl::id(id.ctx(), ss.str())).isMMUAssign = true;
       // end
       result.GetStmtOpInfoMap().at(id).C_ = func->func_name();
       CHECK(call->args.size() == 2) << "invalid args of mad! ";
@@ -386,8 +387,8 @@ void ParseStmtOpCall(const isl::id &id, const Call *call, AnalysisResult &result
 }
 
 void ParseStmtOps(const isl::id &id, const Expr &val, AnalysisResult &result, const FunctionRef &func) {
-  result.GetStmtOpInfoMap().at(id).isCube = false;
-  result.GetStmtOpInfoMap().at(id).isCubeAssign = false;
+  result.GetStmtOpInfoMap().at(id).isMMU = false;
+  result.GetStmtOpInfoMap().at(id).isMMUAssign = false;
   if (auto add = val.as<Add>()) {
     if (isImm(add->a) || isImm(add->b)) {
       if (!isImm(add->a)) {  // if add->a is not a scalar, then put it into recursion
@@ -508,7 +509,7 @@ void ParseStmtOps(const isl::id &id, const Evaluate *stmt, AnalysisResult &resul
     stmt_op_Info.readtensors.push_back(tensor_id);
   }
 
-  if (stmt->value.as<Call>() && stmt->value.as<Call>()->name == CALL_IM2COL_UB) {
+  if (stmt->value.as<Call>() && stmt->value.as<Call>()->name == CALL_IM2COL_BUF) {
     stmt_op_Info.ops.push_back(PolyOpType::im2col);
     stmt_op_Info.isIm2col = true;
   }
@@ -908,7 +909,7 @@ isl::schedule MakeScheduleTreeHelper(const NodeRef &s, ScopInfo &scop_info, cons
 
     void Visit_(const Evaluate *op) final {
       const Call *call_op = op->value.as<Call>();
-      if (call_op && call_op->name == CALL_IM2COL_UB) {
+      if (call_op && call_op->name == CALL_IM2COL_BUF) {
         size_t stmt_index = scop_info_.analysis_result_.GetStatementMap().size();
         isl::id id(set.ctx(), macro_stmt >= 0 ? kStatementLabel + std::to_string(macro_stmt)
                                               : kStatementLabel + std::to_string(stmt_index));
@@ -1026,11 +1027,11 @@ isl::schedule MakeScheduleTreeHelper(const NodeRef &s, ScopInfo &scop_info, cons
       std::string update_name = tensor->op->name;
       std::string update_scope;
       if (tensor->op.as<PlaceholderOpNode>()) {
-        update_name += "_local_L1";
-        update_scope = "local.L1";
+        update_name += LOCAL_C1;
+        update_scope = DOT_LOCAL_C1;
       } else {
-        update_name += "_local_UB";
-        update_scope = "local.UB";
+        update_name += LOCAL_BUF;
+        update_scope = DOT_LOCAL_BUF;
       }
       Buffer update_buffer =
         BufferNode::make(buffer->data, buffer->dtype, buffer->shape, buffer->strides, buffer->elem_offset, buffer->name,

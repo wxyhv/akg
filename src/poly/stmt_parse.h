@@ -1,5 +1,5 @@
 /**
- * Copyright 2019 Huawei Technologies Co., Ltd
+ * Copyright 2019-2021 Huawei Technologies Co., Ltd
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -87,12 +87,12 @@ enum class PolyOpType : int { FOREACH(GENERATE_ENUM) };
 struct StmtOpInfo {
   std::vector<PolyOpType> ops;
   std::vector<isl::id> readtensors;
-  bool isCube = false;
-  bool isCubeAssign = false;
+  bool isMMU = false;
+  bool isMMUAssign = false;
   bool isWith = false;
   bool isIm2col = false;
-  bool isLoad3d = false;
-  // only used when isCube/isConv = true;
+  bool is_load_im2col = false;
+  // only used when isMMU/isConv = true;
   std::string A_ = "";
   std::string B_ = "";
   std::string C_ = "";

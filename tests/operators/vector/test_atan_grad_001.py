@@ -1,4 +1,4 @@
-# Copyright 2020 Huawei Technologies Co., Ltd
+# Copyright 2020-2021 Huawei Technologies Co., Ltd
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -40,17 +40,10 @@ class TestAtanGrad(TestBase):
             ("atan_grad_f32_04", atan_grad_run, ((32, 256, 16), "float32", (32, 256, 16), "float32")),
         ]
 
-    @pytest.mark.rpc_mini
-    @pytest.mark.level1
-    @pytest.mark.env_onecard
-    @pytest.mark.platform_x86_ascend_training
     def test_mini_run(self):
         """run case for mini"""
         self.common_run(self.testarg_mini)
 
-    @pytest.mark.rpc_cloud
-    @pytest.mark.env_onecard
-    @pytest.mark.platform_x86_ascend_training
     def test_cloud_run(self):
         """run case for cloud"""
         self.common_run(self.testarg_cloud)

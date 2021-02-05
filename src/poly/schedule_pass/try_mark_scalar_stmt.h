@@ -1,5 +1,5 @@
 /**
- * Copyright 2020 Huawei Technologies Co., Ltd
+ * Copyright 2020-2021 Huawei Technologies Co., Ltd
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -24,7 +24,7 @@ namespace ir {
 namespace poly {
 
 /*
- * Mark each scalar statement with a "realize_UB" mark node. "root" should be
+ * Mark each scalar statement with a REALIZE_BUF mark node. "root" should be
  * either a domain node or a filter node.
  *
  * First, check whether each statement in "root" is scalar. Each set of the
@@ -38,10 +38,10 @@ namespace poly {
  * node or a sequence/set node.
  *
  * If it comes to a leaf node, "root" represents a single scalar statement. Insert
- * an empty band and mark this empty band with a "realize_UB" mark.
+ * an empty band and mark this empty band with a REALIZE_BUF mark.
  *
  * If a sequence/set node is encountered, meaning "root" represents multiple
- * scalar statements. Mark each child recursively with a "realize_UB" mark.
+ * scalar statements. Mark each child recursively with a REALIZE_BUF mark.
  *
  * Return the original "root" in other cases.
  */

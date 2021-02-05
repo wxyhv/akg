@@ -1,5 +1,5 @@
 /**
- * Copyright 2020 Huawei Technologies Co., Ltd
+ * Copyright 2020-2021 Huawei Technologies Co., Ltd
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -23,28 +23,28 @@ namespace akg {
 namespace ir {
 namespace poly {
 
-bool Reschedule::IsL1OrUbMark(const isl::schedule_node &node) {
+bool Reschedule::IsC1OrUbMark(const isl::schedule_node &node) {
   if (node.isa<isl::schedule_node_mark>()) {
     auto tag = node.as<isl::schedule_node_mark>().get_id().get_name();
-    if (tag == REALIZE_L1 || tag == REALIZE_UB) return true;
+    if (tag == REALIZE_C1 || tag == REALIZE_BUF) return true;
   }
   return false;
 }
 
-bool Reschedule::IsL0OrUbL0Mark(const isl::schedule_node &node) {
+bool Reschedule::IsC0OrUbC0Mark(const isl::schedule_node &node) {
   if (node.isa<isl::schedule_node_mark>()) {
     auto tag = node.as<isl::schedule_node_mark>().get_id().get_name();
-    if (tag == REALIZE_L0 || tag == REALIZE_UBL0) return true;
+    if (tag == REALIZE_C0 || tag == REALIZE_BUFC0) return true;
   }
   return false;
 }
 
 /* Collect tile band data.
  *
- * The input node may either be an L1/UB tile band or an L0 tile band.
+ * The input node may either be an C1/BUF tile band or an C0 tile band.
  *
  * First check whether "node" is a band node, return if not. Then set "l0_tiled"
- * if "node" is marked by "realize_L0" or "realize_UBL0". Save the ast build
+ * if "node" is marked by "realize_C0" or "realize_BUFC0". Save the ast build
  * options to "l0_build_options_" since we need to retrieve it after building
  * the whole schedule.
  */
@@ -57,10 +57,10 @@ void Reschedule::CollectTileBandData(const isl::schedule_node &node, struct Tile
 
   if (tile_band_data->mark.isa<isl::schedule_node_mark>()) {
     auto marktag = tile_band_data->mark.as<isl::schedule_node_mark>().get_id().get_name();
-    if (marktag == REALIZE_L0 || marktag == REALIZE_UBL0) {
+    if (marktag == REALIZE_C0 || marktag == REALIZE_BUFC0) {
       tile_band_data->l0_tiled = true;
       l0_build_options_.push_back(tile_band_data->ast_build_options);
-    } else if (marktag == REALIZE_L1 || marktag == REALIZE_UB) {
+    } else if (marktag == REALIZE_C1 || marktag == REALIZE_BUF) {
       l1_build_options_.push_back(tile_band_data->ast_build_options);
     }
     tile_band_data->gemm_mark = node.parent().parent();
@@ -74,7 +74,7 @@ void Reschedule::CollectTileBandData(const isl::schedule_node &node, struct Tile
 }
 
 /* Retrieve tile band data for "node". In particular, the ast build
- * options could be retrieved directly when "node" is an L1/UB tile
+ * options could be retrieved directly when "node" is an C1/BUF tile
  * band, since the schedule tree is not anchored.
  */
 isl::schedule_node Reschedule::RetrieveTileBandData(isl::schedule_node node, struct TileBandData *tile_band_data) {
@@ -87,7 +87,7 @@ isl::schedule_node Reschedule::RetrieveTileBandData(isl::schedule_node node, str
   if (tile_band_data->mark.isa<isl::schedule_node_mark>()) {
     auto marktag = tile_band_data->mark.as<isl::schedule_node_mark>().get_id().get_name();
     node = node.insert_mark(tile_band_data->mark.as<isl::schedule_node_mark>().get_id());
-    if (marktag == REALIZE_L0) {
+    if (marktag == REALIZE_C0) {
       if (tile_band_data->gemm_mark.isa<isl::schedule_node_mark>()) {
         auto gemmtag = tile_band_data->gemm_mark.as<isl::schedule_node_mark>().get_id().get_name();
         if (gemmtag == CONV_GEMM) {
@@ -376,7 +376,7 @@ isl::schedule_node Reschedule::RestorePointBandInfo(isl::schedule_node node, con
  * "root" should be either a domain or filter node.
  *
  * "need_dist" is used to indicate whether reschedule is needed.
- * In particular, only operators bypassing L0, i.e., those vector
+ * In particular, only operators bypassing C0, i.e., those vector
  * operators, should be rescheduled. Operators like convolution,
  * multiplication, etc. should not be rescheduled.
  *
@@ -389,7 +389,7 @@ isl::schedule_node Reschedule::RestorePointBandInfo(isl::schedule_node node, con
  * be a sequence/set node or a tile band node. If "node" refers
  * to a sequence/set node, reschedule each filter node individually
  * and construct a new schedule via a sequence/set node. If "node"
- * moves to a tile band, record L1/UB tile band and its mark node.
+ * moves to a tile band, record C1/BUF tile band and its mark node.
  * They should be retrieved to the generated schedule after
  * rescheduling, together with its permutable, coincident, options,
  * etc.
@@ -397,10 +397,10 @@ isl::schedule_node Reschedule::RestorePointBandInfo(isl::schedule_node node, con
  * When traversing from "root" to outermost band node, there may
  * be some additional nodes that should be reserved in "node_list".
  * Such nodes may be a band (in the case of node split during
- * tiling), context, guard, mark (not L1/UB/L0/UBL0 mark) node. All
+ * tiling), context, guard, mark (not C1/BUF/C0/BUFC0 mark) node. All
  * these nodes should be retrieved after rescheduling.
  *
- * Then move down to the child node of L1/UB tile band. As
+ * Then move down to the child node of C1/BUF tile band. As
  * convolution operator group and vector operator group branch
  * into different buffers, the child node may be a sequence/set
  * node.
@@ -411,19 +411,19 @@ isl::schedule_node Reschedule::RestorePointBandInfo(isl::schedule_node node, con
  * group, we reschedule it by maximizing fusion; for those ops
  * in vector group, each operator should be distributed. Such
  * groups are differentiated by checking the target local buffer,
- * i.e., L0 (for conv group) or UBL0 (for vector group).
+ * i.e., C0 (for conv group) or BUFC0 (for vector group).
  *
- * L0 tile band may be reached by moving down from either a L1/UB
- * tile band or a filter node. Record L1/UB tile band and its mark
+ * C0 tile band may be reached by moving down from either a C1/BUF
+ * tile band or a filter node. Record C1/BUF tile band and its mark
  * node. They should also be retrieved to the generated schedule
  * after rescheduling, together with its permutable, coincident,
  * options, etc.
  *
- * L0 tile may not happen when the input ops are not convolution-like
- * ops. In such cases, one may reach point band directly from L1
+ * C0 tile may not happen when the input ops are not convolution-like
+ * ops. In such cases, one may reach point band directly from C1
  * tile band.
  *
- * Point band may be reached by moving down from L0 tile band.
+ * Point band may be reached by moving down from C0 tile band.
  * Record point band information for later reclaiming. Again,
  * permutable, coincident, options, etc. should all be recovered.
  *
@@ -434,20 +434,20 @@ isl::schedule_node Reschedule::RestorePointBandInfo(isl::schedule_node node, con
  * the consistency along tile bands.
  *
  * Retrieve the original point band by intersecting each filter
- * of the generated schedule. The original L0 tile band may also
+ * of the generated schedule. The original C0 tile band may also
  * be retrieved after updating the introduced sequence/set node.
- * Also, the L0 tile mark node should also be recovered if any.
+ * Also, the C0 tile mark node should also be recovered if any.
  *
- * The L1/UB tile band and its mark node should be added to the
- * generated schedule. "L1_tile_mupa" and "L1_mark" would be used
- * to record L0 tile information when given a filter node.
+ * The C1/BUF tile band and its mark node should be added to the
+ * generated schedule. "C1_tile_mupa" and "C1_mark" would be used
+ * to record C0 tile information when given a filter node.
  *
  * The saved "node_list" may be retrieved to the new schedule tree
  * if any.
  *
- * Finally, the L1/UB AST build options may be introduced to the
+ * Finally, the C1/BUF AST build options may be introduced to the
  * generated schedule, since one or more nodes in "node_list" may
- * govern the L1/UB tile bands and/or L0/UBL0 tile bands. One may
+ * govern the C1/BUF tile bands and/or C0/BUFC0 tile bands. One may
  * come across with anchored subtrees if the options were introduced
  * before retrieving nodes in "node_list".
  *
@@ -462,17 +462,17 @@ isl::schedule_node Reschedule::RescheduleSchTree(const isl::schedule_node &root)
   auto active_domain = root.isa<isl::schedule_node_domain>() ? root.as<isl::schedule_node_domain>().get_domain()
                                                              : root.as<isl::schedule_node_filter>().get_filter();
 
-  // Save L1/UB band and mark node
+  // Save C1/BUF band and mark node
   auto node = GetOuterBand(root);
-  // Save all nodes along the path from root to L1/UB
-  if (!IsL1OrUbMark(node.parent()) && !IsL0OrUbL0Mark(node.parent())) {
+  // Save all nodes along the path from root to C1/BUF
+  if (!IsC1OrUbMark(node.parent()) && !IsC0OrUbC0Mark(node.parent())) {
     node = root.get_child(0);
-    while (!IsL1OrUbMark(node) && !IsL0OrUbL0Mark(node) && !IsSequenceOrSet(node) &&
+    while (!IsC1OrUbMark(node) && !IsC0OrUbC0Mark(node) && !IsSequenceOrSet(node) &&
            !node.isa<isl::schedule_node_leaf>()) {
       node_list_0_.push_back(node);
       node = node.get_child(0);
     }
-    if (IsL1OrUbMark(node) || IsL0OrUbL0Mark(node)) node = node.get_child(0);
+    if (IsC1OrUbMark(node) || IsC0OrUbC0Mark(node)) node = node.get_child(0);
   }
 
   // Construct the schedule recursively
@@ -495,11 +495,11 @@ isl::schedule_node Reschedule::RescheduleSchTree(const isl::schedule_node &root)
       }
     }
     node = GetOuterBand(schedule.get_root());
-    // insert the original L1/UB band and its mark
+    // insert the original C1/BUF band and its mark
     node = RetrieveNodeList(node, node_list_0_);
 
     // retrieve ast build options for each filter
-    // The ast build options of L0/UBL0 have to be retrieved
+    // The ast build options of C0/BUFC0 have to be retrieved
     // after building the whole schedule tree, since it may
     // introduce an anchored subtree they were retrieved
     // before constructing schedule by sequence/set.
@@ -550,26 +550,26 @@ isl::schedule_node Reschedule::RescheduleSchTree(const isl::schedule_node &root)
 
   if (!node.isa<isl::schedule_node_band>()) return root;
 
-  struct TileBandData L1_Tile_Data;
-  CollectTileBandData(node, &L1_Tile_Data);
+  struct TileBandData C1_Tile_Data;
+  CollectTileBandData(node, &C1_Tile_Data);
 
   if (root.isa<isl::schedule_node_filter>()) {
-    if (IsL0OrUbL0Mark(L1_Tile_Data.mark)) {
-      auto L1tag = L1_Tile_Data.mark.as<isl::schedule_node_mark>().get_id().get_name();
-      if (L1tag == REALIZE_L0) {
+    if (IsC0OrUbC0Mark(C1_Tile_Data.mark)) {
+      auto C1tag = C1_Tile_Data.mark.as<isl::schedule_node_mark>().get_id().get_name();
+      if (C1tag == REALIZE_C0) {
         need_dist = false;
       }
     }
   }
 
-  // Move down to the child of L1/UB band and save all nodes along
+  // Move down to the child of C1/BUF band and save all nodes along
   node = node.get_child(0);
-  while (!node.isa<isl::schedule_node_band>() && !node.isa<isl::schedule_node_leaf>() && !IsL0OrUbL0Mark(node) &&
+  while (!node.isa<isl::schedule_node_band>() && !node.isa<isl::schedule_node_leaf>() && !IsC0OrUbC0Mark(node) &&
          !IsSequenceOrSet(node)) {
     node_list_1_.push_back(node);
     node = node.get_child(0);
   }
-  if (IsL0OrUbL0Mark(node)) node = node.get_child(0);
+  if (IsC0OrUbC0Mark(node)) node = node.get_child(0);
   // Construct the schedule recursively
   // when encountered a sequence/set node
   if (IsSequenceOrSet(node)) {
@@ -591,17 +591,17 @@ isl::schedule_node Reschedule::RescheduleSchTree(const isl::schedule_node &root)
     }
     node = GetOuterBand(schedule.get_root());
 
-    // retrieve all nodes from L1/UB to L0/UBL0
+    // retrieve all nodes from C1/BUF to C0/BUFC0
     node = RetrieveNodeList(node, node_list_1_);
 
-    // insert the original L1/UB band and its mark
-    node = RetrieveTileBandData(node, &L1_Tile_Data);
+    // insert the original C1/BUF band and its mark
+    node = RetrieveTileBandData(node, &C1_Tile_Data);
 
     // set ast build options
     node = RetrieveAstBuildOptions(node, l1_build_options_[0]);
 
     // retrieve ast build options for each filter
-    // The ast build options of L0/UBL0 have to be retrieved
+    // The ast build options of C0/BUFC0 have to be retrieved
     // after building the whole schedule tree, since it may
     // introduce an anchored subtree they were retrieved
     // before constructing schedule by sequence/set.
@@ -635,18 +635,18 @@ isl::schedule_node Reschedule::RescheduleSchTree(const isl::schedule_node &root)
 
   if (!node.isa<isl::schedule_node_band>()) return root;
 
-  // Save L0 band and mark node, if any
-  // "l0_tiled" is used to check L0 tiled or not
-  struct TileBandData L0_Tile_Data;
-  CollectTileBandData(node, &L0_Tile_Data);
+  // Save C0 band and mark node, if any
+  // "l0_tiled" is used to check C0 tiled or not
+  struct TileBandData C0_Tile_Data;
+  CollectTileBandData(node, &C0_Tile_Data);
 
-  // Move down to point band if L0 tiled
-  if (L0_Tile_Data.l0_tiled) {
-    auto L0tag = L0_Tile_Data.mark.as<isl::schedule_node_mark>().get_id().get_name();
-    if (L0tag == REALIZE_L0) {
+  // Move down to point band if C0 tiled
+  if (C0_Tile_Data.l0_tiled) {
+    auto C0tag = C0_Tile_Data.mark.as<isl::schedule_node_mark>().get_id().get_name();
+    if (C0tag == REALIZE_C0) {
       return root;
     }
-    // Move down to the child of L0/UBL0 band
+    // Move down to the child of C0/BUFC0 band
     // and save all nodes along
     node = node.get_child(0);
     while (!node.isa<isl::schedule_node_band>() && !IsSequenceOrSet(node) && !node.isa<isl::schedule_node_leaf>()) {
@@ -655,7 +655,7 @@ isl::schedule_node Reschedule::RescheduleSchTree(const isl::schedule_node &root)
     }
     if (!node.isa<isl::schedule_node_band>()) {
       if (IsSequenceOrSet(node)) {
-        LOG(WARNING) << "reschedule of sequence/set node under L0/UBL0 is still ongoing!";
+        LOG(WARNING) << "reschedule of sequence/set node under C0/BUFC0 is still ongoing!";
       }
       return root;
     }
@@ -669,27 +669,27 @@ isl::schedule_node Reschedule::RescheduleSchTree(const isl::schedule_node &root)
 
   node = RestorePointBandInfo(node, point_band_info);
 
-  // Retrieve L0 tile band and mark node if L0 tiled
-  if (L0_Tile_Data.l0_tiled) {
+  // Retrieve C0 tile band and mark node if C0 tiled
+  if (C0_Tile_Data.l0_tiled) {
     node = RetrieveNodeList(node, node_list_2_);
-    node = RetrieveTileBandData(node, &L0_Tile_Data);
+    node = RetrieveTileBandData(node, &C0_Tile_Data);
   }
 
-  // retrieve all nodes from L1/UB to L0/UBL0
+  // retrieve all nodes from C1/BUF to C0/BUFC0
   node = RetrieveNodeList(node, node_list_1_);
 
-  // Retrieve L1/UB tile band and its mark
-  node = RetrieveTileBandData(node, &L1_Tile_Data);
+  // Retrieve C1/BUF tile band and its mark
+  node = RetrieveTileBandData(node, &C1_Tile_Data);
 
-  // Retrieve all saved nodes along the path to L1/UB band, if any
+  // Retrieve all saved nodes along the path to C1/BUF band, if any
   node = RetrieveNodeList(node, node_list_0_);
 
   // Reset ast build options
-  while (!IsL1OrUbMark(node) && !IsL0OrUbL0Mark(node) && !IsSequenceOrSet(node) &&
+  while (!IsC1OrUbMark(node) && !IsC0OrUbC0Mark(node) && !IsSequenceOrSet(node) &&
          !node.isa<isl::schedule_node_leaf>()) {
     node = node.get_child(0);
   }
-  if (IsL1OrUbMark(node)) node = RetrieveAstBuildOptions(node, l1_build_options_[0]);
+  if (IsC1OrUbMark(node)) node = RetrieveAstBuildOptions(node, l1_build_options_[0]);
   if (IsSequenceOrSet(node)) {
     for (unsigned int i = 0; i < static_cast<unsigned int>(node.n_children()) && i < l1_build_options_.size(); ++i) {
       node = node.get_child(static_cast<int>(i));
@@ -723,7 +723,7 @@ static isl::schedule_node IslScheduleNodeReplaceChild(const isl::schedule_node &
  */
 isl::schedule_node Reschedule::RescheduleInnerBand(const isl::schedule_node &root) {
   return root.map_descendant_bottom_up([this](const isl::schedule_node &node) -> isl::schedule_node {
-    if (!IsL1OrUbMark(node) && !IsL0OrUbL0Mark(node)) return node;
+    if (!IsC1OrUbMark(node) && !IsC0OrUbC0Mark(node)) return node;
 
     CHECK_EQ(node.n_children(), 1) << "mark node must have one child";
     auto outer_band = node.first_child();
@@ -749,27 +749,27 @@ void Reschedule::Dump() {
   if (!of.is_open()) {
     return;
   }
-  PrintHeader(of, "L1/UB tile band build options");
+  PrintHeader(of, "C1/BUF tile band build options");
   for (const auto &option : l1_build_options_) {
     of << option << std::endl;
   }
 
-  PrintHeader(of, "L0 tile band build options");
+  PrintHeader(of, "C0 tile band build options");
   for (const auto &option : l0_build_options_) {
     of << option << std::endl;
   }
 
-  PrintHeader(of, "nodes from root to L1/UB band");
+  PrintHeader(of, "nodes from root to C1/BUF band");
   for (const auto &node : node_list_0_) {
     of << node << std::endl;
   }
 
-  PrintHeader(of, "nodes from L1/UB band to L0/UBL0 band");
+  PrintHeader(of, "nodes from C1/BUF band to C0/BUFC0 band");
   for (const auto &node : node_list_1_) {
     of << node << std::endl;
   }
 
-  PrintHeader(of, "nodes from L0/UBL0 band to point band");
+  PrintHeader(of, "nodes from C0/BUFC0 band to point band");
   for (const auto &node : node_list_2_) {
     of << node << std::endl;
   }

@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # coding: utf-8
-# Copyright 2019 Huawei Technologies Co., Ltd
+# Copyright 2019-2021 Huawei Technologies Co., Ltd
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -79,7 +79,6 @@ from .build_module import build, build_to_func, lower, build_config
 from .autodiff import differentiate
 from .autodiff import get_variables
 from .autodiff import register_variables
-from .lang.cce.te_compute.common import fargmax, fargmin, mad
 from . import lang
 
 __all__ = ["differentiate"]

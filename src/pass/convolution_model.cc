@@ -1,5 +1,5 @@
 /**
- * Copyright 2019 Huawei Technologies Co., Ltd
+ * Copyright 2019-2021 Huawei Technologies Co., Ltd
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -234,7 +234,7 @@ IsolateInfo ConvolutionModel::get_k_isolate_info(int gemm_idx) { return k_info[g
 ConvolutionForwardModel::ConvolutionForwardModel(const Map<std::string, NodeRef> &attrs, bool is_dynamic)
     : ConvolutionModel(attrs, is_dynamic) {}
 
-int ConvolutionForwardModel::infer_L1_tile() {
+int ConvolutionForwardModel::infer_CA1_tile() {
   Expr co = conv_.output.c;
   Expr cut_co = tile_.cut_co;
   if (!is_dynamic_) {
@@ -329,7 +329,7 @@ int ConvolutionForwardModel::infer_L1_tile() {
   return co_base * h_base * w_base;
 }
 
-int ConvolutionForwardModel::infer_L0_tile(int isolate_idx) {
+int ConvolutionForwardModel::infer_CA0_tile(int isolate_idx) {
   /* m_l1 = oh * ow */
   Expr m_l1 = get_h_win_isolate_info(isolate_idx).inner * get_w_win_isolate_info(isolate_idx).inner;
   m_l1 = (m_l1 + conv_.block_size - 1) / conv_.block_size * conv_.block_size;
@@ -395,7 +395,7 @@ int ConvolutionForwardModel::get_w_idx(int isolate_idx) const { return (isolate_
 ConvolutionBackpropInputModel::ConvolutionBackpropInputModel(const Map<std::string, NodeRef> &attrs, bool is_dynamic)
     : ConvolutionModel(attrs, is_dynamic) {}
 
-int ConvolutionBackpropInputModel::infer_L1_tile() {
+int ConvolutionBackpropInputModel::infer_CA1_tile() {
   if (!is_dynamic_) {
     CHECK(conv_.output.c.as<IntImm>());
     CHECK(tile_.cut_co.as<IntImm>());
@@ -465,7 +465,7 @@ int ConvolutionBackpropInputModel::infer_L1_tile() {
   return co_base * h_base * w_base;
 }
 
-int ConvolutionBackpropInputModel::infer_L0_tile(int isolate_idx) {
+int ConvolutionBackpropInputModel::infer_CA0_tile(int isolate_idx) {
   if (!is_dynamic_) {
     CHECK(get_h_win_isolate_info(isolate_idx).inner.as<IntImm>());
     CHECK(get_w_win_isolate_info(isolate_idx).inner.as<IntImm>());
@@ -537,7 +537,7 @@ ConvolutionBackpropFilterModel::ConvolutionBackpropFilterModel(const Map<std::st
   }
 }
 
-int ConvolutionBackpropFilterModel::infer_L1_tile() {
+int ConvolutionBackpropFilterModel::infer_CA1_tile() {
   if (!is_dynamic_) {
     CHECK(conv_.input.n.as<IntImm>());
     CHECK(tile_.cut_b.as<IntImm>());
@@ -647,7 +647,7 @@ int ConvolutionBackpropFilterModel::infer_L1_tile() {
   return ci_base * kh_base * kw_base * co_base * b_base * h_base * w_base;
 }
 
-int ConvolutionBackpropFilterModel::infer_L0_tile(int isolate_idx) {
+int ConvolutionBackpropFilterModel::infer_CA0_tile(int isolate_idx) {
   if (!is_dynamic_) {
     /* m_l1 = cout */
     CHECK(get_co_isolate_info(isolate_idx).inner.as<IntImm>());

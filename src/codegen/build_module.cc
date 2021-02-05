@@ -1,5 +1,5 @@
 /**
- * Copyright 2019 Huawei Technologies Co., Ltd
+ * Copyright 2019-2021 Huawei Technologies Co., Ltd
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -25,7 +25,6 @@
 #include <vector>
 
 #include "build_module.h"
-#include "pass/expr_alg_simplify.h"
 #include "ir_pass.h"
 #include "schedule_pass.h"
 #include "codegen/pass_mgr.h"
@@ -437,7 +436,6 @@ void FixParametricBinds(const Map<Tensor, Buffer> &binds, const Array<NodeRef> &
 NodeRef Lower(Schedule sch, const Array<NodeRef> &in_args, const Array<NodeRef> &shape_vars, const std::string &name,
               const Map<Tensor, Buffer> &in_binds, const Map<std::string, NodeRef> &in_attrs, bool simple_mode,
               bool polyhedral, bool tuning, const std::string &target, const BuildConfig &config) {
-  ir::TestExprCompuationSimplify();
   CHECK(sch.defined()) << "sch is not defined.";
   CHECK(!name.empty()) << "name is empty.";
   CHECK(find_if(name.begin(), name.end(), [](char c) { return !std::isalnum(c) && c != '_'; }) == name.end())
@@ -455,7 +453,7 @@ NodeRef Lower(Schedule sch, const Array<NodeRef> &in_args, const Array<NodeRef> 
     global_attrs = in_attrs;
   }
   PassMgr::ClearPassId();
-  PassTimer *pass_timer = PassTimer::GetInstance();
+  CHECK(target == "cuda") << "target only supports cuda, while now is " << target;
   global_attrs.Set(kKernelName, StringImm::make(name));
 
   global_attrs.Set(kDumpPassIr, air::make_const(Int(32), config->dump_pass_ir));
@@ -487,467 +485,36 @@ NodeRef Lower(Schedule sch, const Array<NodeRef> &in_args, const Array<NodeRef> 
   auto bounds = air::schedule::InferBound(new_sch);
   Stmt stmt = make_pass("schedule.ScheduleOps", new_sch, bounds, false);
 
-  if (target == "cuda") {
-    // Phase 1
-    stmt = NEXT_PASS(RewriteForTensorCore, stmt, new_sch, binds_0);
-    stmt = NEXT_PASS(StorageFlatten, stmt, binds_0, 64, config->instrument_bound_checkers);
-    stmt = NEXT_PASS(CanonicalSimplify, stmt);
-
-    // Phase 2
-    if (!simple_mode) {
-      stmt = NEXT_PASS(LoopPartition, stmt, config->partition_const_loop);
-    }
-    if (config->disable_vectorize) {
-      stmt = NEXT_PASS(SkipVectorize, stmt);
-    } else {
-      stmt = NEXT_PASS(VectorizeLoop, stmt);
-    }
-    stmt = NEXT_PASS(InjectVirtualThread, stmt);
-    stmt = NEXT_PASS(InjectDoubleBuffer, stmt, config->double_buffer_split_loop);
-    stmt = NEXT_PASS(StorageRewrite, stmt);
-    stmt = NEXT_PASS(UnrollLoop, stmt, config->auto_unroll_max_step, config->auto_unroll_max_depth,
-                     config->auto_unroll_max_extent, config->unroll_explicit);
-
-    // Phase 3
-    stmt = NEXT_PASS(Simplify, stmt);
-    stmt = NEXT_PASS(RemoveNoOp, stmt);
-    if (config->instrument_bound_checkers) {
-      stmt = NEXT_PASS(InstrumentBoundCheckers, stmt);
-    }
-    if (simple_mode) {
-      return stmt;
-    }
-    LoweredFunc lowered_func = NEXT_PASS(MakeAPI, stmt, name, arg_list_0, 0, config->restricted_func);
-    return lowered_func;
-  }
-
-  if (!polyhedral) {
-    // for conv-matmul manual schedule
-    stmt = NEXT_PASS(AutoMadPragmaAttr, stmt, true);
-  }
-
-  stmt = NEXT_PASS(RewriteMultiValueFunc, stmt);
-  Map<Tensor, Tensor> replace;
-  RenameBinds(binds_0, config, args, arg_list_0, replace);
-  PassMgr::SetArgs(arg_list_0);
-  stmt = NEXT_PASS(RenameRealize, stmt, binds_0, replace);
-
-  bool is_dynamic = !shape_vars.empty();
-  global_attrs.Set(kIsDynamic, air::make_const(Int(32), is_dynamic));
-
-  Array<NodeRef> arg_list_1;
-  Map<Tensor, Buffer> binds_1;
-  GetFlattenedBinds(args, binds_0, config, arg_list_1, binds_1, is_dynamic);
-  Stmt stmt1 = NEXT_PASS(ElementwiseFlatten, stmt, binds_0, binds_1);
-  if (stmt1.get() != stmt.get()) {
-    stmt = stmt1;
-    arg_list_0 = arg_list_1;
-    binds_0 = binds_1;
-  }
-
-  for (auto &node : shape_vars) {
-    if (node.as<Variable>()) {
-      arg_list_0.push_back(node);
-    }
-  }
-
-  PassMgr::SetArgs(arg_list_0);
-
-  if (target != "aicpu") {
-    stmt = NEXT_PASS(MathIntrinRewrite, stmt);
-  }
-
-  if (global_attrs.GetBoolAttr(kEnableRewriteScalarCompute, false)) {
-    stmt = NEXT_PASS(ScalarComputeRewrite, stmt);
-  }
-
   // Phase 1
-  if (target != "aicpu" && polyhedral) {
-    stmt = NEXT_PASS(UnifyLoopVars, stmt, binds_0, arg_list_0);
-    stmt = NEXT_PASS(CheckShapeParams, stmt, binds_0);
-    stmt = NEXT_PASS(AlignPartitionCCE, stmt);
+  stmt = NEXT_PASS(RewriteForTensorCore, stmt, new_sch, binds_0);
+  stmt = NEXT_PASS(StorageFlatten, stmt, binds_0, 64, config->instrument_bound_checkers);
+  stmt = NEXT_PASS(CanonicalSimplify, stmt);
 
-    // Loop Partition args : 2 : split_const_loop, 3 : remove Div / Mod ops by partitioning,
-    //                       4 : whether to partition convolution or not
-    if (global_attrs.GetBoolAttr(kEnablePrePolyLoopPartition, true)) {
-      stmt = NEXT_PASS(LoopPartitionCCE, stmt, true, false, !polyhedral);
-    }
-    if (global_attrs.GetBoolAttr(kLoopPartitionUnroll, false)) {
-      stmt = NEXT_PASS(UnrollNonConstantExtent, stmt);
-    }
-    if (global_attrs.GetBoolAttr(kExtentToCond, true)) {
-      stmt = NEXT_PASS(ConvertExtentToCond, stmt, binds_0);
-    }
-    if (global_attrs.GetBoolAttr(kEnableToThreeAddress, true)) {
-      if (global_attrs.count(kToThreeAddressCrossSimply) != 0) {
-        // Not combine with reuse tensors
-        stmt = NEXT_PASS(ToThreeAddress, stmt, false, 0, true);
-      } else {
-        if (global_attrs.GetBoolAttr(kToThreeAddressReuse, false)) {
-          int min_split = global_attrs.GetIntAttr(kToThreeAddressMinSplit, 10);
-          if (min_split > 0) {
-            stmt = NEXT_PASS(ToThreeAddress, stmt, true, min_split);
-          } else {
-            stmt = NEXT_PASS(ToThreeAddress, stmt, true);
-          }
-        } else {
-          stmt = NEXT_PASS(ToThreeAddress, stmt);
-        }
-      }
-    }
-    if (!global_attrs.GetBoolAttr(kDisableCse, false)) {
-      stmt = NEXT_PASS(StmtCSE, stmt, binds_0);
-    }
-    if (!global_attrs.GetBoolAttr(kDisableVn, false)) {
-      stmt = NEXT_PASS(ValueNumbering, stmt);
-    }
-    if (!global_attrs.GetBoolAttr(kDisableHalfToFloatSumOpt, false)) {
-      stmt = NEXT_PASS(HalfReduceSumRewrite, stmt, binds_0);
-    }
-    stmt = NEXT_PASS(StmtPatternRewrite, stmt);
-    stmt = NEXT_PASS(CopyPropagation, stmt, binds_0);
-    stmt = NEXT_PASS(MathIntrinRewrite, stmt);
-    if (global_attrs.GetBoolAttr(kRewriteVarTensorIdx, false)) {
-      stmt = NEXT_PASS(RewriteVarTensorIdx, stmt, binds_0);
-    } else {
-      stmt = NEXT_PASS(RewriteTensorIndex, stmt);
-    }
-    if (global_attrs.GetBoolAttr(kEnableFeatureLibrary, false) ||
-        global_attrs.GetBoolAttr(kEnableFeatureLibraryPrePoly, false)) {
-      stmt = NEXT_PASS(FeatureLibTransform, stmt);
-    }
-    stmt = NEXT_PASS(UnrollLoop, stmt, -1, -1, 1, true);
-    stmt = NEXT_PASS(SinkIfStmt, stmt);
-    int level = global_attrs.GetIntAttr(kHelpTiling, -1);
-    if (tuning || level > help_tiling_level["None"]) {
-      if (tuning) {
-        level = help_tiling_level["Tuning"];
-      }
-
-      Map<std::string, NodeRef> attrs_1 = global_attrs;
-      attrs_1.Set(kDumpTuningLevel, air::make_const(Int(32), level));
-      NodeRef tuning_spaces = NEXT_PASS(GenTuningSpace, stmt, binds_0, attrs_1, false);
-      return tuning_spaces;
-    }
+  // Phase 2
+  if (!simple_mode) {
+    stmt = NEXT_PASS(LoopPartition, stmt, config->partition_const_loop);
   }
-
-  // micro-tuning configs: current strategy is to retry autopoly up to 3 times when storage flatten/rewrite fails
-  bool need_micro_tuning =
-    target != "aicpu" && polyhedral && !is_dynamic && global_attrs.GetStringAttr("dim", "").empty();
-  const int max_enter_poly_times = global_attrs.GetIntAttr(kMaxNumRetryPoly, need_micro_tuning ? 4 : 1);
-  int enter_count = 0;
-  Stmt stmt_before_poly = stmt;
-  while (enter_count < max_enter_poly_times) {
-    if (target != "aicpu" && polyhedral) {
-      Array<NodeRef> poly_res = NEXT_PASS(AutoPoly, stmt_before_poly, binds_0, global_attrs, false, is_dynamic);
-      enter_count++;
-      CHECK_EQ(poly_res.size(), 2);
-      stmt = air::Downcast<Stmt>(poly_res[0]);
-      Array<air::Var> tiling_params = air::Downcast<Array<air::Var>>(poly_res[1]);
-      for (const auto &var : tiling_params) {
-        arg_list_0.push_back(var);
-      }
-
-      if (global_attrs.GetBoolAttr(kTileSizeIsVar, false)) {
-        Array<NodeRef> arg_list_2;
-        Map<Tensor, Buffer> binds_2;
-        FixParametricBinds(binds_0, arg_list_0, config, &binds_2, &arg_list_2);
-        stmt = NEXT_PASS(FixBindBuffer, stmt, binds_2);
-        arg_list_0 = arg_list_2;
-        binds_0 = binds_2;
-      }
-
-      if (is_dynamic) {
-        if (global_attrs.GetBoolAttr(kEnableSubstituteDivVar, false)) {
-          stmt = NEXT_PASS(SubstituteDivVar, stmt);
-        }
-
-        // fix var addresses because poly identify vars by name
-        stmt = NEXT_PASS(UnifyLoopVars, stmt, binds_0, arg_list_0);
-        // isolate dynamic tile loops (isolate body and tail)
-        if (global_attrs.GetBoolAttr(kEnableIsolateLoop, true)) {
-          stmt = NEXT_PASS(IsolateLoops, stmt, global_attrs.GetBoolAttr(kEnableIsolateMinMax, false));
-          stmt = NEXT_PASS(PromoteLetStmt, stmt, arg_list_0);
-        }
-      }
-
-      // pls do not insert pass between AutoPoly and cube special pass.
-      // cube special pass begin
-      stmt = NEXT_PASS(ExprPatternRewrite, stmt);
-      stmt = NEXT_PASS(AutoMadPragmaAttr, stmt);
-      stmt = NEXT_PASS(PostFusion, stmt, binds_0, is_dynamic);
-      stmt = NEXT_PASS(ReduceFusionOpt, stmt, binds_0);
-      stmt = NEXT_PASS(PostProcessImg2col, stmt);
-      stmt = NEXT_PASS(PromoteIfStmt, stmt, is_dynamic);
-      stmt = NEXT_PASS(BypassL1, stmt);
-      if (global_attrs.GetBoolAttr(kEnableStrideKernelOp, true)) {
-        stmt = NEXT_PASS(StrideKernelOp, stmt, binds_0, is_dynamic);
-      }
-      stmt = NEXT_PASS(Load3dTrans, stmt, is_dynamic);
-      // cube special pass end
-      stmt = NEXT_PASS(CopyPropagation, stmt, binds_0);
-      stmt = NEXT_PASS(ConvertCondToExtent, stmt);
-      bool enable_convert_if = global_attrs.GetBoolAttr(kEnableConvertIf, false);
-      if (enable_convert_if) {
-        stmt = NEXT_PASS(FixRealizeShape, stmt);
-      }
-      if (global_attrs.GetBoolAttr(kEnableDmaSink, false)) {
-        stmt = NEXT_PASS(DMASink, stmt);
-      }
-
-      stmt = NEXT_PASS(LowerWith, stmt);
-      stmt = NEXT_PASS(ForEliminate, stmt);
-      stmt = NEXT_PASS(RealizeCompress, stmt);
-
-      if (!global_attrs.GetBoolAttr(kCoarsenImg2Col, false)) {
-        stmt = NEXT_PASS(LoopNormlize, stmt);
-      }
-      stmt = NEXT_PASS(PoolingTransform, stmt, is_dynamic);
-      stmt = NEXT_PASS(InjectAttr, stmt);
-      stmt = NEXT_PASS(ModDivEliminate, stmt);
-      if (enable_convert_if) {
-        stmt = NEXT_PASS(AlignLastAxisLoopExtent, stmt, binds_0);
-        stmt = NEXT_PASS(FixLoopExtent, stmt);
-        stmt = NEXT_PASS(ConvertIfToSelect, stmt);
-      }
-    }
-    try {
-      stmt = NEXT_PASS(StorageFlatten, stmt, binds_0, 64);
-    } catch (const std::runtime_error &e) {
-      if (enter_count >= max_enter_poly_times) {
-        CHECK(false) << e.what();
-      }
-      global_attrs.Set(kErrorInfo, StringImm::make(e.what()));
-      continue;
-    }
-    stmt = NEXT_PASS(DmaFlatten, stmt, global_attrs.GetBoolAttr(kTileSizeIsVar, false));
-    if (global_attrs.GetBoolAttr(kAlgebraSimplify, false) && is_dynamic) {
-      stmt = NEXT_PASS(AlgebraSimplify, stmt);
-    }
-    if (is_dynamic) {
-      stmt = NEXT_PASS(UnifyAllocate, stmt);
-    }
-
-    if (global_attrs.GetBoolAttr(kEleminateOutmostForCond, false)) {
-      stmt = NEXT_PASS(PreProcess4Multicore, stmt);
-    }
-
-    int enable_multicore = global_attrs.GetIntAttr(kEnableMulticore, 1);
-    if (!is_dynamic && enable_multicore != 0 && global_attrs.GetBoolAttr(kMultiCoreLoopSwitchHoist, true)) {
-      stmt = NEXT_PASS(MultiCoreLoopSwitchHoist, stmt);
-    }
-    stmt = NEXT_PASS(LoopSwitchHoist, stmt, global_attrs.GetIntAttr(kEnableHoistAllocate, false));
-
-    // Loop Partition args : 2 : split_const_loop, 3 : remove Div / Mod ops by partitioning,
-    //                       4 : whether to partition convolution or not
-    if (target != "aicpu" && global_attrs.GetBoolAttr(kEnablePostPolyLoopPartition, true)) {
-      stmt = NEXT_PASS(LoopPartitionCCE, stmt, true, false, !polyhedral);
-    }
-
-    if (polyhedral && global_attrs.GetBoolAttr(kEnableSinkAllocate, true)) {
-      stmt = NEXT_PASS(SinkAllocate, stmt);
-    }
-
-    if (global_attrs.GetBoolAttr(kLoopPartitionUnroll, false)) {
-      // For the Manual scheduling or When polyhedral is not used
-      stmt = NEXT_PASS(UnrollNonConstantExtent, stmt);
-    }
-    if (!polyhedral) {
-      // fix mad attributes and remove dead computations for the manual schedule
-      stmt = NEXT_PASS(FixMadAttrs, stmt);
-    }
-    if (!is_dynamic) {
-      stmt = NEXT_PASS(CanonicalSimplify, stmt);
-    }
-    stmt = NEXT_PASS(ForEliminate, stmt);
-    if (global_attrs.GetBoolAttr(kAlgebraSimplify, false) && is_dynamic) {
-      stmt = NEXT_PASS(AlgebraSimplify, stmt);
-    }
-    if (!is_dynamic) {
-      stmt = NEXT_PASS(FixLoopExtent, stmt);
-    }
-
-    if (target != "aicpu") {
-      stmt = NEXT_PASS(AutoPragma, stmt);
-    }
-    stmt = NEXT_PASS(EliminateAtomicDma, stmt);
-    if (global_attrs.GetBoolAttr(kDeadCodeElim, false)) {
-      stmt = NEXT_PASS(DeadCodeElim, stmt);
-    }
-
-    if (is_dynamic) {
-      stmt = NEXT_PASS(AnalyzeMinAlignDynamic, stmt, global_attrs.GetIntAttr(kEnableConvAnalyzeAlign, true),
-                       global_attrs.GetIntAttr(kEnableScalarAlign, false));
-    } else {
-      stmt = NEXT_PASS(RewriteBroadcastVector, stmt);
-      stmt = NEXT_PASS(OptimizePragma, stmt);
-      stmt = NEXT_PASS(MergeLoops, stmt, false);
-      stmt = NEXT_PASS(PackStore, stmt);
-      stmt = NEXT_PASS(AnalyzeMinAlignStatic, stmt);
-      stmt = NEXT_PASS(RecoverStore, stmt);
-    }
-
-    stmt = NEXT_PASS(MultiLastAxisReductions, stmt, is_dynamic);
-    stmt = NEXT_PASS(AutoReorder, stmt);
-    if (enable_multicore != 0) {
-      if (is_dynamic && enable_multicore == 1) {
-        Var block_dim = Variable::make(Int(32), "blockDim");
-        Array<NodeRef> multicore_res =
-          NEXT_PASS(InjectMultiCoreVar, stmt, block_dim, global_attrs.GetIntAttr(kMergeOuterLoop, 0));
-        CHECK_EQ(multicore_res.size(), 2);
-        stmt = air::Downcast<Stmt>(multicore_res[0]);
-        auto extent_thread = air::Downcast<Integer>(multicore_res[1]);
-        if (extent_thread.as<IntImm>()->value == -1) {
-          arg_list_0.push_back(block_dim);
-        }
-      } else {
-        int block_dim = enable_multicore == 1 ? -1 : enable_multicore;
-        stmt = NEXT_PASS(InjectMultiCore, stmt, block_dim, global_attrs.GetIntAttr(kMergeOuterLoop, 0), is_dynamic,
-                         global_attrs.GetBoolAttr(kMultiCoreScalarRerrange, false));
-      }
-    }
-    if (!is_dynamic) {
-      RecordCore(stmt, global_attrs.GetBoolAttr(kRecordCore, false));
-    }
-    stmt = NEXT_PASS(SelectLower, stmt);
-    stmt = NEXT_PASS(ReplaceFargmaxCasts, stmt);
-    if (global_attrs.GetBoolAttr(kEnableCoverProtectOptimize, true) && !is_dynamic) {
-      stmt = NEXT_PASS(GatherLoopInfo, stmt);
-    }
-    stmt = NEXT_PASS(CastFilter, stmt);
-    if (!is_dynamic) {
-      stmt = NEXT_PASS(SplitTail, stmt);
-    }
-    stmt = NEXT_PASS(EmitInsn, stmt, global_attrs.GetBoolAttr(kEnableBisectOptimize, true),
-                     global_attrs.GetBoolAttr(kEnableCoverProtectOptimize, true), binds_0, is_dynamic);
-    // must be after EmitInsn
-    stmt = NEXT_PASS(TileCoverCorrect, stmt);
-    if (global_attrs.GetBoolAttr(kEnableCoverProtectOptimize, true) && !is_dynamic) {
-      // simulated blocks > 240 000 => simulated case takes too much time (> 10 sec)
-      // number of protections > 128 => too many brackets in the if statement throw an error
-      stmt = NEXT_PASS(CoverProtection, stmt, 240000, 128);
-    }
-    stmt = NEXT_PASS(ConvertDivModToShift, stmt);
-    if (!polyhedral || global_attrs.GetBoolAttr(kCoarsenImg2Col, false)) {
-      // for conv manual schedule and load3d
-      stmt = NEXT_PASS(CoarsenImg2Col, stmt);
-    }
-    stmt = NEXT_PASS(DTypeAdapter, stmt);
-    if (global_attrs.GetBoolAttr(kEnableHoistInsn, true)) {
-      stmt = NEXT_PASS(HoistInsn, stmt);
-    }
-    // temp disable InvariantHoist for dynamic shape because it may move LetStmt out of scope
-    if (global_attrs.GetBoolAttr(kEnableInvariantHoist, true)) {
-      stmt = NEXT_PASS(InvariantHoist, stmt);
-    }
-    stmt = NEXT_PASS(SetVectorMaskDefault, stmt);
-    stmt = NEXT_PASS(ElimVectorMask, stmt);
-    stmt = NEXT_PASS(ElimDMA, stmt);
-    if (!is_dynamic) {
-      stmt = NEXT_PASS(MultiCorePartition, stmt);
-    }
-
-    if (global_attrs.GetBoolAttr(kEnableDoubleBuffer, true)) {
-      stmt = NEXT_PASS(AutoDoubleBuffer, stmt);
-    }
-    stmt = NEXT_PASS(InjectAccessPtrMSG, stmt);
-    if (target != "aicpu") {
-      stmt = NEXT_PASS(InjectPipe, stmt);
-    }
-    stmt = NEXT_PASS(ModDivEliminate, stmt);
-
-    // Phase 2
-    if (!simple_mode && global_attrs.GetBoolAttr(kEnablePostPolyLoopPartition, true) && !is_dynamic) {
-      stmt = NEXT_PASS(LoopPartitionCCE, stmt, config->partition_const_loop, true, !polyhedral);
-    }
-    if (global_attrs.GetBoolAttr(kEnablePreStorageWriteSimplify, false)) {
-      stmt = NEXT_PASS(AlgebraSimplify, stmt);
-    }
-    std::string maxsat_filename = global_attrs.GetStringAttr(kMaxsatFile, std::string());
-    // attempt to optimize UB memory layout to reduce bank conflicts and pipeline conflicts
-    bool use_bc_opt = global_attrs.GetBoolAttr(kUseBcOpt, true);
-    // run MaxSAT solver for bank conflicts with no limits on model size or runtime
-    bool bc_no_limits = false;
-    // timeout for MaxSAT solver in seconds (int)
-    int maxsat_timeout = 4;
-    try {
-      stmt = NEXT_PASS(StorageRewriteCCE, stmt, maxsat_filename, use_bc_opt, bc_no_limits, maxsat_timeout);
-    } catch (MemoryAllocationException &e) {
-      if (enter_count >= max_enter_poly_times) {
-        CHECK(false) << e.what();
-      }
-      global_attrs.Set(kAllocBits, air::make_const(Int(32), e.alloc_bits_ + e.need_bits_));
-      global_attrs.Set(kErrorScope, StringImm::make(e.scope_));
-      continue;
-    }
-    break;
+  if (config->disable_vectorize) {
+    stmt = NEXT_PASS(SkipVectorize, stmt);
+  } else {
+    stmt = NEXT_PASS(VectorizeLoop, stmt);
   }
-
-  if (!is_dynamic)
-    stmt = NEXT_PASS(UnrollLoop, stmt, config->auto_unroll_max_step, config->auto_unroll_max_depth,
-                     config->auto_unroll_max_extent, config->unroll_explicit);
-
-  stmt = NEXT_PASS(SpecialValueReplacer, stmt);
-  stmt = NEXT_PASS(Simplify, stmt);
-  if (target != "aicpu") {
-    stmt = NEXT_PASS(InjectSync, stmt);
-  }
+  stmt = NEXT_PASS(InjectVirtualThread, stmt);
+  stmt = NEXT_PASS(InjectDoubleBuffer, stmt, config->double_buffer_split_loop);
+  stmt = NEXT_PASS(StorageRewrite, stmt);
+  stmt = NEXT_PASS(UnrollLoop, stmt, config->auto_unroll_max_step, config->auto_unroll_max_depth,
+                   config->auto_unroll_max_extent, config->unroll_explicit);
 
   // Phase 3
-  stmt = NEXT_PASS(RemoveAccessPtrMSG, stmt);
-  if (is_dynamic) {
-    // check undefined loop vars
-    stmt = NEXT_PASS(UnifyLoopVars, stmt, binds_0, arg_list_0);
-    stmt = NEXT_PASS(PromoteLetStmt, stmt, arg_list_0);
-    if (global_attrs.GetBoolAttr(kPromoteCommonExpr, true)) {
-      stmt = NEXT_PASS(PromoteCommonExpr, stmt);
-    }
-    if (global_attrs.GetBoolAttr(kPromoteConstExpr, true)) {
-      stmt = NEXT_PASS(PromoteConstExpr, stmt);
-    }
-  }
   stmt = NEXT_PASS(Simplify, stmt);
-  stmt = NEXT_PASS(LowerStorageAccessInfoCCE, stmt);
-  if (is_dynamic) {
-    stmt = NEXT_PASS(RewriteFloorDiv, stmt);
-    stmt = NEXT_PASS(RemoveAssert, stmt);
-  }
   stmt = NEXT_PASS(RemoveNoOp, stmt);
-  if (is_dynamic) {
-    stmt = NEXT_PASS(SpecifyMinMaxDataType, stmt);
-  }
-  if (!config->disable_select_rewriting) {
-    stmt = NEXT_PASS(RewriteUnsafeSelect, stmt);
-  }
-
-  if (is_dynamic) {
-    Array<NodeRef> collect_res = NEXT_PASS(CollectExternalCall, stmt);
-    CHECK_EQ(collect_res.size(), 2);
-    stmt = air::Downcast<Stmt>(collect_res[0]);
-    g_external_call_name = air::Downcast<Array<NodeRef>>(collect_res[1]);
-    // CastKernelParams should be before DecorateDeviceScope
-    Array<NodeRef> cast_res = NEXT_PASS(CastKernelParams, stmt, arg_list_0);
-    CHECK_EQ(cast_res.size(), 2);
-    stmt = air::Downcast<Stmt>(cast_res[0]);
-    arg_list_0 = air::Downcast<Array<NodeRef>>(cast_res[1]);
-  }
-
-  stmt = NEXT_PASS(DecorateDeviceScope, stmt);
-
-  // Instrument BoundCheckers
   if (config->instrument_bound_checkers) {
     stmt = NEXT_PASS(InstrumentBoundCheckers, stmt);
   }
-
   if (simple_mode) {
     return stmt;
   }
-  PassMgr::SetArgs(arg_list_0);
   LoweredFunc lowered_func = NEXT_PASS(MakeAPI, stmt, name, arg_list_0, 0, config->restricted_func);
-
-  LOG(INFO) << *pass_timer;
-  pass_timer->Clear();
-
   return lowered_func;
 }
 
@@ -958,7 +525,7 @@ void BuildForDevice(const Array<LoweredFunc> &flist, const std::string &target_n
   CHECK(out_mdev != nullptr) << "out_mdev is nullptr.";
 
   Target target = Target::Create(target_name);
-  TVMContext context{kDLCce, 0};
+  TVMContext context{kDLGPU, 0};
   DLDeviceType device_type = context.device_type;
 
   Array<LoweredFunc> fhost;
@@ -1060,7 +627,7 @@ BuildRst BuildToFunc(const Schedule &inputs, const Array<NodeRef> &in_args, cons
 
 namespace {
 void CreateCce(const std::string &code, const std::string &kernel_name) {
-  std::string file_name = kMsDavinciKernelPath;
+  std::string file_name = kMsAscendKernelPath;
   file_name.append(kernel_name).append(".cce");
   std::ofstream of(file_name);
   CHECK(of.is_open()) << "Failed to open " << file_name << " to dump cce.";

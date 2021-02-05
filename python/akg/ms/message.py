@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # coding: utf-8
-# Copyright 2019 Huawei Technologies Co., Ltd
+# Copyright 2019-2021 Huawei Technologies Co., Ltd
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -51,9 +51,13 @@ def compilewithjson_to_func(json_str):
 
     op_name = kernel_info['name']
     op_func = None
-    processor = 'aicore'
+    supported_processors = ['cuda']
+    processor = 'cuda'
     if 'process' in kernel_info:
         processor = kernel_info['process']
+    if processor not in supported_processors:
+        logging.error("supported processors: {}, current processor: {}".format(supported_processors, processor))
+        return False
     # get custom ops implementation first.
     if 'impl_path' in kernel_info and kernel_info['impl_path'] is not None:
         impl_path = os.path.realpath(kernel_info['impl_path'])

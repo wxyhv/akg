@@ -1,5 +1,5 @@
 /**
- * Copyright 2020 Huawei Technologies Co., Ltd
+ * Copyright 2020-2021 Huawei Technologies Co., Ltd
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -42,7 +42,7 @@ isl::schedule KeepOuterBandOrder::Run(isl::schedule sch) {
         CHECK_GE(n_dims, 0);
         // vector
         size_t min_dim_in_aff = 0;
-        if (info_.cube_info_.HasCube()) {
+        if (info_.mmu_info_.HasCube()) {
           // cube
           min_dim_in_aff = n_dims;
         }
@@ -83,7 +83,7 @@ isl::schedule KeepOuterBandOrder::Run(isl::schedule sch) {
   for (auto i = 0u; i < n_member; ++i) {
     coincident.push_back(outer_band.member_get_coincident(axes_map[i]));
   }
-  if (!info_.cube_info_.HasCube()) {
+  if (!info_.mmu_info_.HasCube()) {
     coincident[0] = true;
   }
 

@@ -1,5 +1,5 @@
 /**
- * Copyright 2019 Huawei Technologies Co., Ltd
+ * Copyright 2019-2021 Huawei Technologies Co., Ltd
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -100,7 +100,7 @@ std::tuple<isl::union_map, isl::union_map, isl::union_map> ConstructPolyAccesses
         }
         return 0;
       };
-      if (call->name == CALL_IM2COL_UB && call->args.size() == im2_col_arg_num) {
+      if (call->name == CALL_IM2COL_BUF && call->args.size() == im2_col_arg_num) {
         m_strid_h = getCallValue(Im2colCallIndex::idxStrideH);
         m_strid_w = getCallValue(Im2colCallIndex::idxStrideW);
         m_kernel_h = getCallValue(Im2colCallIndex::idxKernelH);
@@ -358,7 +358,7 @@ std::tuple<isl::union_map, isl::union_map, isl::union_map> ConstructPolyAccesses
     void Visit_(const Evaluate *op) final {
       IRVisitor::Visit_(op);
       const Call *call_op = op->value.as<Call>();
-      if (call_op && call_op->name == CALL_IM2COL_UB) {
+      if (call_op && call_op->name == CALL_IM2COL_BUF) {
         CHECK_GE(call_op->args.size(), 2);
         CHECK(call_op->args[0].as<Call>());
         CHECK_GE(call_op->args[0].as<Call>()->args.size(), 2);
