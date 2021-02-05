@@ -71,10 +71,14 @@ struct BuildInfo {
 };
 
 struct BuildInfoOpt {
+  // TODO: BuildInfoOpt is too confused with BuildInfo. move these to BuildInfo, and rename BuildInfoOpt to BuildOpt
   FuncExprMap inplaces;          // the tensors which should be in bind
   FuncRefMap sames;              // the tensors which are same
   FuncRefSet fakeout;            // the tensors which are not output
   std::vector<Tensor> sch_only;  // the tensors which should only used in sch, not output
+
+  bool aicore_type_adapt{false}; //cast to platform support type
+  bool fold_dim{true};
 };
 
 struct TensorInfo {

@@ -510,20 +510,25 @@ class TypeCastInserter : public IRMutator {
   };
 };
 
-Stmt Optimize(Stmt &s, BuildInfoOpt &opt, const FuncRefSet &input_funcs, const FuncRefList &output_funcs,
-              const std::string &target) {
+Stmt Optimize(Stmt &s, BuildInfoOpt &opt, const FuncRefSet &input_funcs, const FuncRefList &output_funcs) {
   // reshape optimize
   s = ReshapeTensor(s);
   // fusion
   s = FusionMutator().Mutate(s);
   // elemwise opt
   s = ElimTransformOp(s, input_funcs, output_funcs, opt);
+  // normalize axis attr
+  s = AxisAttrNormalize(s);
+  // fold dimension for multi-dim shape
+  if (opt.fold_dim) {
+    s = FoldDimension(s);
+  }
   // inplace_assign
   s = InplaceAssignMutator(opt).Mutate(s);
   // insert broadcast
   s = BroadcastInserter().Mutate(s);
   // insert cast for equal(int32) in ascend
-  if (target == "aicore") {
+  if (opt.aicore_type_adapt) {
     s = TypeCastInserter().Mutate(s);
   }
   return s;
@@ -713,7 +718,7 @@ void EmitIsolatedInplaceTensor(BuildInfoOpt &opt, FuncTensorMap &tensor_map) {
 }
 
 void ExtractBuildInfo(const picojson::value &input_json, BuildInfo &info, std::vector<std::string> &input_tensors,
-                      std::vector<std::string> &output_tensors) {
+                      std::vector<std::string> &output_tensors, bool buffer_stitch = false) {
   CHECK(input_json.is<picojson::object>());
   picojson::array input_desc;
   picojson::array output_desc;
@@ -733,7 +738,9 @@ void ExtractBuildInfo(const picojson::value &input_json, BuildInfo &info, std::v
   LOG(INFO) << "\n========STMT START========\n" << stmt << "\n========STMT END========\n";
   // 4. optimize stmt
   BuildInfoOpt opt;
-  stmt = Optimize(stmt, opt, parser.input_funcs_, parser.output_funcs_, target);
+  opt.fold_dim = buffer_stitch == false;
+  opt.aicore_type_adapt = target == "aicore";
+  stmt = Optimize(stmt, opt, parser.input_funcs_, parser.output_funcs_);
   LOG(INFO) << "\n========OPTIMIZED STMT START========\n" << stmt << "\n========OPTIMIZED STMT END========\n";
   // 5. emit stmt by topi
   FuncTensorMap tensor_map;
@@ -763,13 +770,13 @@ int ExtractKernelNum(const picojson::value &v) {
   return kernel_num;
 }
 
-Stmt String2LowerStmtSimple(const StringImm *json_str, const Map<std::string, NodeRef> &attrs, bool poly) {
+Stmt String2LowerStmtSimple(const StringImm *json_str, const Map<std::string, NodeRef> &attrs, bool poly, bool buffer_stitch) {
   CHECK(json_str);
   picojson::value v = String2Json(json_str->value);
   BuildInfo info;
   std::vector<std::string> input_tensors;
   std::vector<std::string> output_tensors;
-  ExtractBuildInfo(v, info, input_tensors, output_tensors);
+  ExtractBuildInfo(v, info, input_tensors, output_tensors, buffer_stitch);
   std::string sch_name = GetSchedule(info.tensors);
   const auto *sch_create = air::runtime::Registry::Get("select_cuda_scheduler");
   CHECK(sch_create != nullptr);
@@ -1048,7 +1055,7 @@ class CompositeJsonListGpu : public CompositeJsonList {
     BuildInfo info;
     std::vector<std::string> input_tensors;
     std::vector<std::string> output_tensors;
-    ExtractBuildInfo(v, info, input_tensors, output_tensors);
+    ExtractBuildInfo(v, info, input_tensors, output_tensors, buffer_stitch);
     // ensure merge_name_ is the same as original json name
     if (merge_name_.empty()) merge_name_ = info.kernel_name;
     std::string sch_name = GetSchedule(info.tensors);
@@ -1090,8 +1097,9 @@ class CompositeJsonListGpu : public CompositeJsonList {
       using std::placeholders::_1;
       using std::placeholders::_2;
       using std::placeholders::_3;
-      const std::function<Stmt(const StringImm *, const Map<std::string, NodeRef> &, bool)> f =
-        std::bind(&String2LowerStmtSimple, _1, _2, _3);
+      using std::placeholders::_4;
+      const std::function<Stmt(const StringImm *, const Map<std::string, NodeRef> &, bool, bool)> f =
+        std::bind(&String2LowerStmtSimple, _1, _2, _3, _4);
       BufferStitchAttr stitch_attr_info(f);
       stitch_attr_info.GetBufferStitchAttr(stitch_json, op_v, attrs, poly_);
       auto dims = stitch_attr_info.dims;

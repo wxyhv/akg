@@ -59,7 +59,7 @@ bool IsTransform(const std::string &op_name) {
 }
 bool IsOtherOp(const std::string &op_name) {
   // if topi support more, add to this list
-  std::unordered_set<std::string> elems = {"Matmul", "BatchMatmul",   "Conv",        "Transpose", "Tile",
+  std::unordered_set<std::string> elems = {"Matmul", "BatchMatMul",   "Conv",        "Transpose", "Tile",
                                            "Assign", "InplaceAssign", "EquivFormat", "TransData", "AddMinValue",
                                            "BroadcastTo"};
   return elems.find(op_name) != elems.end();
