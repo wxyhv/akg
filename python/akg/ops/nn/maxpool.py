@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # coding: utf-8
-# Copyright 2019 Huawei Technologies Co., Ltd
+# Copyright 2019-2021 Huawei Technologies Co., Ltd
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -75,7 +75,7 @@ def maxpool_set_dim_func(data, kernel, stride, pad):
     default_attr_map = {
         "pragma_reschedule": 1,
         "pragma_reorder_schedule": True,
-        "pragma_opt_for_davinci": 1,
+        "pragma_opt_for_dsa": 1,
         "pragma_disable_loop_reversal": 1,
         "loop_partition_unroll": False,
     }
@@ -648,7 +648,7 @@ def get_attrs():
     """Get default attrs for maxpool."""
     default_attr_map = {
         "pragma_reschedule": 1,
-        "pragma_opt_for_davinci": 1,
+        "pragma_opt_for_dsa": 1,
         "pragma_reorder_schedule": True,
         "enable_pre_poly_loop_partition": False,
         "enable_post_poly_loop_partition": False,
@@ -662,7 +662,7 @@ def get_dynamic_attrs():
     """Get default attrs for maxpool."""
     default_attr_map = {
         "pragma_reschedule": 1,
-        "pragma_opt_for_davinci": 1,
+        "pragma_opt_for_dsa": 1,
         "pragma_reorder_schedule": True,
         "enable_pre_poly_loop_partition": False,
         "enable_post_poly_loop_partition": False,

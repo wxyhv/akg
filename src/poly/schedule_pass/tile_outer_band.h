@@ -1,5 +1,5 @@
 /**
- * Copyright 2020 Huawei Technologies Co., Ltd
+ * Copyright 2020-2021 Huawei Technologies Co., Ltd
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -36,17 +36,17 @@ class TileOuterBand : public SchedulePass {
   ~TileOuterBand() {}
 
   enum class TileType {
-    L0 = 0,
-    L1,
-    UB,
-    UBL1,
-    UBL0,
-    L1UBL1,
+    C0 = 0,
+    C1,
+    BUF,
+    BUFC1,
+    BUFC0,
+    C1BUFC1,
     Invalid,
   };
   virtual isl::schedule Run(isl::schedule sch);
   isl::schedule RunCuda(isl::schedule sch);
-  isl::schedule RunCce(isl::schedule sch);
+  isl::schedule RunNpu(isl::schedule sch);
   void InitDimensionInfo(const isl::schedule &);
   void MergeTilingInfo();
   std::vector<std::vector<int>> AddTileInfo(const std::vector<std::vector<int>> &partition_info);
@@ -57,7 +57,7 @@ class TileOuterBand : public SchedulePass {
   isl::schedule_node ReverseTraverseChild(isl::schedule_node node,
                                           const std::function<isl::schedule_node(isl::schedule_node)> f);
   isl::schedule_node MarkOuterPermutableCuda(isl::schedule_node node);
-  isl::schedule_node MarkOuterPermutableCce(isl::schedule_node node);
+  isl::schedule_node MarkOuterPermutableNpu(isl::schedule_node node);
   int IsOuterTilable(const isl::schedule_node &node);
   int IsCandidate(const isl::schedule_node &node);
   bool IsPermutable(const isl::schedule_node &node, bool checkCoincident);
@@ -68,7 +68,7 @@ class TileOuterBand : public SchedulePass {
                                             int *full_tile_max, TileType tile_type, bool isolate);
   isl::multi_val ComputeBandTilesSizes(const isl::schedule_node &node, const int *tile_size);
   isl::multi_val MultiValFromIntList(const isl::space &space, int dim, const int *list);
-  void TileTypeL0(isl::schedule_node &node, int *full_tile_min, int *full_tile_max, TileType &tile_type, bool &isolate,
+  void TileTypeC0(isl::schedule_node &node, int *full_tile_min, int *full_tile_max, TileType &tile_type, bool &isolate,
                   isl::multi_val &sizes);
   isl::schedule_node IsolateTiles(const isl::schedule_node &original_node, isl::schedule_node tiled_node,
                                   TileType tile_type, const int *full_tile_min, const int *full_tile_max,
@@ -78,10 +78,10 @@ class TileOuterBand : public SchedulePass {
   isl::map ComputeTileMap(const isl::schedule_node &original_node, const isl::schedule_node &tiled_node);
   void IsolateLevelInfo(TileType &tile_type, isl::set &tiles, isl::set &all);
   isl::schedule_node SetIsolateLoopType(isl::schedule_node node);
-  void TileTypeL1(isl::schedule_node &node, int *full_tile_min, int *full_tile_max, TileType &tile_type, bool &isolate,
+  void TileTypeC1(isl::schedule_node &node, int *full_tile_min, int *full_tile_max, TileType &tile_type, bool &isolate,
                   isl::multi_val &sizes);
-  isl::schedule_node TileUbL1(isl::schedule_node node);
-  isl::schedule_node TileL0(isl::schedule_node node);
+  isl::schedule_node TileUbC1(isl::schedule_node node);
+  isl::schedule_node TileC0(isl::schedule_node node);
   void PaddingIsolate(int &h_head, int &h_tail, int &w_head, int &w_tail);
   void ComputeHInfo(int &h_base, bool &head, bool &tail, int &h_head, int &h_tail, int &win_h, int &win_cut_h);
   void ComputeWInfo(int &w_base, bool &head, bool &tail, int &w_head, int &w_tail, int &win_w, int &win_cut_w);

@@ -1,5 +1,5 @@
 /**
- * Copyright 2020 Huawei Technologies Co., Ltd
+ * Copyright 2020-2021 Huawei Technologies Co., Ltd
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -70,7 +70,7 @@ Stmt GpuIslEmitter::EmitRead(const isl::ast_node_user &node) {
 
       Tensor t = info_.FindTensor(var);
       CHECK(t.defined());
-      if (info_.cube_info_.IsIm2col() && !info_.analysis_result_.GetUpdateTensor().empty()) {
+      if (info_.mmu_info_.IsIm2col() && !info_.analysis_result_.GetUpdateTensor().empty()) {
         return Provide::make(info_.analysis_result_.GetUpdateTensor()[0]->op, 0, value, local_args);
       }
       return Provide::make(t->op, 0, value, local_args);

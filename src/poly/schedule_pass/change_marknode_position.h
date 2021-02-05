@@ -1,5 +1,5 @@
 /**
- * Copyright 2020 Huawei Technologies Co., Ltd
+ * Copyright 2020-2021 Huawei Technologies Co., Ltd
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -25,10 +25,10 @@ namespace poly {
 
 /*
  * "with" stmt aims to work around the irregular problem.
- * By default, the "realize_UB" mark is on the outer band. However, for tensor-of-tensor,
+ * By default, the REALIZE_BUF mark is on the outer band. However, for tensor-of-tensor,
  * the intermediate tensor may be too large if realized in the outermost scope.
- * To narrow down the scope, we move "realize_UB" mark to the filter node.
- * If all filter nodes of the band are "with" stmts, we remove the outer "realize_UB" mark.
+ * To narrow down the scope, we move REALIZE_BUF mark to the filter node.
+ * If all filter nodes of the band are "with" stmts, we remove the outer REALIZE_BUF mark.
  */
 class ChangeMarkNodePosition : public SchedulePass {
  public:

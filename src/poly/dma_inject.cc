@@ -1,5 +1,5 @@
 /**
- * Copyright 2019 Huawei Technologies Co., Ltd
+ * Copyright 2019-2021 Huawei Technologies Co., Ltd
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -1033,7 +1033,7 @@ std::unique_ptr<TensorFootprintCluster> AffineRefGroupConstructor::ConstructAffi
 std::unique_ptr<TensorFootprintCluster> AffineRefGroupConstructor::FractalAffineMapFootprintCluster(
   const isl::union_map &schedule, const isl::map &access, ReferenceType type, bool need_dma) {
   auto scoped_access = GetScopedAccess(schedule, access);
-  std::unique_ptr<TensorFootprintCluster> rg_L1 =
+  std::unique_ptr<TensorFootprintCluster> rg_C1 =
     TensorFootprintCluster::ComputeFootprintCluster(access, scoped_access, type, need_dma);
 
   Im2colAffine im2col;
@@ -1050,7 +1050,7 @@ std::unique_ptr<TensorFootprintCluster> AffineRefGroupConstructor::FractalAffine
   std::unique_ptr<TensorFootprintCluster> tensorGroup =
     TensorFootprintCluster::ComputeFootprintCluster(access, scoped_access, type, need_dma);
 
-  isl::map l1footprint = isl::map(rg_L1->ComputeBufferedFootprints());
+  isl::map l1footprint = isl::map(rg_C1->ComputeBufferedFootprints());
   l1footprint = l1footprint.apply_range(im2colMap);
   tensorGroup->footprint_map_ = l1footprint.apply_range(fractalMap);
 
@@ -1060,14 +1060,14 @@ std::unique_ptr<TensorFootprintCluster> AffineRefGroupConstructor::FractalAffine
 std::unique_ptr<TensorFootprintCluster> AffineRefGroupConstructor::AffineMapFootprintCluster(
   const isl::union_map &schedule, const isl::map &access, ReferenceType type, bool need_dma) {
   auto scoped_access = GetScopedAccess(schedule, access);
-  std::unique_ptr<TensorFootprintCluster> rg_L1 =
+  std::unique_ptr<TensorFootprintCluster> rg_C1 =
     TensorFootprintCluster::ComputeFootprintCluster(access, scoped_access, type, need_dma);
   isl::map affineMap = affine_->ConstructAffine(scoped_access.domain_factor_domain());
   scoped_access = scoped_access.apply_range(affineMap);
 
   std::unique_ptr<TensorFootprintCluster> tensorGroup =
     TensorFootprintCluster::ComputeFootprintCluster(access, scoped_access, type, need_dma);
-  auto l1footprint = isl::map(rg_L1->ComputeBufferedFootprints());
+  auto l1footprint = isl::map(rg_C1->ComputeBufferedFootprints());
   tensorGroup->footprint_map_ = l1footprint.apply_range(affineMap);
 
   return tensorGroup;
@@ -1103,19 +1103,19 @@ std::unique_ptr<TensorFootprintCluster> ConstructAffineFpCluster(ScopInfo &scop_
     case AffineType::AFFINE_IM2COL: {
       auto affine = static_cast<Im2colAffine *>(constructor.affine_);
       if (affine != nullptr) {
-        affine->attrInfo_ = scop_info.cube_info_.GetConvAttrInfo();
+        affine->attrInfo_ = scop_info.mmu_info_.GetConvAttrInfo();
       }
     } break;
     case AffineType::AFFINE_WEIGHTTRANS: {
       auto affine = static_cast<WeightAffine *>(constructor.affine_);
       if (affine != nullptr) {
-        affine->attrInfo_ = scop_info.cube_info_.GetConvAttrInfo();
+        affine->attrInfo_ = scop_info.mmu_info_.GetConvAttrInfo();
       }
     } break;
     case AffineType::AFFINE_FRACTAL: {
       auto affine = static_cast<FractalAffine *>(constructor.affine_);
       if (affine != nullptr) {
-        affine->attrInfo_ = scop_info.cube_info_.GetConvAttrInfo();
+        affine->attrInfo_ = scop_info.mmu_info_.GetConvAttrInfo();
       }
     } break;
     default:
@@ -1211,7 +1211,7 @@ isl::schedule_node InsertExtensionToFirstAccessedFilters(const ScopInfo &scop_in
                                                          const isl::schedule_node &graft, isl_bool before,
                                                          bool &found_extension_in_schedule) {
   found_extension_in_schedule = false;
-  if (scop_info.cube_info_.IsConv() || !tree.isa<isl::schedule_node_sequence>()) {
+  if (scop_info.mmu_info_.IsConv() || !tree.isa<isl::schedule_node_sequence>()) {
     return tree;
   }
 
@@ -1255,12 +1255,12 @@ isl::schedule_node InsertExtensionToFirstAccessedFilters(const ScopInfo &scop_in
  * The schedule tree will look like:
  *
  * sequence:
- * - filter: GM -> UB copy1
- * - filter: GM -> UB copy2
+ * - filter: GM -> BUF copy1
+ * - filter: GM -> BUF copy2
  * - sequence:
  *   - compute1
  *   - compute2
- * - filter: UB -> GM copy
+ * - filter: BUF -> GM copy
  */
 isl::schedule_node DefaultInsertExtension(isl::schedule_node tree, const isl::schedule_node &graft, isl_bool before,
                                           int original_sequence_index) {
@@ -1291,10 +1291,10 @@ isl::schedule_node DefaultInsertExtension(isl::schedule_node tree, const isl::sc
  *   - filter1: S_0[i0]
  *   - filter2: S_1[i0]
  *     child:
- *       extension: { [i0] -> GMread[[[i0] -> input_2[arg0 = i1]] -> input_2_local_UB[arg0' = arg0]]: i0 <= 1000 }
+ *       extension: { [i0] -> GMread[[[i0] -> input_2[arg0 = i1]] -> input_2_local_BUF[arg0' = arg0]]: i0 <= 1000 }
  *       child:
  *         sequence:
- *         - filter: { [i0] -> GMread[[[i0] -> input_2[arg0 = i1]] -> input_2_local_UB[arg0' = arg0]] }
+ *         - filter: { [i0] -> GMread[[[i0] -> input_2[arg0 = i1]] -> input_2_local_BUF[arg0' = arg0]] }
  *           child:
  *             schedule: ...
  *         - filter: S_1[i0]
@@ -1312,7 +1312,7 @@ isl::schedule_node InsertExtensionBeforeOrAfter(ScopInfo &scop_info, isl::schedu
     for (unsigned int index = 0; index < tree.n_children(); ++index) {
       isl::schedule_node_filter child = tree.child(index).as<isl::schedule_node_filter>();
       bool isuser =
-        child.get_filter().every_set([](const isl::set &s) -> bool { return s.get_tuple_name() != "L1read"; });
+        child.get_filter().every_set([](const isl::set &s) -> bool { return s.get_tuple_name() != "C1read"; });
       if (isuser) {
         tree = child.child(0);
         break;
@@ -1380,7 +1380,7 @@ isl::schedule_node PlaceIm2colBelowImpl(ScopInfo &scop_info, isl::schedule_node 
 }
 
 /*
- * Update sizes of a specific tensor in order to support realize shape expansion in UB -> L1 strided copy
+ * Update sizes of a specific tensor in order to support realize shape expansion in BUF -> C1 strided copy
  * param new_sizes: new shape of the tensor
  * return: found or not found
  */
@@ -1412,7 +1412,7 @@ void UpdateTensorShape(ScopInfo &scop_info, const isl::map &read_extension) {
   if (!foot_print.box.is_valid()) {
     return;
   }
-  isl::id cluster_id = isl::id(read_extension.ctx(), read_extension.get_tuple_id(isl_dim_out).get_name() + "_local_UB");
+  isl::id cluster_id = isl::id(read_extension.ctx(), read_extension.get_tuple_id(isl_dim_out).get_name() + LOCAL_BUF);
   std::vector<size_t> shape;
   shape.reserve(foot_print.GetBoxDim());
   for (const auto &size : foot_print.box.get_size().get_val_list()) {
@@ -1502,11 +1502,11 @@ void PlaceDataCopyBelowImplReadWrite(ScopInfo &scop_info, isl::schedule_node &tr
   bool writes = (!cluster.RichWriteRelations().is_empty() && cluster.WriteNeedDma());
   if (writes) {
     auto tensor_info = scop_info.analysis_result_.GetBufferDefInfo(cluster_id);
-    if (MemType::UBL0_ == tensor_info.DstMemType() || MemType::UB_ == tensor_info.DstMemType() ||
-        tensor_info.IsPreCubeL1Write()) {
+    if (MemType::BUFC0_ == tensor_info.DstMemType() || MemType::BUF_ == tensor_info.DstMemType() ||
+        tensor_info.IsPreMmuC1Write()) {
       if (!scop_info.IsInBinds(tensor_id)) writes = false;
     }
-    if (tensor_info.IsPreCubeL1Write()) {
+    if (tensor_info.IsPreMmuC1Write()) {
       if (!scop_info.IsInBinds(tensor_id)) reads = false;
     }
   }
@@ -1521,7 +1521,7 @@ void PlaceDataCopyBelowImplReadWrite(ScopInfo &scop_info, isl::schedule_node &tr
   }
   if (writes) {
     isl::schedule_node tree_write = tree.get_child(0);
-    if (scop_info.user_config_.GetParams().empty() && scop_info.cube_info_.IsLoad3dL1Ub()) {
+    if (scop_info.user_config_.GetParams().empty() && scop_info.mmu_info_.IsLoadIm2colC1BUF()) {
       tree_write = tree;
     }
     isl::set writes_set = exact_writes.intersect_range(original_elements).wrap().product(buffered_footprint);
@@ -1545,7 +1545,7 @@ void PlaceDataCopyBelowImplFakeReads(ScopInfo &scop_info, isl::schedule_node &tr
     }
     CHECK(node.isa<isl::schedule_node_mark>()) << "must find a mark node." << std::endl;
     auto tag = node.as<isl::schedule_node_mark>().get_id().get_name();
-    if (tag == REALIZE_L1) {
+    if (tag == REALIZE_C1) {
       isl::map stmt_extension = read_extension.range().unwrap();
       isl::id stmt_tensor_id = cluster_id;
       size_t pos = cluster_id.get_name().find("_local_");
@@ -1581,19 +1581,19 @@ isl::schedule_node PlaceDataCopyBelowImpl(ScopInfo &scop_info, isl::schedule_nod
                                           const isl::union_map &sch) {
   auto cluster_id = footprint.get_tuple_id(isl_dim_out);
 
-  if (!scop_info.cube_info_.IsConv()) CheckOutOfBoundAccess(exact_reads, original_elements, "read");
+  if (!scop_info.mmu_info_.IsConv()) CheckOutOfBoundAccess(exact_reads, original_elements, "read");
 
   bool special_dma = false;
   if (scop_info.user_config_.GetConvSpecialDma() ||
-      (scop_info.cube_info_.GetConvAttrInfo().count(ATTR_CONV_SPECIAL_DMA) > 0)) {
-    if (scop_info.cube_info_.GetConvAttrInfo().count(ATTR_CONV_BACKPROP_FILTER) > 0 &&
-        scop_info.cube_info_.GetConvAttrInfo().count(ATTR_CONV_KERNEL_H) > 0 &&
-        scop_info.cube_info_.GetConvAttrInfo().count(ATTR_CONV_KERNEL_W) > 0 &&
-        scop_info.cube_info_.GetConvAttrInfo().count(ATTR_CONV_FEATURE_C) > 0) {
-      std::string featureName = scop_info.cube_info_.ExtractStringFromAttrs(ATTR_CONV_FEATURE_NAME) + "_local_L1";
-      int kh = scop_info.cube_info_.ExtractIntFromAttrs(ATTR_CONV_KERNEL_H);
-      int kw = scop_info.cube_info_.ExtractIntFromAttrs(ATTR_CONV_KERNEL_W);
-      int ci = scop_info.cube_info_.ExtractIntFromAttrs(ATTR_CONV_FEATURE_C);
+      (scop_info.mmu_info_.GetConvAttrInfo().count(ATTR_CONV_SPECIAL_DMA) > 0)) {
+    if (scop_info.mmu_info_.GetConvAttrInfo().count(ATTR_CONV_BACKPROP_FILTER) > 0 &&
+        scop_info.mmu_info_.GetConvAttrInfo().count(ATTR_CONV_KERNEL_H) > 0 &&
+        scop_info.mmu_info_.GetConvAttrInfo().count(ATTR_CONV_KERNEL_W) > 0 &&
+        scop_info.mmu_info_.GetConvAttrInfo().count(ATTR_CONV_FEATURE_C) > 0) {
+      std::string featureName = scop_info.mmu_info_.ExtractStringFromAttrs(ATTR_CONV_FEATURE_NAME) + LOCAL_C1;
+      int kh = scop_info.mmu_info_.ExtractIntFromAttrs(ATTR_CONV_KERNEL_H);
+      int kw = scop_info.mmu_info_.ExtractIntFromAttrs(ATTR_CONV_KERNEL_W);
+      int ci = scop_info.mmu_info_.ExtractIntFromAttrs(ATTR_CONV_FEATURE_C);
       if (featureName == cluster_id.get_name() && kh == 7 && kw == 7 && ci == 16) {
         special_dma = true;
       }
@@ -1622,7 +1622,7 @@ isl::schedule_node PlaceDataCopyBelowImpl(ScopInfo &scop_info, isl::schedule_nod
     read_extension =
       read_set_map.wrap().identity().domain_factor_domain().domain_factor_domain().set_tuple_id(isl_dim_out, read_id);
   }
-  if (!scop_info.cube_info_.IsConv()) CheckOutOfBoundAccess(exact_writes, original_elements, "write");
+  if (!scop_info.mmu_info_.IsConv()) CheckOutOfBoundAccess(exact_writes, original_elements, "write");
 
   PlaceDataCopyBelowImplReadWrite(scop_info, tree, cluster, footprint, tensor_id, original_elements, exact_writes,
                                   read_extension, buffered_footprint, cluster_id, extension_map, read_id);

@@ -1,5 +1,5 @@
 /**
- * Copyright 2019 Huawei Technologies Co., Ltd
+ * Copyright 2019-2021 Huawei Technologies Co., Ltd
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -204,9 +204,9 @@ class TilingGenerator {
     return param_replacement;
   }
 
-  int64_t CalL1VarTiling(int64_t l0_tiling, TileAxis *axis) {
+  int64_t CalC1VarTiling(int64_t l0_tiling, TileAxis *axis) {
     auto GetCand = [this, l0_tiling]() -> int64_t {
-      if (analyzer_.op_type_ == VECTOR_OP) {
+      if (analyzer_.op_type_ == INST_OP) {
         if (param_replacement_.l0_tile.empty())
           analyzer_.logger_.LogFatalAndSaveLog("Axis index exceed maximal var replace limit (" +
                                                std::to_string(GEN_PRIME_NUM) + ")");
@@ -276,7 +276,7 @@ class TilingGenerator {
       const auto l0 = l0_val.as<IntImm>();
       if (l0 != nullptr && l0->value != TileVarId::UNDEFINE) {
         if (l0->value == TileVarId::VAR)
-          analyzer_.logger_.LogFatalAndSaveLog("L0 value of axis " + std::to_string(axis->index) + "_" +
+          analyzer_.logger_.LogFatalAndSaveLog("C0 value of axis " + std::to_string(axis->index) + "_" +
                                                std::to_string(axis->dim_axis) + " has not been tiled.");
         dimInfo.l0_tiling_size = l0->value;
       } else {
@@ -300,12 +300,12 @@ class TilingGenerator {
       }
       if (l1 != nullptr && l1->value != TileVarId::UNDEFINE) {
         if (l1->value == TileVarId::VAR)
-          analyzer_.logger_.LogFatalAndSaveLog("L1 value of axis " + std::to_string(axis->index) + "_" +
+          analyzer_.logger_.LogFatalAndSaveLog("C1 value of axis " + std::to_string(axis->index) + "_" +
                                                std::to_string(axis->dim_axis) + " has not been tiled.");
         dimInfo.l1_tiling_size = l1->value;
       } else {
         int64_t l1_base = analyzer_.op_type_ == CONV_OP ? 1 : dimInfo.l0_tiling_size;
-        dimInfo.l1_tiling_size = CalL1VarTiling(l1_base, axis);
+        dimInfo.l1_tiling_size = CalC1VarTiling(l1_base, axis);
         prev_tiling_.emplace_back(dimInfo.l1_tiling_size);
         dimInfo.l1_var = l1_val;
         if (l1_val.as<Variable>()) {
@@ -380,7 +380,7 @@ class TilingGenerator {
       dimInfo.l1_var = l1_val;
       dimInfo.l0_var = l0_val;
       dimInfo.pragma = l0_val;
-      // Use same prime of Conv L1 for specgemm.
+      // Use same prime of Conv C1 for specgemm.
       for (const auto &d : dims_) {
         if (!d.l1_var.defined() || !l1_val.defined()) continue;
         Expr sub = CanonicalSimplify(Substitute(l1_val, var_to_prime_record));
@@ -437,7 +437,7 @@ std::pair<TileSizes, std::deque<ParamInfo>> GenerateTiling(const isl::schedule &
   TilingGenerator generator(analyzer);
   if (analyzer.is_dynamic_) {
     std::tie(dims, param_info) = generator.GenerateDynamic();
-  } else if ((scop_info.user_config_.GetPragmaSpeedUpTiling() && analyzer.op_type_ == VECTOR_OP) ||
+  } else if ((scop_info.user_config_.GetPragmaSpeedUpTiling() && analyzer.op_type_ == INST_OP) ||
              !global_attrs.GetStringAttr(kErrorInfo, "").empty()) {
     dims = generator.GenerateQuickly();
   } else {

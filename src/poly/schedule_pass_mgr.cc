@@ -1,5 +1,5 @@
 /**
- * Copyright 2020 Huawei Technologies Co., Ltd
+ * Copyright 2020-2021 Huawei Technologies Co., Ltd
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -53,7 +53,7 @@ isl::schedule SchedulePassMgr::Run(const isl::schedule &sch, const std::vector<s
     std::stringstream time_log;
     TIMER_START;
     final_sch = pass->Run(final_sch);
-    time_log << "[ Polyhedral exec time" << (scop_info_.cube_info_.IsSpecGemm() ? "_specgemm" : "") << " ], "
+    time_log << "[ Polyhedral exec time" << (scop_info_.mmu_info_.IsSpecGemm() ? "_specgemm" : "") << " ], "
              << pass->GetPassName() << " spent " << TIMER_DURATION << " ms";
 
     LOG(INFO) << time_log.str();

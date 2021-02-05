@@ -1,5 +1,5 @@
 /**
- * Copyright 2020 Huawei Technologies Co., Ltd
+ * Copyright 2020-2021 Huawei Technologies Co., Ltd
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -19,50 +19,51 @@
 #include <tvm/target_info.h>
 #include <iostream>
 #include <fstream>
+#include "poly/dsa_utils.h"
 
 namespace akg {
 namespace ir {
 namespace poly {
-enum DavinciMemScope {
+enum NpuMemScope {
   MEM_SCOPE_GM = 0,
-  MEM_SCOPE_UB,
-  MEM_SCOPE_L1,
-  MEM_SCOPE_L0A,
-  MEM_SCOPE_L0B,
-  MEM_SCOPE_L0C,
+  MEM_SCOPE_BUFFER,
+  MEM_SCOPE_C1,
+  MEM_SCOPE_C0A,
+  MEM_SCOPE_C0B,
+  MEM_SCOPE_C0C,
   MEM_SCOPE_BULK,
 };
 enum LogStage { ANA_SCHETREE, ANA_BUF_LIVE_EXTENT, ANA_TILING_SPACE, DO_TILING, DO_TUNING, MICRO_TUNING, GPU_MAPPING };
 
-class DavinciInfo {
+class NpuInfo {
  public:
-  ~DavinciInfo() {}
-  static DavinciInfo &GetInstance() {
-    static DavinciInfo hardware_info;
+  ~NpuInfo() {}
+  static NpuInfo &GetInstance() {
+    static NpuInfo hardware_info;
     return hardware_info;
   }
 
   int64_t GetMemoryLimitInScope(int scope_idx) {
     CHECK_LT(scope_idx, MEM_SCOPE_BULK);
-    return davinci_mem_limit_[scope_idx];
+    return npu_mem_limit_[scope_idx];
   }
 
  private:
-  DavinciInfo() { InitDavinciMemoryLimit(); }
-  int64_t davinci_mem_limit_[MEM_SCOPE_BULK]{0};
+  NpuInfo() { InitNpuMemoryLimit(); }
+  int64_t npu_mem_limit_[MEM_SCOPE_BULK]{0};
 
-  void InitDavinciMemoryLimit() {
-    auto CollectLimit = [this](const std::string &scope, DavinciMemScope mem) {
+  void InitNpuMemoryLimit() {
+    auto CollectLimit = [this](const std::string &scope, NpuMemScope mem) {
       air::MemoryInfo info = air::GetMemoryInfo(scope);
       CHECK(info.defined());
-      davinci_mem_limit_[mem] = info->max_num_bits / 8;
+      npu_mem_limit_[mem] = info->max_num_bits / 8;
     };
-    CollectLimit("local.UB", MEM_SCOPE_UB);
-    CollectLimit("local.L1", MEM_SCOPE_L1);
-    CollectLimit("local.L0A", MEM_SCOPE_L0A);
-    CollectLimit("local.L0B", MEM_SCOPE_L0B);
-    CollectLimit("local.L0C", MEM_SCOPE_L0C);
-    davinci_mem_limit_[MEM_SCOPE_GM] = 0;
+    CollectLimit(DOT_LOCAL_BUF, MEM_SCOPE_BUFFER);
+    CollectLimit(DOT_LOCAL_C1, MEM_SCOPE_C1);
+    CollectLimit(DOT_LOCAL_C0A, MEM_SCOPE_C0A);
+    CollectLimit(DOT_LOCAL_C0B, MEM_SCOPE_C0B);
+    CollectLimit(DOT_LOCAL_C0C, MEM_SCOPE_C0C);
+    npu_mem_limit_[MEM_SCOPE_GM] = 0;
   }
 };
 

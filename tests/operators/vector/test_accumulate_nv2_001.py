@@ -1,4 +1,4 @@
-# Copyright 2020 Huawei Technologies Co., Ltd
+# Copyright 2020-2021 Huawei Technologies Co., Ltd
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -42,17 +42,9 @@ class TestCase(TestBase):
             ("accumulate_nv2_010", "accumulate_nv2_run", ((16, 16), "uint8", 1)),
         ]
 
-    @pytest.mark.rpc_mini
-    @pytest.mark.level1
-    @pytest.mark.env_onecard
-    @pytest.mark.platform_x86_ascend_training
     def test_run_level1(self):
         self.common_run(self.testarg_level1)
 
-    @pytest.mark.rpc_mini
-    @pytest.mark.level2
-    @pytest.mark.env_onecard
-    @pytest.mark.platform_x86_ascend_training
     def test_run_level2(self):
         self.common_run(self.testarg_level2)
 

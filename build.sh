@@ -1,4 +1,4 @@
-# Copyright 2019 Huawei Technologies Co., Ltd
+# Copyright 2019-2021 Huawei Technologies Co., Ltd
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -25,10 +25,10 @@ cd $BUILD_DIR
 usage()
 {
     echo "Usage:"
-    echo "bash build.sh [-t gpu|ascend]"
+    echo "bash build.sh [-t gpu]"
     echo ""
     echo "Options:"
-    echo "      -t hardware environment: gpu or ascend"
+    echo "      -t hardware environment: gpu"
 }
 
 if [ ! -n "$1" ]; then
@@ -43,8 +43,6 @@ do
         t)  
             if [ "${OPTARG}" == "gpu" ]; then
                 cmake .. -DUSE_CUDA=ON -DUSE_RPC=ON
-            elif [ "${OPTARG}" == "ascend" ]; then
-                cmake .. -DUSE_CCE_RT=1
             else
                 echo "Unkonwn parameter ${OPTARG}!"
                 usage

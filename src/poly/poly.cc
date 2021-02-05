@@ -1,5 +1,5 @@
 /**
- * Copyright 2019 Huawei Technologies Co., Ltd
+ * Copyright 2019-2021 Huawei Technologies Co., Ltd
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -60,9 +60,9 @@ class Poly {
       return;
     }
 
-    // optimize post poly Halide IR for Davinci
-    if (scop_->info_.user_config_.GetEnableFeatureLib() || scop_->info_.user_config_.GetOptimizeForDavinci()) {
-      stmt_ = poly::DavinciHalideOptimizer(stmt_, !scop_->info_.user_config_.GetParams().empty());
+    // optimize post poly Halide IR
+    if (scop_->info_.user_config_.GetEnableFeatureLib() || scop_->info_.user_config_.GetOptimizeForNPU()) {
+      stmt_ = poly::DsaHalideOptimizer(stmt_, !scop_->info_.user_config_.GetParams().empty());
     }
     gen_empty_tiling = scop_->info_.analysis_result_.GetIsTiled();
   }

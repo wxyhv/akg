@@ -1,5 +1,5 @@
 /**
- * Copyright 2019 Huawei Technologies Co., Ltd
+ * Copyright 2019-2021 Huawei Technologies Co., Ltd
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -41,7 +41,7 @@ class Scop {
 };
 
 Stmt GenHalide(ScopInfo &info, const isl::schedule &, bool used_for_tile_out_band = false);
-Stmt DavinciHalideOptimizer(const Stmt &s, bool dynamic_shape = false);
+Stmt DsaHalideOptimizer(const Stmt &s, bool dynamic_shape = false);
 Stmt RestoreCombinedParams(Stmt stmt, ScopInfo &info);
 std::pair<TileSizes, std::deque<ParamInfo>> GenerateTiling(const isl::schedule &sch, ScopInfo &scop_info, Stmt body);
 NodeRef GenerateTilingSpace(const isl::schedule &sch, ScopInfo &scop_info, Stmt body, int dump_level);

@@ -1,5 +1,5 @@
 /**
- * Copyright 2020 Huawei Technologies Co., Ltd
+ * Copyright 2020-2021 Huawei Technologies Co., Ltd
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -26,6 +26,7 @@
 #include "poly/dma_dataflow.h"
 #include "poly/pass_info.h"
 #include "poly/sync_manager.h"
+#include "poly/dsa_utils.h"
 
 namespace akg {
 namespace ir {
@@ -167,14 +168,14 @@ class UserConfig {
     ParseBoolAttr(attrs, "pragma_tile_inner_band", &tile_inner_band_);
     ParseBoolAttr(attrs, "pragma_set_all_coincident", &pragma_set_all_coincident_);
 
-    ParseBoolAttr(attrs, "pragma_opt_for_davinci", &optimize_for_davinci_);
+    ParseBoolAttr(attrs, "pragma_opt_for_dsa", &optimize_for_npu_);
     ParseBoolAttr(attrs, "enable_feature_library", &enable_feature_library_);
     ParseBoolAttr(attrs, "enable_hoist_cond_write", &enable_hoist_cond_write_);
     ParseBoolAttr(attrs, "enable_mark_multi_core", &enable_mark_multi_core_);
 
     ParseIntAttr(attrs, "kernel_h", &matB_dim_h_);
     ParseIntAttr(attrs, "kernel_w", &matB_dim_w_);
-    ParseIntAttr(attrs, "bypassL1", &bypassL1_);
+    ParseIntAttr(attrs, "bypassC1", &bypassC1_);
     ParseIntAttr(attrs, "isolated_idx", &isolated_idx_);
     ParseIntAttr(attrs, "conv_backprop_filter", &conv_back_prop_filter_);
     ParseBoolAttr(attrs, "pragma_conv_special_dma", &conv_special_dma_);
@@ -253,7 +254,7 @@ class UserConfig {
   bool GetIsTuning() { return is_tuning_; }
 
   // getter for specialized optimization config
-  bool GetOptimizeForDavinci() const { return optimize_for_davinci_; }
+  bool GetOptimizeForNPU() const { return optimize_for_npu_; }
   bool GetEnableFeatureLib() const { return enable_feature_library_; }
   bool GetEnableHoistCondWrite() const { return enable_hoist_cond_write_; }
   bool GetEnableMarkMultiCore() const { return enable_mark_multi_core_; }
@@ -261,7 +262,7 @@ class UserConfig {
   // getter for conv config
   int GetMatBDimH() const { return matB_dim_h_; }
   int GetMatBDimW() const { return matB_dim_w_; }
-  int GetByPassL1() const { return bypassL1_; }
+  int GetByPathC1() const { return bypassC1_; }
   int GetIsolatedIdx() const { return isolated_idx_; }
   std::string GetKernelName() { return kernel_name_; }
   int GetPragmaIsConv() const { return pragma_is_conv_; }
@@ -277,7 +278,7 @@ class UserConfig {
   // setter for conv config
   void SetMatBDimH(int matB_dim_h) { this->matB_dim_h_ = matB_dim_h; }
   void SetMatBDimW(int matB_dim_w) { this->matB_dim_w_ = matB_dim_w; }
-  void SetByPassL1(int by_passL1) { this->bypassL1_ = by_passL1; }
+  void SetByPassC1(int by_passC1) { this->bypassC1_ = by_passC1; }
   void SetIsolatedIdx(int isolated_idx) { this->isolated_idx_ = isolated_idx; }
   void SetDynamic(bool is_dynamic) { this->is_dynamic_ = is_dynamic; }
 
@@ -448,7 +449,7 @@ class UserConfig {
   bool is_tuning_{false};
 
   // specialized optimization
-  bool optimize_for_davinci_{false};
+  bool optimize_for_npu_{false};
   bool enable_feature_library_{false};
   bool enable_hoist_cond_write_{true};
   bool enable_mark_multi_core_{false};
@@ -456,7 +457,7 @@ class UserConfig {
   // conv config
   int matB_dim_h_{-1};
   int matB_dim_w_{-1};
-  int bypassL1_{0};
+  int bypassC1_{0};
   int isolated_idx_{0};
   std::string kernel_name_;
   int pragma_is_conv_{0};
@@ -640,11 +641,11 @@ class CubeInfo {
   void SetSpecGemm(bool is_spec_gemm) { this->is_spec_gemm_ = is_spec_gemm; }
   bool IsSpecGemm() const { return is_spec_gemm_; }
   void CreateConvModel();
-  std::vector<Stmt> GetOldL1Write() { return old_l1_write_; }
+  std::vector<Stmt> GetOldC1Write() { return old_l1_write_; }
   int GetOutReduceInit() const { return out_reduce_init_; }
   TileSizes GetConvMNKDims() { return conv_mnk_dims_; }
   void SetConvMNKDims(const TileSizes &conv_mnk_dims) { conv_mnk_dims_ = conv_mnk_dims; }
-  void OldL1WriteInsert(Stmt &s) { old_l1_write_.emplace_back(s); }
+  void OldC1WriteInsert(Stmt &s) { old_l1_write_.emplace_back(s); }
   std::vector<std::vector<Range>> GetRangeInfo() const { return range_info_; }
   void RecordRangeAt(size_t idx, const Range &range) {
     if (idx < range_info_.size()) {
@@ -669,13 +670,13 @@ class CubeInfo {
   bool IsA(const std::string &name) const;
   bool IsB(const std::string &name) const;
   bool IsC(const std::string &name) const;
-  bool IsCUB(const std::string &name) const;
+  bool IsCBUF(const std::string &name) const;
   std::string GetAName() const;
   std::string GetBName() const;
   std::string GetCName() const;
   bool IsIm2col() const;
-  bool IsLoad3dL1Ub() const;
-  bool IsLoad3dL1UBStmt(const std::string &stmtName) const;
+  bool IsLoadIm2colC1BUF() const;
+  bool IsLoadIm2colC1BUFStmt(const std::string &stmtName) const;
   bool HasCube() const;
   bool IsConv() const;
   bool IsGemm() const;
@@ -691,7 +692,7 @@ class CubeInfo {
   bool IsConvHeadTail(const std::string &conv_output, const isl::id &stmtId, const StmtOpInfo &op_info,
                       const StmtIdHashMap &op_write_map);
   std::string ConvOutName();
-  void ComputeByPassL1();
+  void ComputeByPassC1();
   void UpdateFractalIntInfoConvForward(int range_idx);
   void UpdateFractalIntInfo(int range_idx);
   void UpdateFractalIntLastInfo(std::vector<size_t> filter_fp_cluster_size);
@@ -731,7 +732,7 @@ class CubeInfo {
 class ScopInfo {
  public:
   explicit ScopInfo(isl::ctx ctx)
-      : ctx_(ctx), cube_info_(CubeInfo(user_config_, analysis_result_)), sync_manager_(ctx) {}
+      : ctx_(ctx), mmu_info_(CubeInfo(user_config_, analysis_result_)), sync_manager_(ctx) {}
   ~ScopInfo() = default;
 
   // dump tools
@@ -785,7 +786,7 @@ class ScopInfo {
   isl::ctx ctx_;
   UserConfig user_config_;
   AnalysisResult analysis_result_;
-  CubeInfo cube_info_;
+  CubeInfo mmu_info_;
   TimeRecords time_records_;
   SyncManager sync_manager_;
   UpaNodeMapping upa_node_mapping_;

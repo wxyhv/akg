@@ -1,5 +1,5 @@
 /**
- * Copyright 2019 Huawei Technologies Co., Ltd
+ * Copyright 2019-2021 Huawei Technologies Co., Ltd
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -97,7 +97,7 @@ class ScheduleTreeAnalyzer {
   std::vector<const For *> loop_seq_;
   std::unordered_map<const For *, std::pair<std::string, int>> loop_data_size_map_;
   std::unordered_map<size_t, std::vector<TilePos>> candidates_;
-  std::unordered_map<std::string, std::string> cube_var_map_;
+  std::unordered_map<std::string, std::string> mmu_var_map_;
   std::vector<const For *> defined_static_loop_;
   std::vector<const For *> defined_dynamic_loop_;
   VarNames format_m_ = {"mi", "mo"};

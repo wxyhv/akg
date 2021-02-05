@@ -1,4 +1,4 @@
-# Copyright 2020 Huawei Technologies Co., Ltd
+# Copyright 2020-2021 Huawei Technologies Co., Ltd
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -33,8 +33,8 @@ def select_compute(condition, x1, x2):
         x1_dtype = "float32"
         ones = akg.lang.cce.broadcast(akg.tvm.const(VALUE_ONE, dtype="float32"),
                                       shape, output_dtype="float32")
-        x1 = akg.lang.cce.cast_to(x1, "float32")
-        x2 = akg.lang.cce.cast_to(x2, "float32")
+        x1 = akg.topi.cast(x1, "float32")
+        x2 = akg.topi.cast(x2, "float32")
     else:
         x1_dtype = num_dtype
         ones = akg.lang.cce.broadcast(akg.tvm.const(VALUE_ONE, dtype=num_dtype),
@@ -44,12 +44,12 @@ def select_compute(condition, x1, x2):
         if x1_dtype == "int32":
             condition_dtype = akg.lang.cce.ceil(condition)
         else:
-            condition_dtype = akg.lang.cce.cast_to(condition, x1_dtype)
+            condition_dtype = akg.topi.cast(condition, x1_dtype)
     else:
         if x1_dtype == "int32":
             condition_dtype = condition
         else:
-            condition_dtype = akg.lang.cce.cast_to(condition, x1_dtype)
+            condition_dtype = akg.topi.cast(condition, x1_dtype)
 
     if list(con_shape) != list(shape):
         condition_dtype = akg.lang.cce.broadcast(condition_dtype, shape)
@@ -65,7 +65,7 @@ def select_compute(condition, x1, x2):
         temp_y = akg.lang.cce.vmul(x2, condition_opp)
         res = akg.lang.cce.vadd(temp_x, temp_y)
     if num_dtype in ("int8", "uint8"):
-        res = akg.lang.cce.cast_to(res, num_dtype)
+        res = akg.topi.cast(res, num_dtype)
     return res
 
 

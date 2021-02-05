@@ -1,5 +1,5 @@
 /**
- * Copyright 2019 Huawei Technologies Co., Ltd
+ * Copyright 2019-2021 Huawei Technologies Co., Ltd
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -19,9 +19,9 @@
 
 #include "poly/scop_builder.h"
 #include "poly/poly_util.h"
-#include "poly/cce_isl_emitter.h"
+#include "poly/npu_isl_emitter.h"
 #include "poly/gpu_isl_emitter.h"
-#include "poly/davinci_mgr_strategy.h"
+#include "poly/dsa_mgr_strategy.h"
 #include "poly/gpu_mgr_strategy.h"
 #include "poly/schedule_pass_mgr.h"
 
@@ -38,10 +38,10 @@ void Scop::ParseUserConfig(std::string target, const Map<std::string, NodeRef> &
   info_.user_config_.SetIsTuning(is_tuning);
   info_.user_config_.SetDynamic(is_dynamic);
 
-  info_.cube_info_.SetAttrs(attrs);
-  info_.cube_info_.SetSpecGemm(is_spec_gemm);
-  if (info_.cube_info_.IsSpecGemm()) {
-    info_.cube_info_.SetConvAttrInfo(attrs);
+  info_.mmu_info_.SetAttrs(attrs);
+  info_.mmu_info_.SetSpecGemm(is_spec_gemm);
+  if (info_.mmu_info_.IsSpecGemm()) {
+    info_.mmu_info_.SetConvAttrInfo(attrs);
   }
 }
 
@@ -112,8 +112,8 @@ isl::schedule Scop::GenIsl() {
   isl::schedule schedule_tmp = MakeScheduleTree(param_space, param_set, stmt, info_);
 
   info_.CreateDataFlowInfo();
-  info_.cube_info_.UpdateComputeAttrInfo();
-  info_.cube_info_.ComputeByPassL1();
+  info_.mmu_info_.UpdateComputeAttrInfo();
+  info_.mmu_info_.ComputeByPassC1();
   return schedule_tmp;
 }
 
@@ -122,15 +122,15 @@ isl::schedule Scop::Transform(const isl::schedule &input_schedule) {
   SchedulePassMgr mgr(info_);
   if (info_.user_config_.GetTarget() == TARGET_CCE) {
     info_.user_config_.SetConsiderCoincidence(true);
-    DavinciMgrStrategy davinci_strategy(info_);
-    final_schedule = mgr.Run(input_schedule, davinci_strategy);
-    info_.DumpTransform("davinci_transfrom.log", davinci_strategy.pass_info_);
+    DsaMgrStrategy dsa_strategy(info_);
+    final_schedule = mgr.Run(input_schedule, dsa_strategy);
+    info_.DumpTransform("dsa_transfrom.log", dsa_strategy.pass_info_);
 
     // We offer a restart mechanism for scalar stmt that cannot tile: do not consider coincidence
     // and re-compute/re-tile to generate final schedule.
     if (mgr.need_restart_) {
       info_.user_config_.SetConsiderCoincidence(false);
-      DavinciMgrStrategy scalar_strategy(info_);
+      DsaMgrStrategy scalar_strategy(info_);
       final_schedule = mgr.Run(input_schedule, scalar_strategy);
       info_.DumpTransform("scalar_transform.log", scalar_strategy.pass_info_);
     }
@@ -182,7 +182,7 @@ Stmt GenHalide(ScopInfo &info, const isl::schedule &sch, bool used_for_tile_out_
   if (!used_for_tile_out_band) {
     // we should check the return value to be isl_stat_ok, but it returns isl_stat_error, so we skip this check.
     static_cast<void>(isl_options_set_ast_build_group_coscheduled(sch.ctx().get(), isl_bool_true));
-    if (info.cube_info_.IsConv()) info.cube_info_.CreateConvModel();
+    if (info.mmu_info_.IsConv()) info.mmu_info_.CreateConvModel();
   }
 
   NodeInfoRepo node_info_repo;
@@ -208,7 +208,7 @@ Stmt GenHalide(ScopInfo &info, const isl::schedule &sch, bool used_for_tile_out_
   auto builder = isl::ast_build(sch.ctx());
   builder = builder.set_at_each_domain(gather);
 
-  auto iter_prefix = info.user_config_.GetIterPrefix(info.cube_info_.IsSpecGemm());
+  auto iter_prefix = info.user_config_.GetIterPrefix(info.mmu_info_.IsSpecGemm());
   isl::id_list iters = CreateIteratorList(sch, iter_prefix);
   builder = builder.set_iterators(iters);
 
@@ -216,7 +216,7 @@ Stmt GenHalide(ScopInfo &info, const isl::schedule &sch, bool used_for_tile_out_
   std::chrono::high_resolution_clock::time_point timer_start;
   TIMER_START;
   auto ast_node = builder.node_from(sch);
-  TIMER_SHOW("NodeFrom", std::string(info.cube_info_.IsSpecGemm() ? "_specgemm" : ""));
+  TIMER_SHOW("NodeFrom", std::string(info.mmu_info_.IsSpecGemm() ? "_specgemm" : ""));
 
   ast_node = CanonicalizeBlockInAst(ast_node);
 
@@ -233,8 +233,8 @@ Stmt GenHalide(ScopInfo &info, const isl::schedule &sch, bool used_for_tile_out_
   if (PRINT_ISL_EMMITER) {
     if (used_for_tile_out_band) {
       if (info.user_config_.GetTarget() == TARGET_CCE) {
-        PrintHeader("CCEIslEmitter");
-        stmt = CCEIslEmitter(info, node_info_repo, iters).Emit(ast_node);
+        PrintHeader("NPUIslEmitter");
+        stmt = NPUIslEmitter(info, node_info_repo, iters).Emit(ast_node);
       } else if (info.user_config_.GetTarget() == TARGET_CUDA) {
         PrintHeader("GpuIslEmitter");
         stmt = GpuIslEmitter(info, node_info_repo, iters).Emit(ast_node);
@@ -245,15 +245,15 @@ Stmt GenHalide(ScopInfo &info, const isl::schedule &sch, bool used_for_tile_out_
     }
   } else {
     if (info.user_config_.GetTarget() == TARGET_CCE) {
-      PrintHeader("CCEIslEmitter");
-      stmt = CCEIslEmitter(info, node_info_repo, iters).Emit(ast_node);
+      PrintHeader("NPUIslEmitter");
+      stmt = NPUIslEmitter(info, node_info_repo, iters).Emit(ast_node);
     } else if (info.user_config_.GetTarget() == TARGET_CUDA) {
       PrintHeader("GpuIslEmitter");
       stmt = GpuIslEmitter(info, node_info_repo, iters).Emit(ast_node);
     }
   }
 
-  TIMER_SHOW("IslEmitter", std::string(info.cube_info_.IsSpecGemm() ? "_specgemm" : ""));
+  TIMER_SHOW("IslEmitter", std::string(info.mmu_info_.IsSpecGemm() ? "_specgemm" : ""));
 
   if (PRINT_EMMITER) {
     PrintHeader("FINAL STMT");

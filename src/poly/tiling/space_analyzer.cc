@@ -1,5 +1,5 @@
 /**
- * Copyright 2019 Huawei Technologies Co., Ltd
+ * Copyright 2019-2021 Huawei Technologies Co., Ltd
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -85,7 +85,7 @@ class SpaceVisitor : public IRVisitor {
   int loop_count_ = 0;
   size_t band_count_ = 0;
   std::unordered_set<std::string> local_buf_;
-  std::unordered_map<std::string, int> op_pipe_map_ = {{"DMA2", PIPE_MTE2}, {"DMA3", PIPE_MTE3}, {"REDUCE", PIPE_V}};
+  std::unordered_map<std::string, int> op_pipe_map_ = {{"DMA2", FLOW_DMA2}, {"DMA3", FLOW_DMA3}, {"REDUCE", FLOW_V}};
 
   void AnalyzeProvide(const Provide *op) {
     if (cur_loop_ == nullptr) return;
@@ -121,7 +121,7 @@ class SpaceVisitor : public IRVisitor {
 
     auto src_length = static_cast<int>(src_tensor.size());
     for (auto st : src_tensor) {
-      if (st.name == "mad" || st.name == "load_3d") {
+      if (st.name == "mad" || st.name == LOAD_IM2COL) {
         basic_op_type = "SP_CALL";
       }
     }
@@ -155,7 +155,7 @@ class SpaceVisitor : public IRVisitor {
       if (basic_op_type.find(it.first) != std::string::npos) pipe.insert(it.second);
     }
     if (basic_op_type.find("ELEMWISE") != std::string::npos && pipe.empty()) {
-      pipe.insert(PIPE_V);
+      pipe.insert(FLOW_V);
     }
     return pipe;
   }
@@ -345,7 +345,7 @@ void SpaceAnalyzer::MarkBroadcastAxes(const ProvideEntry &pe) {
 
 void SpaceAnalyzer::IdentifyVectorizedAxes() {
   if (provides_ana_.empty()) return;
-  std::string attr_key = "VECTORIZED";
+  std::string attr_key = "INSTIZED";
   std::unordered_set<std::string> unsupported_insn = {"REDUCE", "TRANSFORM", "TRANSPOSE"};
   std::unordered_map<std::string, const For *> mark_dst_axes;
   for (auto it : provides_ana_) {
@@ -473,25 +473,25 @@ void SpaceAnalyzer::IdentifyAlignAxes() {
         };
         if (pe.basic_op_type.find("REDUCE") != std::string::npos) {
           const For *dst_last = GetBufferInnerAxis(dst_tensor);
-          int64_t ub_block = 1;
+          int64_t buf_block = 1;
           if (dst_last != nullptr) {
             align_axes_attrs[dst_last] = std::make_pair(dst_tensor.name, pe.basic_op_type);
-            if (const auto i = dst_last->extent.as<IntImm>()) ub_block = i->value;
+            if (const auto i = dst_last->extent.as<IntImm>()) buf_block = i->value;
           }
           IdentifySrcAlign(src_tensors, dst_tensor);
           if (src_last != nullptr) {
             TileAxis *align_axis = analyzer_->Axis(src_last);
-            if ((align_axis != nullptr && !align_axis->children.empty()) || (ub_block != gm_block)) {
+            if ((align_axis != nullptr && !align_axis->children.empty()) || (buf_block != gm_block)) {
               align_axes_attrs[src_last] = std::make_pair(src_name, pe.basic_op_type);
             }
           }
         } else if (pe.basic_op_type.find("BROADCAST") != std::string::npos) {
           const For *dst_last = GetBufferInnerAxis(dst_tensor);
-          int64_t ub_block = 1;
+          int64_t buf_block = 1;
           if (dst_last == nullptr) continue;
-          if (const auto i = dst_last->extent.as<IntImm>()) ub_block = i->value;
+          if (const auto i = dst_last->extent.as<IntImm>()) buf_block = i->value;
           IdentifySrcAlign(src_tensors, dst_tensor);
-          if (ub_block != gm_block && src_last != nullptr) {
+          if (buf_block != gm_block && src_last != nullptr) {
             align_axes_attrs[dst_last] = std::make_pair(dst_tensor.name, pe.basic_op_type);
             align_axes_attrs[src_last] = std::make_pair(src_name, pe.basic_op_type);
           }
