@@ -1,5 +1,5 @@
 /**
- * Copyright 2020 Huawei Technologies Co., Ltd
+ * Copyright 2020-2021 Huawei Technologies Co., Ltd
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -120,7 +120,7 @@ bool MarkOuterMost::InjectMulticoreToSchedule(isl::schedule_node &outer_band) {
     if (!is_bands_independent) {
       // Conv outer bands indeed have inter-band dependency, but it will be fixed in post_fusion,
       // so Conv can still use multicore. This is actually dangerous and may need double check.
-      if (!this->scop_info_.cube_info_.IsConv()) return false;
+      if (!this->scop_info_.mmu_info_.IsConv()) return false;
     }
     return InjectMulticoreToChildrenBands(outer_band);
   }

@@ -1,4 +1,4 @@
-# Copyright 2020 Huawei Technologies Co., Ltd
+# Copyright 2020-2021 Huawei Technologies Co., Ltd
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -44,10 +44,6 @@ class TestCase(TestBase):
             ("tan_001", tan_run, ((4, 4), "int32")),
         ]
 
-    @pytest.mark.rpc_mini
-    @pytest.mark.level1
-    @pytest.mark.env_onecard
-    @pytest.mark.platform_x86_ascend_training
     def test_run(self):
         """
         run case.#
@@ -55,10 +51,6 @@ class TestCase(TestBase):
         """
         self.common_run(self.testarg)
 
-    @pytest.mark.rpc_mini
-    @pytest.mark.level2
-    @pytest.mark.env_onecard
-    @pytest.mark.platform_x86_ascend_training
     def test_run_level2(self):
         """
         run case.#
@@ -66,9 +58,6 @@ class TestCase(TestBase):
         """
         self.common_run(self.testarg_level2)
 
-    @pytest.mark.rpc_cloud
-    @pytest.mark.env_onecard
-    @pytest.mark.platform_x86_ascend_training
     def test_run_rpc_cloud(self):
         """
         run case.#

@@ -1,5 +1,5 @@
 /**
- * Copyright 2020 Huawei Technologies Co., Ltd
+ * Copyright 2020-2021 Huawei Technologies Co., Ltd
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -29,7 +29,7 @@ isl::schedule ChangeMarkNodePosition::Run(isl::schedule curr_schedule) {
   auto fn = [&ids](isl::schedule_node node) -> isl::schedule_node {
     if (node.isa<isl::schedule_node_mark>()) {
       std::string mark_id = node.as<isl::schedule_node_mark>().get_id().get_name();
-      if (mark_id == "realize_UB" && node.child(0).isa<isl::schedule_node_band>()) {
+      if (mark_id == REALIZE_BUF && node.child(0).isa<isl::schedule_node_band>()) {
         if (node.child(0).child(0).isa<isl::schedule_node_sequence>()) {
           node = node.get_child(0).get_child(0);  // sequence
           bool delete_outer_mark = true;

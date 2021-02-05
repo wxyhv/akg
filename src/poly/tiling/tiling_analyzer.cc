@@ -1,5 +1,5 @@
 /**
- * Copyright 2019 Huawei Technologies Co., Ltd
+ * Copyright 2019-2021 Huawei Technologies Co., Ltd
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -26,6 +26,7 @@
 #include "poly/tiling/schtree_analyzer.h"
 #include "poly/tiling/space_analyzer.h"
 #include "poly/tiling/tiling_strategy_manager.h"
+#include "poly/dsa_utils.h"
 
 namespace akg {
 namespace ir {
@@ -48,8 +49,8 @@ TileAxis::TileAxis(TileAxis *p, int i, int da, bool mc, const std::pair<std::str
   l0_constraints.tile_min_ = CastIntToExpr(MIN_TILE);
   l0_constraints.tile_extent_ = CastIntToExpr(MIN_TILE);
   if (is_inner) {
-    this->TileRestrainEntire(LEVEL1);
-    this->TileRestrainEntire(LEVEL0);
+    this->TileRestrainEntire(LEVEC1);
+    this->TileRestrainEntire(LEVEC0);
   }
 }
 
@@ -64,8 +65,8 @@ TileAxis::TileAxis(const Expr &l1_size, Expr l0_size, std::string at, TilingAnal
   l1_constraints.tile_extent_ = l1_size;
   l0_constraints.tile_extent_ = std::move(l0_size);
   if (is_inner) {
-    this->TileRestrainEntire(LEVEL1);
-    this->TileRestrainEntire(LEVEL0);
+    this->TileRestrainEntire(LEVEC1);
+    this->TileRestrainEntire(LEVEC0);
   }
 }
 void TileAxis::LinkToLoop(const For *loop) {
@@ -117,7 +118,7 @@ std::vector<std::string> TileAxis::GetAttrValue(const std::string &attr_key) con
   return match;
 }
 
-void TileAxis::InsertL1CandFactor(const Expr &f) {
+void TileAxis::InsertC1CandFactor(const Expr &f) {
   size_t i = 0;
   while (i < this->l1_constraints.cand_factor.size()) {
     if (Equal(this->l1_constraints.cand_factor[i], f)) {
@@ -130,7 +131,7 @@ void TileAxis::InsertL1CandFactor(const Expr &f) {
   this->l1_constraints.cand_factor.insert(this->l1_constraints.cand_factor.begin() + i, f);
 }
 
-void TileAxis::InsertL0CandFactor(const Expr &f) {
+void TileAxis::InsertC0CandFactor(const Expr &f) {
   size_t i = 0;
   while (i < this->l0_constraints.cand_factor.size()) {
     if (Equal(this->l0_constraints.cand_factor[i], f)) {
@@ -148,12 +149,12 @@ void TileAxis::DumpAxis(bool on_screen) {
   std::string tag = this->is_pragma ? this->axis_type_ : std::to_string(this->dim_axis);
   ss << "| Axis (" << this << ") " << this->index << "_" << tag << "| Parent " << this->parent << " | Is inner "
      << this->is_inner << "| Range [" << this->range_min << "," << this->range_extent << "]"
-     << "| L1 Tile [" << this->l1_constraints.tile_min_ << "," << this->l1_constraints.tile_extent_ << "]"
+     << "| C1 Tile [" << this->l1_constraints.tile_min_ << "," << this->l1_constraints.tile_extent_ << "]"
      << "| Data size {";
   for (const auto &it : this->data_size) {
     ss << it.first << ":" << it.second << ", ";
   }
-  ss << "} | Align to = " << this->l1_constraints.tile_mod_ << "| L0 Tile [" << this->l0_constraints.tile_min_ << ","
+  ss << "} | Align to = " << this->l1_constraints.tile_mod_ << "| C0 Tile [" << this->l0_constraints.tile_min_ << ","
      << this->l0_constraints.tile_extent_ << "]"
      << "| Align to = " << this->l0_constraints.tile_mod_ << "| Forbid isolate = " << this->forbid_iso
      << "| Multi-core support = " << this->mc_sup << "| Priority = " << this->priority << "| Loops : {";
@@ -179,7 +180,7 @@ void TileAxis::DumpAxis(bool on_screen) {
     analyzer_->logger_.AppendLog(ANA_TILING_SPACE, ss);
   }
   if (!this->l1_constraints.cand_factor.empty()) {
-    ss << "| L1 Cand_factors:{";
+    ss << "| C1 Cand_factors:{";
     bool full_dump = this->l1_constraints.cand_factor.size() <= 10;
     if (full_dump) {
       for (const auto &f : this->l1_constraints.cand_factor) {
@@ -193,7 +194,7 @@ void TileAxis::DumpAxis(bool on_screen) {
     analyzer_->logger_.AppendLog(ANA_TILING_SPACE, ss);
   }
   if (!this->l0_constraints.cand_factor.empty()) {
-    ss << "| L0 Cand_factors:{";
+    ss << "| C0 Cand_factors:{";
     bool full_dump = this->l0_constraints.cand_factor.size() <= 10;
     if (full_dump) {
       for (const auto &f : this->l0_constraints.cand_factor) {
@@ -210,11 +211,11 @@ void TileAxis::DumpAxis(bool on_screen) {
 
 void TileAxis::TileRestrainMod(const Expr &mod, TileLevel level) {
   CHECK(analyzer_->arith_ana_.CanProve(mod != 0));
-  Expr ori_mod = level == LEVEL1 ? this->l1_constraints.tile_mod_ : this->l0_constraints.tile_mod_;
+  Expr ori_mod = level == LEVEC1 ? this->l1_constraints.tile_mod_ : this->l0_constraints.tile_mod_;
   Expr gcd = analyzer_->expr_ac_.Gcd(mod, ori_mod);
   CHECK(analyzer_->arith_ana_.CanProve(gcd != 0));
   Expr lcm = CanonicalSimplify(floordiv(mod * ori_mod, gcd));
-  if (level == LEVEL1) {
+  if (level == LEVEC1) {
     this->l1_constraints.tile_mod_ = lcm;
   } else {
     this->l0_constraints.tile_mod_ = lcm;
@@ -222,7 +223,7 @@ void TileAxis::TileRestrainMod(const Expr &mod, TileLevel level) {
 }
 
 void TileAxis::TileRestrainToSingleValue(const Expr &value, TileLevel level) {
-  if (level == LEVEL1) {
+  if (level == LEVEC1) {
     this->l1_constraints.tile_min_ = value;
     this->l1_constraints.tile_extent_ = value;
   } else {
@@ -232,7 +233,7 @@ void TileAxis::TileRestrainToSingleValue(const Expr &value, TileLevel level) {
 }
 
 void TileAxis::TileRestrainEntire(TileLevel level) {
-  if (level == LEVEL1) {
+  if (level == LEVEC1) {
     Expr extent = this->range_extent;
     if (this->HasAttr("SHIFT")) extent = this->l1_constraints.tile_extent_;
     this->l1_constraints.tile_min_ = extent;
@@ -251,7 +252,7 @@ void TileCandidate::InitTileAxis(TileLevel level) {
   for (auto axis : tile_axis_) {
     TileAxis::Constraint cons = axis->GetConstConstraint(level);
     auto Update = [this, level, axis](const Expr &tile) {
-      if (level == LEVEL1) {
+      if (level == LEVEC1) {
         this->UpdateTile(axis, tile);
       } else {
         this->UpdateTile(axis, this->GetTileVal(axis).first, tile);
@@ -260,7 +261,7 @@ void TileCandidate::InitTileAxis(TileLevel level) {
 
     // For axis with dynamic shape, simply create tile var and store them
     // generated var.
-    std::string var_name = level == LEVEL1 ? "T1_" : "T0_";
+    std::string var_name = level == LEVEC1 ? "T1_" : "T0_";
     var_name += std::to_string(axis->index) + "_";
     var_name += axis->axis_type_.empty() ? std::to_string(axis->dim_axis) : axis->axis_type_;
     // unify var address
@@ -289,7 +290,7 @@ void TileCandidate::InitTileAxis(TileLevel level) {
 void TileCandidate::UpdateFixTileAxis(TileLevel level) {
   for (auto fix_axis : tile_axis_) {
     TileAxis::Constraint cons = fix_axis->GetConstConstraint(level);
-    if (level == LEVEL1) {
+    if (level == LEVEC1) {
       if (cons.tile_min_.as<IntImm>()->value == cons.tile_extent_.as<IntImm>()->value) {
         this->UpdateConstTile(fix_axis, cons.tile_extent_.as<IntImm>()->value);
       } else if (cons.cand_factor.size() == 1U) {
@@ -313,7 +314,7 @@ bool TileCandidate::SpaceVerify(const TileAxis *axis, TileLevel level, const int
 
   TileVal tile_val = this->tile_val_[axis];
   auto CheckCandfactor = [level, tile_val](const TileAxis *axis) -> bool {
-    Expr tile_expr = level == LEVEL1 ? tile_val.tile_l1 : tile_val.tile_l0;
+    Expr tile_expr = level == LEVEC1 ? tile_val.tile_l1 : tile_val.tile_l0;
     const auto tile_imm = tile_expr.as<IntImm>();
     if (tile_imm == nullptr) {
       return true;
@@ -329,7 +330,7 @@ bool TileCandidate::SpaceVerify(const TileAxis *axis, TileLevel level, const int
     return false;
   };
 
-  if (level == LEVEL1) {
+  if (level == LEVEC1) {
     if (!axis->l1_constraints.cand_factor.empty()) {
       // Reshape axis's tiling factor must chosen from a set of candidate factors.
       return CheckCandfactor(axis);
@@ -343,7 +344,7 @@ bool TileCandidate::SpaceVerify(const TileAxis *axis, TileLevel level, const int
   return true;
 }
 
-std::pair<int64_t, int64_t> TileCandidate::MemInfer(DavinciMemScope scope, int band_idx) {
+std::pair<int64_t, int64_t> TileCandidate::MemInfer(NpuMemScope scope, int band_idx) {
   tiling_band_ = band_idx;
   if (!is_update_) {
     DoMemInfer();
@@ -359,13 +360,13 @@ void TileCandidate::UpdateConstTile(const TileAxis *a, const int64_t l1_val, con
   is_update_ = false;
 }
 
-void TileCandidate::UpdateL1Tile(const TileAxis *a, const Expr &l1_val) {
+void TileCandidate::UpdateC1Tile(const TileAxis *a, const Expr &l1_val) {
   TileVal &val = this->tile_val_[a];
   val.tile_l1 = l1_val;
   is_update_ = false;
 }
 
-void TileCandidate::UpdateL0Tile(const TileAxis *a, const Expr &l0_val) {
+void TileCandidate::UpdateC0Tile(const TileAxis *a, const Expr &l0_val) {
   TileVal &val = this->tile_val_[a];
   val.tile_l0 = l0_val;
   is_update_ = false;
@@ -407,7 +408,7 @@ int64_t TileCandidate::CalActualTile(const CalAlignInfo *align_info) {
       if (attr.attr_key.find("ALIGN") == std::string::npos) {
         continue;
       }
-      std::string local_name = attr.attr_value + "_local_UB";
+      std::string local_name = attr.attr_value + LOCAL_BUF;
       if (align_info->buf->name.find(local_name) == std::string::npos) {
         continue;
       }
@@ -419,7 +420,7 @@ int64_t TileCandidate::CalActualTile(const CalAlignInfo *align_info) {
     }
     return align_type;
   };
-  if (this->analyzer_->op_type_ != VECTOR_OP) {
+  if (this->analyzer_->op_type_ != INST_OP) {
     return actual_tile;
   }
   std::string align_type = GetAlignType();
@@ -464,7 +465,7 @@ void TileCandidate::UpdateMemoryAfterBuffer(const BufferEntry *buf, MemInferInfo
   int64_t buf_size = buf->size * buf->expand_size * fix_size->value;
   CHECK_GT(buf_size, 0) << "Buffer size must be positive.";
   int64_t act_buf_size = buf_size;
-  DavinciMemScope scope = buf->scope;
+  NpuMemScope scope = buf->scope;
   bool this_band_buf = (scope == MEM_SCOPE_GM);
   auto FindPartialMatch = [](const std::string &full_name, const std::unordered_set<std::string> name_set) -> bool {
     for (const auto &part_name : name_set) {
@@ -619,23 +620,23 @@ void TileCandidate::DoMemInfer() {
 }
 
 /*
- * This function returns current data size moved from local buffer (UB in Davinci)
- * to main memory (GM in Davinci) within target axis.
+ * This function returns current data size moved from local buffer
+ * to main memory within target axis.
  *  e.g.1: target is not inner-most axis
  * Input ir:
  *  for (cc0) <--- axis, dtype = float16
  *    for (cc1)  <--- tile factor 1024, dtype = float16
- *      GM_BUF1[cc0, cc1] = UB_BUF1[cc0, cc1]
+ *      GM_BUF1[cc0, cc1] = BUF_BUF1[cc0, cc1]
  *  for (cc0) <--- axis
  *    for (cc2)  <--- tile factor 1024, dtype = float32
- *      GM_BUF2[cc0, cc2] = UB_BUF2[cc0, cc2]
+ *      GM_BUF2[cc0, cc2] = BUF_BUF2[cc0, cc2]
  * Return:
  *  min(1024 * 2(fp16), 1024 * 4(fp32)) = 1024 * 2
  *
  * e.g.2: target is inner-most axis
  * Input ir:
  *  for (cc0) <--- axis, dtype = float16
- *    GM_BUF1[cc0] = UB_BUF1[cc0]
+ *    GM_BUF1[cc0] = BUF_BUF1[cc0]
  * Return:
  *  32(ALIGN_BYTES) / 2(fp16) = 16
  */
@@ -701,7 +702,7 @@ int TileCandidate::GetDmaCopySizeWithinAxis(TileAxis *target_axis) {
 /*
  * This function returns the minimal tile size of axis that can enable multi-core function.
  * If inner-most data granularity of DMA from local buffer to main memory is less than align bytes,
- * which is 32 in Davinci Core, it will disable multi-core function.
+ * it will disable multi-core function.
  */
 int TileCandidate::GetMinFactorToEnableMulticore(TileAxis *axis) {
   return std::max(static_cast<int>(ALIGN_BYTES / GetDmaCopySizeWithinAxis(axis)), 1);
@@ -779,16 +780,16 @@ class LinearAccessPatternBuilder : public IRVisitor {
     // Build usage timetable for each stmt, which will be used during tiling
     // Stmt in linear_seq matches pattern `buffer_def : {buffer_ref1, buffer_ref2...}`
     // E.g.
-    // Stmt1 `input_1_local_UB: input_1`
-    // Stmt2 `input_2_local_UB: input_2`
-    // Stmt3 `output_0_local_UB: input_1_local_UB, input_2_local_UB`
-    // Stmt4 `output_0: output_0_local_UB`
+    // Stmt1 `input_1_local_BUF: input_1`
+    // Stmt2 `input_2_local_BUF: input_2`
+    // Stmt3 `output_0_local_BUF: input_1_local_BUF, input_2_local_BUF`
+    // Stmt4 `output_0: output_0_local_BUF`
     // will build following timetable
     // ------------------------------------------------------
     // |       Buffer      | Alloc-time | Last-used-time |
-    // | input_1_local_UB  |      1     |        3       |
-    // | input_2_local_UB  |      2     |        3       |
-    // | output_0_local_UB |      3     |        4       |
+    // | input_1_local_BUF  |      1     |        3       |
+    // | input_2_local_BUF  |      2     |        3       |
+    // | output_0_local_BUF |      3     |        4       |
     // ------------------------------------------------------
     // During tiling, timestamp will be scanned from 0 and size of buffer whose `Alloc-time`
     // equal than current timestamp will be added to live size; and buffer whose `Last-used-time`
@@ -898,7 +899,7 @@ class LinearAccessPatternBuilder : public IRVisitor {
       } else {
         BufferEntry *from = GetBuffer(ref, mem_flow[0]);
         for (size_t i = 1; i < mem_flow.size(); ++i) {
-          if (mem_flow[i] == L1_ && mem_flow[i] == mem_flow[i - 1]) {  // fractal_L1
+          if (mem_flow[i] == C1_ && mem_flow[i] == mem_flow[i - 1]) {  // fractal_C1
             continue;
           }
           BufferEntry *to = GetBuffer(ref, mem_flow[i]);
@@ -1044,7 +1045,7 @@ class LinearAccessPatternBuilder : public IRVisitor {
           CHECK_EQ(src_info.size(), 2U);
           std::string src_buffer = src_info[0];
           buffer_names.emplace_back(src_buffer);
-          buffer_names.emplace_back(src_buffer + "_local_UB");
+          buffer_names.emplace_back(src_buffer + LOCAL_BUF);
         }
 
         std::vector<std::string> dst_info = akg::common::Split(src_dst[1], ":");
@@ -1053,7 +1054,7 @@ class LinearAccessPatternBuilder : public IRVisitor {
         std::string dst_buffer = dst_info[0];
         auto cast_to_size = static_cast<int64_t>(std::strtol(dst_info[1].c_str(), nullptr, 10));
         buffer_names.emplace_back(dst_buffer);
-        buffer_names.emplace_back(dst_buffer + "_local_UB");
+        buffer_names.emplace_back(dst_buffer + LOCAL_BUF);
 
         for (const auto &bn : buffer_names) {
           cast_to_size = GetMinAlignSize(bn, cast_to_size);
@@ -1205,9 +1206,9 @@ class LinearAccessPatternBuilder : public IRVisitor {
   std::unordered_map<std::string, int> expanded_buf_;
   std::unordered_map<std::string, int64_t> casted_buf_;
 
-  std::unordered_map<int, DavinciMemScope> mem_type_to_scope_ = {
-    {DDR, MEM_SCOPE_GM},   {L1_, MEM_SCOPE_L1},   {UB_, MEM_SCOPE_UB},   {L0A_, MEM_SCOPE_L0A},
-    {L0B_, MEM_SCOPE_L0B}, {L0C_, MEM_SCOPE_L0C}, {UBL0_, MEM_SCOPE_UB}, {UBL1_, MEM_SCOPE_UB}};
+  std::unordered_map<int, NpuMemScope> mem_type_to_scope_ = {
+    {DDR, MEM_SCOPE_GM},   {C1_, MEM_SCOPE_CACHE1},   {BUF_, MEM_SCOPE_BUFFER},   {C0A_, MEM_SCOPE_CACHE0_A},
+    {C0B_, MEM_SCOPE_CACHE0_B}, {C0C_, MEM_SCOPE_CACHE0_C}, {BUF_C0_, MEM_SCOPE_BUFFER}, {BUF_C1_, MEM_SCOPE_BUFFER}};
 };
 
 std::vector<TileAxis *> TilingAnalyzer::GetAxesContainsAttr(const std::string attr_key) const {
@@ -1384,7 +1385,7 @@ bool TilingAnalyzer::Prepare() {
     }
   };
   this->ForEachAxisTopDown(BuildAxisMap);
-  if (op_type_ != VECTOR_OP) {
+  if (op_type_ != INST_OP) {
     sch_ana.AnalyzeCubeInfo();
   }
 
@@ -1567,9 +1568,7 @@ TilingAnalyzer::VarNames TilingAnalyzer::VisitVarNames(const Expr &arg, VarNames
 }
 
 int TileCandidate::GetCoreNumConf() {
-  cceconf::CceConf *conf = cceconf::CceConf::getInstance();
-  CHECK(conf);
-  int product_block = conf->getCoreValue("Core_num");
+  int product_block = GetCoreValue("Core_num");
   int user_defined_block = global_attrs.GetIntAttr(kEnableMulticore, -1);
   if (user_defined_block == -1) {
     // User is not defining core num, assume we can use maximal number.

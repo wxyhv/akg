@@ -1,5 +1,5 @@
 /**
- * Copyright 2019 Huawei Technologies Co., Ltd
+ * Copyright 2019-2021 Huawei Technologies Co., Ltd
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -16,6 +16,7 @@
 
 #include "poly/dma_dataflow.h"
 #include "poly/poly_util.h"
+#include "poly/dsa_utils.h"
 
 namespace akg {
 namespace ir {
@@ -36,11 +37,11 @@ std::shared_ptr<TensorFootprintCluster> BufferDefInfo::GetFootPrintCluster(const
   }
   /************************
    * This is for conv op im2col foorprint cluster
-   * The computation of this foorprint cluster is at realize_L1 mark node
-   * and add extension is at realize_L0 mark node
+   * The computation of this foorprint cluster is at realize_C1 mark node
+   * and add extension is at realize_C0 mark node
    *************************/
   if (footprint_cluster_map.size() == 1 && mark_node.isa<isl::schedule_node_mark>() &&
-      mark_node.as<isl::schedule_node_mark>().get_id().get_name() != "realize_UB") {
+      mark_node.as<isl::schedule_node_mark>().get_id().get_name() != REALIZE_BUF) {
     return footprints_cluster;
   }
   return nullptr;
@@ -112,43 +113,43 @@ isl::id BufferDefInfo::NextTensorDstId() {
   return result_id;
 }
 
-bool BufferDefInfo::IsCubeCL1Write() {
+bool BufferDefInfo::IsMmuCC1Write() {
   const int l1WriteDFLen = static_cast<int>(DataStreamIndex::DS_THIRD);
   if (data_stream.size() == l1WriteDFLen) {
     if (data_stream[static_cast<size_t>(DataStreamIndex::DS_ZERO)].second == MemType::DDR &&
-        data_stream[static_cast<size_t>(DataStreamIndex::DS_FIRST)].second == MemType::UB_ &&
-        data_stream[static_cast<size_t>(DataStreamIndex::DS_SECOND)].second == MemType::L0C_)
+        data_stream[static_cast<size_t>(DataStreamIndex::DS_FIRST)].second == MemType::BUF_ &&
+        data_stream[static_cast<size_t>(DataStreamIndex::DS_SECOND)].second == MemType::C0C_)
       return true;
   }
   return false;
 }
 
-bool BufferDefInfo::IsPreCubeL1Write() {
-  const int preCubeL1WriteDFLen = static_cast<int>(DataStreamIndex::DS_THIRD);
-  if (data_stream.size() == preCubeL1WriteDFLen) {
+bool BufferDefInfo::IsPreMmuC1Write() {
+  const int preCubeC1WriteDFLen = static_cast<int>(DataStreamIndex::DS_THIRD);
+  if (data_stream.size() == preCubeC1WriteDFLen) {
     if (data_stream[static_cast<size_t>(DataStreamIndex::DS_ZERO)].second == MemType::DDR &&
-        data_stream[static_cast<size_t>(DataStreamIndex::DS_FIRST)].second == MemType::L1_ &&
-        data_stream[static_cast<size_t>(DataStreamIndex::DS_SECOND)].second == MemType::UBL1_)
+        data_stream[static_cast<size_t>(DataStreamIndex::DS_FIRST)].second == MemType::C1_ &&
+        data_stream[static_cast<size_t>(DataStreamIndex::DS_SECOND)].second == MemType::BUF_C1_)
       return true;
   }
   return false;
 }
 
-bool BufferDefInfo::IsPreCubeTile2Write() {
+bool BufferDefInfo::IsPreMmuTile2Write() {
   const int preCubeTile2WriteDFLen = static_cast<int>(DataStreamIndex::DS_SECOND);
   if (data_stream.size() == preCubeTile2WriteDFLen) {
-    if (data_stream[static_cast<size_t>(DataStreamIndex::DS_ZERO)].second == MemType::L1_ &&
-        data_stream[static_cast<size_t>(DataStreamIndex::DS_FIRST)].second == MemType::UBL1_)
+    if (data_stream[static_cast<size_t>(DataStreamIndex::DS_ZERO)].second == MemType::C1_ &&
+        data_stream[static_cast<size_t>(DataStreamIndex::DS_FIRST)].second == MemType::BUF_C1_)
       return true;
   }
   return false;
 }
 
-bool BufferDefInfo::IsGemmDataL12L0() { return (SrcMemType() == MemType::L1_ && DstMemType() == MemType::L0A_); }
+bool BufferDefInfo::IsGemmDataC12C0() { return (SrcMemType() == MemType::C1_ && DstMemType() == MemType::C0A_); }
 
-bool BufferDefInfo::IsGemmWeightL12L0() { return (SrcMemType() == MemType::L1_ && DstMemType() == MemType::L0B_); }
+bool BufferDefInfo::IsGemmWeightC12C0() { return (SrcMemType() == MemType::C1_ && DstMemType() == MemType::C0B_); }
 
-bool BufferDefInfo::IsIm2col() { return (SrcMemType() == MemType::L1_ && DstMemType() == MemType::L1_); }
+bool BufferDefInfo::IsIm2col() { return (SrcMemType() == MemType::C1_ && DstMemType() == MemType::C1_); }
 MemType BufferDefInfo::SrcMemType() {
   // tensor dataflow at least one data
   CHECK_GE(data_stream.size(), 1);
@@ -194,112 +195,112 @@ void StmtDataFlowInfo::CreateTensorDataFlow(TENSOR_DATAFLOW_TYPE type, const std
                                             TensorDataFlow &dataflow) {
   CHECK_NE(name, "");
   switch (type) {
-    case TENSOR_DATAFLOW_TYPE::CUBE_CONV_A:
-      CubeConvA(name, dataflow);
+    case TENSOR_DATAFLOW_TYPE::MMU_CONV_A:
+      MmuConvA(name, dataflow);
       break;
-    case TENSOR_DATAFLOW_TYPE::CUBE_CONV_B:
-      CubeConvB(name, dataflow);
+    case TENSOR_DATAFLOW_TYPE::MMU_CONV_B:
+      MmuConvB(name, dataflow);
       break;
-    case TENSOR_DATAFLOW_TYPE::CUBE_CONV_C:
-      CubeConvC(name, dataflow);
+    case TENSOR_DATAFLOW_TYPE::MMU_CONV_C:
+      MmuConvC(name, dataflow);
       break;
-    case TENSOR_DATAFLOW_TYPE::CUBE_GEMM_A:
-      CubeGEMMA(name, dataflow);
+    case TENSOR_DATAFLOW_TYPE::MMU_GEMM_A:
+      MmuGEMMA(name, dataflow);
       break;
-    case TENSOR_DATAFLOW_TYPE::CUBE_GEMM_B:
-      CubeGEMMB(name, dataflow);
+    case TENSOR_DATAFLOW_TYPE::MMU_GEMM_B:
+      MmuGEMMB(name, dataflow);
       break;
-    case TENSOR_DATAFLOW_TYPE::CUBE_GEMM_C:
-      CubeGEMMC(name, dataflow);
+    case TENSOR_DATAFLOW_TYPE::MMU_GEMM_C:
+      MmuGEMMC(name, dataflow);
       break;
-    case TENSOR_DATAFLOW_TYPE::VECTOR_UB:
-      VectorUB(name, dataflow);
+    case TENSOR_DATAFLOW_TYPE::INST_BUF:
+      InstBUF(name, dataflow);
       break;
-    case TENSOR_DATAFLOW_TYPE::IM2COL_L1:
-      Im2colL1(name, dataflow);
+    case TENSOR_DATAFLOW_TYPE::IM2COL_C1:
+      Im2colC1(name, dataflow);
       break;
     default:
       CHECK(false) << "CreateTensorDataFlow type error!!! ";
   }
 }
 
-void StmtDataFlowInfo::CubeConvA(const std::string &name, TensorDataFlow &dataflow) {
-  dataflow.Initial(name, Cube_Conv_A);
+void StmtDataFlowInfo::MmuConvA(const std::string &name, TensorDataFlow &dataflow) {
+  dataflow.Initial(name, Mmu_Conv_A);
 }
 
-void StmtDataFlowInfo::CubeConvB(const std::string &name, TensorDataFlow &dataflow) {
-  dataflow.Initial(name, Cube_Conv_B);
+void StmtDataFlowInfo::MmuConvB(const std::string &name, TensorDataFlow &dataflow) {
+  dataflow.Initial(name, Mmu_Conv_B);
 }
 
-void StmtDataFlowInfo::CubeConvC(const std::string &name, TensorDataFlow &dataflow) {
-  dataflow.Initial(name, Cube_Conv_C);
+void StmtDataFlowInfo::MmuConvC(const std::string &name, TensorDataFlow &dataflow) {
+  dataflow.Initial(name, Mmu_Conv_C);
 }
 
-void StmtDataFlowInfo::CubeGEMMA(const std::string &name, TensorDataFlow &dataflow) {
-  std::size_t start1 = name.find("_fractal_L1");
+void StmtDataFlowInfo::MmuGEMMA(const std::string &name, TensorDataFlow &dataflow) {
+  std::size_t start1 = name.find(_FRACTAL_C1);
   if (start1 != std::string::npos) {
     // spec gemm A
     std::string head = name.substr(0, start1);
-    dataflow.Initial(head, Cube_Spec_Gemm_A);
+    dataflow.Initial(head, Mmu_Spec_Gemm_A);
     return;
   }
-  std::size_t start2 = name.find("_local_L1");
+  std::size_t start2 = name.find(LOCAL_C1);
   if (start2 != std::string::npos) {
     // spec gemm A
     std::string head = name.substr(0, start2);
-    dataflow.Initial(head, Cube_Spec_Gemm_A_);
+    dataflow.Initial(head, Mmu_Spec_Gemm_A_);
     return;
   }
-  dataflow.Initial(name, Cube_Gemm_A);
+  dataflow.Initial(name, Mmu_Gemm_A);
   return;
 }
 
-void StmtDataFlowInfo::CubeGEMMB(const std::string &name, TensorDataFlow &dataflow) {
-  std::size_t start1 = name.find("_local_L1");
+void StmtDataFlowInfo::MmuGEMMB(const std::string &name, TensorDataFlow &dataflow) {
+  std::size_t start1 = name.find(LOCAL_C1);
   if (start1 != std::string::npos) {
     // spec gemm B
-    dataflow.Initial(name, Cube_Spec_Gemm_B);
+    dataflow.Initial(name, Mmu_Spec_Gemm_B);
     return;
   }
-  std::size_t start2 = name.find("_fractal_L1");
+  std::size_t start2 = name.find(_FRACTAL_C1);
   if (start2 != std::string::npos) {
     // spec gemm B
-    dataflow.Initial(name, Cube_Spec_Gemm_B_);
+    dataflow.Initial(name, Mmu_Spec_Gemm_B_);
     return;
   }
-  dataflow.Initial(name, Cube_Gemm_B);
+  dataflow.Initial(name, Mmu_Gemm_B);
   return;
 }
 
-void StmtDataFlowInfo::CubeGEMMC(const std::string &name, TensorDataFlow &dataflow) {
-  std::size_t start = name.find("_local_UB");
+void StmtDataFlowInfo::MmuGEMMC(const std::string &name, TensorDataFlow &dataflow) {
+  std::size_t start = name.find(LOCAL_BUF);
   if (start != std::string::npos) {
     // spec gemm C
     // this is only for conv fusion condition,
-    dataflow.Initial(name, Cube_Spec_Gemm_C);
+    dataflow.Initial(name, Mmu_Spec_Gemm_C);
   } else {
-    dataflow.Initial(name, Cube_Gemm_C);
+    dataflow.Initial(name, Mmu_Gemm_C);
   }
 }
 
-void StmtDataFlowInfo::VectorUB(const std::string &name, TensorDataFlow &dataflow) {
-  dataflow.Initial(name, Vector_UB);
+void StmtDataFlowInfo::InstBUF(const std::string &name, TensorDataFlow &dataflow) {
+  dataflow.Initial(name, Inst_BUF);
 }
-void StmtDataFlowInfo::Im2colL1(const std::string &name, TensorDataFlow &dataflow) {
-  dataflow.Initial(name, Im2Col_L1);
+void StmtDataFlowInfo::Im2colC1(const std::string &name, TensorDataFlow &dataflow) {
+  dataflow.Initial(name, Im2Col_C1);
 }
 
 void StmtDataFlowInfo::UpdateTensorMemType(MemType update_type) {
   for (auto read = reads_.begin(); read != reads_.end(); ++read) {
     for (uint64_t index = 0; index < read->second.mem_type_flow_.size(); ++index) {
-      if (read->second.mem_type_flow_[index] == MemType::UB_) {
+      if (read->second.mem_type_flow_[index] == MemType::BUF_) {
         read->second.mem_type_flow_[index] = update_type;
       }
     }
   }
   for (auto write = writes_.begin(); write != writes_.end(); ++write) {
     for (uint64_t index = 0; index < write->second.mem_type_flow_.size(); ++index) {
-      if (write->second.mem_type_flow_[index] == MemType::UB_) {
+      if (write->second.mem_type_flow_[index] == MemType::BUF_) {
         write->second.mem_type_flow_[index] = update_type;
       }
     }
@@ -414,58 +415,58 @@ void DMADataFlow::CreateStmtDataFlow(STMT_OP_TYPE op_type, const isl::id &stmt_i
    *********************************/
   std::string state = stmt_id.get_name();
   if (op_data_flow_.find(state) == op_data_flow_.end()) {
-    StmtDataFlowInfo stmtDataflow(stmt_id, stmt_op.isCube);
+    StmtDataFlowInfo stmtDataflow(stmt_id, stmt_op.isMMU);
     op_data_flow_[state] = stmtDataflow;
   }
-  if (op_type == STMT_OP_TYPE::CUBE_CONV) {
+  if (op_type == STMT_OP_TYPE::MMU_CONV) {
     // create memflow for A,B,C
-    op_data_flow_[state].AddReadTensor(stmt_op.A_, TENSOR_DATAFLOW_TYPE::CUBE_CONV_A);
-    op_data_flow_[state].AddReadTensor(stmt_op.B_, TENSOR_DATAFLOW_TYPE::CUBE_CONV_B);
-    op_data_flow_[state].AddWriteTensor(stmt_op.C_, TENSOR_DATAFLOW_TYPE::CUBE_CONV_C);
+    op_data_flow_[state].AddReadTensor(stmt_op.A_, TENSOR_DATAFLOW_TYPE::MMU_CONV_A);
+    op_data_flow_[state].AddReadTensor(stmt_op.B_, TENSOR_DATAFLOW_TYPE::MMU_CONV_B);
+    op_data_flow_[state].AddWriteTensor(stmt_op.C_, TENSOR_DATAFLOW_TYPE::MMU_CONV_C);
   }
 
-  if (op_type == STMT_OP_TYPE::CUBE_GEMM) {
+  if (op_type == STMT_OP_TYPE::MMU_GEMM) {
     // create memflow for A,B,C
-    op_data_flow_[state].AddReadTensor(stmt_op.A_, TENSOR_DATAFLOW_TYPE::CUBE_GEMM_A);
-    op_data_flow_[state].AddReadTensor(stmt_op.B_, TENSOR_DATAFLOW_TYPE::CUBE_GEMM_B);
-    op_data_flow_[state].AddWriteTensor(stmt_op.C_, TENSOR_DATAFLOW_TYPE::CUBE_GEMM_C);
+    op_data_flow_[state].AddReadTensor(stmt_op.A_, TENSOR_DATAFLOW_TYPE::MMU_GEMM_A);
+    op_data_flow_[state].AddReadTensor(stmt_op.B_, TENSOR_DATAFLOW_TYPE::MMU_GEMM_B);
+    op_data_flow_[state].AddWriteTensor(stmt_op.C_, TENSOR_DATAFLOW_TYPE::MMU_GEMM_C);
   }
 
-  if (op_type == STMT_OP_TYPE::IM2COL_UB) {
+  if (op_type == STMT_OP_TYPE::IM2COL_BUF) {
     // create memflow for A, B
     if (read_map.find(stmt_id) != read_map.end()) {
       for (const auto &id : read_map[stmt_id]) {
         if (id.get_name() != "") {
-          op_data_flow_[state].AddReadTensor(id.get_name(), TENSOR_DATAFLOW_TYPE::IM2COL_L1);
+          op_data_flow_[state].AddReadTensor(id.get_name(), TENSOR_DATAFLOW_TYPE::IM2COL_C1);
         }
       }
     }
 
-    //  UB vector write tensors
+    //  BUF vector write tensors
     if (write_map.find(stmt_id) != write_map.end()) {
       for (const auto &id : write_map[stmt_id]) {
         if (id.get_name() != "") {
-          op_data_flow_[state].AddWriteTensor(id.get_name(), TENSOR_DATAFLOW_TYPE::VECTOR_UB);
+          op_data_flow_[state].AddWriteTensor(id.get_name(), TENSOR_DATAFLOW_TYPE::INST_BUF);
         }
       }
     }
   }
 
-  if (op_type == STMT_OP_TYPE::VECTOR) {
-    // UB vector read tensors
+  if (op_type == STMT_OP_TYPE::INST) {
+    // BUF vector read tensors
     if (read_map.find(stmt_id) != read_map.end()) {
       for (const auto &id : read_map[stmt_id]) {
         if (id.get_name() != "") {
-          op_data_flow_[state].AddReadTensor(id.get_name(), TENSOR_DATAFLOW_TYPE::VECTOR_UB);
+          op_data_flow_[state].AddReadTensor(id.get_name(), TENSOR_DATAFLOW_TYPE::INST_BUF);
         }
       }
     }
 
-    // UB vector write tensors
+    // BUF vector write tensors
     if (write_map.find(stmt_id) != write_map.end()) {
       for (const auto &id : write_map[stmt_id]) {
         if (id.get_name() != "") {
-          op_data_flow_[state].AddWriteTensor(id.get_name(), TENSOR_DATAFLOW_TYPE::VECTOR_UB);
+          op_data_flow_[state].AddWriteTensor(id.get_name(), TENSOR_DATAFLOW_TYPE::INST_BUF);
         }
       }
     }
@@ -473,41 +474,41 @@ void DMADataFlow::CreateStmtDataFlow(STMT_OP_TYPE op_type, const isl::id &stmt_i
 }
 
 void DMADataFlow::FusionAnalysis() {
-  bool has_cube = false;
-  bool cube_pre_fusion = has_cube;
-  bool cube_post_fusion = has_cube;
+  bool has_mmu = false;
+  bool mmu_pre_fusion = has_mmu;
+  bool mmu_post_fusion = has_mmu;
   int state_num = 0;
 
   // analysis has cube pre fusion and post fusion
   for (const auto &state : op_data_flow_) {
-    if (has_cube && state_num > 0) cube_post_fusion = true;
+    if (has_mmu && state_num > 0) mmu_post_fusion = true;
 
-    if (state.second.is_cube_) {
-      has_cube = true;
-      if (state_num > 0) cube_pre_fusion = true;
+    if (state.second.is_mmu_) {
+      has_mmu = true;
+      if (state_num > 0) mmu_pre_fusion = true;
     }
     state_num++;
   }
 
-  if (!cube_pre_fusion && !cube_post_fusion) return;
+  if (!mmu_pre_fusion && !mmu_post_fusion) return;
 
-  bool start_pre_fusion = has_cube;
+  bool start_pre_fusion = has_mmu;
   bool start_post_fusion = false;
 
   for (auto state = op_data_flow_.begin(); state != op_data_flow_.end(); ++state) {
-    if (state->second.is_cube_) {
+    if (state->second.is_mmu_) {
       start_pre_fusion = false;
       start_post_fusion = true;
     }
 
-    if (cube_pre_fusion && start_pre_fusion) {
-      // To Do UB -> UBL1
-      state->second.UpdateTensorMemType(MemType::UBL1_);
+    if (mmu_pre_fusion && start_pre_fusion) {
+      // To Do BUF -> BUFC1
+      state->second.UpdateTensorMemType(MemType::BUF_C1_);
     }
 
-    if (cube_post_fusion && start_post_fusion) {
-      // update all memtype UB -> UBL0
-      state->second.UpdateTensorMemType(MemType::UBL0_);
+    if (mmu_post_fusion && start_post_fusion) {
+      // update all memtype BUF -> BUFC0
+      state->second.UpdateTensorMemType(MemType::BUF_C0_);
     }
   }
 }

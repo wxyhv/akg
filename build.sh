@@ -1,4 +1,4 @@
-# Copyright 2019 Huawei Technologies Co., Ltd
+# Copyright 2019-2021 Huawei Technologies Co., Ltd
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -22,7 +22,7 @@ mkdir -p $BUILD_DIR
 
 cd $BUILD_DIR
 
-cmake .. -DUSE_CCE_RT=1
+cmake ..
 
 if [ $? -ne 0 ]
 then

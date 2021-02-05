@@ -1,4 +1,4 @@
-# Copyright 2020 Huawei Technologies Co., Ltd
+# Copyright 2020-2021 Huawei Technologies Co., Ltd
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -100,6 +100,7 @@ def get_op_cycles_info(desc, cycle_info_file, old_op_cycles=100000000):
 @pytest.mark.level0
 def test_ci(profile=False):
     ci_path = "./need_adapt/"
+    target_process = ["cuda"]
     if profile:
         need_update = False
         base_json_file = "./need_adapt/base.json"
@@ -115,6 +116,10 @@ def test_ci(profile=False):
             if fi == "base.json":
                 continue
             desc = f.read()
+            json_desc = json.loads(desc)
+            if "process" not in json_desc or json_desc["process"] not in target_process:
+                logging.info("------ Skip {}".format(fi))
+                continue
             flag = get_result(desc)
             if not flag:
                 logging.info("----------Error Json info is----------")
