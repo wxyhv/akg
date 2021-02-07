@@ -30,7 +30,8 @@ def gen_data(in_shape, in_dtype, axis, keepdims):
 def test_ms_reduce_max(in_shape, in_dtype, axis=None, keepdims=False, poly_sch=False):
     if poly_sch:
         mod = utils.op_build_test(reduce_max, (in_shape, ), (in_dtype, ), op_attrs=[
-                             axis, keepdims], kernel_name="reduce_max", attrs={"target": "cuda"})
+                             axis, keepdims], kernel_name="reduce_max", attrs={"target": "cuda", 
+                             "enable_akg_reduce_lib": True, "enable_atomic_add": True})
 
     data, output, expect = gen_data(in_shape, in_dtype, axis, keepdims)
     args = (data, output)

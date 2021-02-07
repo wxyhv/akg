@@ -20,7 +20,7 @@ from akg.ops.math_gpu.reduce_sum import reduce_sum
 
 def gen_data(in_shape, in_dtype, axis, keepdims):
     support_list = {"float16": np.float16, "float32": np.float32}
-    data = random_gaussian(in_shape, miu=0.0001, sigma=0.1).astype(support_list[in_dtype])
+    data = random_gaussian(in_shape, miu=1, sigma=0.5).astype(support_list[in_dtype])
     expect = np.sum(data, axis=axis, keepdims=keepdims)
     if axis==None and keepdims==False:
         expect = np.broadcast_to(expect, (1,))
@@ -29,7 +29,8 @@ def gen_data(in_shape, in_dtype, axis, keepdims):
 
 def test_ms_reduce_sum(in_shape, in_dtype, axis=None, keepdims=False, poly_sch=False):
     if poly_sch:
-        mod = utils.op_build_test(reduce_sum, (in_shape, ), (in_dtype, ), kernel_name="reduce_sum", op_attrs=[axis, keepdims], attrs={"target":"cuda"})
+        mod = utils.op_build_test(reduce_sum, (in_shape, ), (in_dtype, ), kernel_name="reduce_sum", op_attrs=[axis, keepdims], 
+                          attrs={"target":"cuda", "enable_akg_reduce_lib": True, "enable_atomic_add": True})
 
     data, output, expect = gen_data(in_shape, in_dtype, axis, keepdims)
     args = (data, output)

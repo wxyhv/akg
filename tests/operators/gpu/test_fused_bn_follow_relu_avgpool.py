@@ -75,7 +75,8 @@ def test_fused_bn_follow_relu_avgpool(in_shape, in_dtype='float16', layout='NHWC
     op_attrs = [layout, out_dtype]
     if poly_sch:
         mod = utils.op_build_test(fused_bn_follow_relu_avgpool, input_shape_list, input_dtype_list,
-                             kernel_name="fused_bn_follow_relu_avgpool", op_attrs=op_attrs, attrs={"target": "cuda"})
+                             kernel_name="fused_bn_follow_relu_avgpool", op_attrs=op_attrs, attrs={"target": "cuda", 
+                             "enable_akg_reduce_lib": True, "enable_atomic_add": True})
 
     outputs = [output]
     arglist = inputs + outputs

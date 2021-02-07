@@ -37,7 +37,8 @@ def gen_data(shape, dtype, layout='NHWC'):
 def test_fused_is_finite(shape, layout='NHWC', poly_sch=False):
     dtype="float32"
     if poly_sch:
-        mod = utils.op_build_test(fused_is_finite, [shape], [dtype], op_attrs=[layout], kernel_name="fused_is_finite", attrs={"target": "cuda"})    
+        mod = utils.op_build_test(fused_is_finite, [shape], [dtype], op_attrs=[layout], kernel_name="fused_is_finite", attrs={"target": "cuda", 
+                             "enable_akg_reduce_lib": True, "enable_atomic_add": True})    
 
     data, expect, output = gen_data(shape, dtype, layout)
     args = (data, output)

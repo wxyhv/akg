@@ -56,7 +56,8 @@ def test_fused_bn_reduce(in_shape, in_dtype='float16', layout='NHWC', out_dtype=
 
     op_attrs = [layout, out_dtype]
     if poly_sch:
-        mod = utils.op_build_test(fused_bn_reduce, [in_shape], [in_dtype], kernel_name="fused_bn_reduce", op_attrs=op_attrs, attrs={"target": "cuda"})
+        mod = utils.op_build_test(fused_bn_reduce, [in_shape], [in_dtype], kernel_name="fused_bn_reduce", op_attrs=op_attrs, 
+                          attrs={"target": "cuda", "enable_akg_reduce_lib": True, "enable_atomic_add": True})
 
     data, outputs, expect = gen_data(in_shape, in_dtype, layout, out_dtype)
     inputs = [data]
