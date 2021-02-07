@@ -42,11 +42,14 @@ class GetBlockExpr : public IRVisitor {
   Expr blockexpr_{0};
 };
 
-Var GetReplaceVar(std::unordered_map<std::string, Var> &vars, const std::string &name, const StitchBufferInfo &info) {
+Var GetReplaceVar(const Var &var, std::unordered_map<std::string, Var> &vars, const std::string &name,
+                  const StitchBufferInfo &info) {
   Var replace;
   if (info.type == StorageType::Shared) {
+    CHECK(vars.count(info.buf_name));
     replace = vars[info.buf_name];
   } else if (info.type == StorageType::Global) {
+    if (!vars.count(name)) return var;
     replace = vars[name];
   }
   return replace;
@@ -70,7 +73,7 @@ class Reduce2Index : public IRVisitor {
     for (auto &kv : stitch_buffer_map_) {
       if (kv.second.name == name || kv.first == name) {
         auto info = kv.second;
-        Var replace = GetReplaceVar(vars_, kv.first, info);
+        Var replace = GetReplaceVar(var, vars_, kv.first, info);
         for (auto &kv2 : store_with_loopvar_) {
           if (Equal(kv2.first, replace)) {
             auto old_loopvars = kv2.second.loopvars;
@@ -272,7 +275,7 @@ class StitchMutate : public IRMutator {
     for (auto &kv : stitch_buffer_map_) {
       if (kv.second.name == name || kv.first == name) {
         auto info = kv.second;
-        Var replace = GetReplaceVar(vars_, kv.first, info);
+        Var replace = GetReplaceVar(var, vars_, kv.first, info);
         if (info.type == StorageType::Shared || info.type == StorageType::Global) {
           fix_consumer_ = true;
           index = this->Mutate(index);
@@ -479,9 +482,9 @@ IrAttrInfo GetIRAttr(StitchOpType type, BufferStitchAttr &stitch_attr_info, std:
 }
 
 Stmt StitchFusionGpu(std::vector<Stmt> &stitch_irs, StitchAttrInfo &store_attr,
-                  std::unordered_map<std::string, StitchBufferInfo> &stitch_buffer_map,
-                  std::unordered_map<std::string, StitchBufferInfo> &buf_within_op_map,
-                  std::vector<std::string> &allocate_revoke) {
+                     std::unordered_map<std::string, StitchBufferInfo> &stitch_buffer_map,
+                     std::unordered_map<std::string, StitchBufferInfo> &buf_within_op_map,
+                     std::vector<std::string> &allocate_revoke) {
   DumpStmt2File("before_stitch.cc", Block::make(stitch_irs));
   auto func = StitchMutate(stitch_buffer_map, buf_within_op_map, allocate_revoke, store_attr);
   CHECK(stitch_irs.size() > 1);

@@ -770,7 +770,8 @@ int ExtractKernelNum(const picojson::value &v) {
   return kernel_num;
 }
 
-Stmt String2LowerStmtSimple(const StringImm *json_str, const Map<std::string, NodeRef> &attrs, bool poly, bool buffer_stitch) {
+Stmt String2LowerStmtSimple(const StringImm *json_str, const Map<std::string, NodeRef> &attrs, bool poly,
+                            bool buffer_stitch) {
   CHECK(json_str);
   picojson::value v = String2Json(json_str->value);
   BuildInfo info;
@@ -909,12 +910,26 @@ class ElimDuplicateInputs : public IRMutator {
     if (std::find(names_.begin(), names_.end(), name) != names_.end()) {
       auto it = vars_.find(name);
       if (it != vars_.end()) {
-        if (is_mutate_) return Load::make(op->type, it->second, op->index, op->predicate);
+        if (is_mutate_) return Load::make(op->type, it->second, this->Mutate(op->index), op->predicate);
       } else {
         vars_[name] = var;
       }
     }
     return IRMutator::Mutate_(op, e);
+  }
+
+  Stmt Mutate_(const Store *op, const Stmt &s) final {
+    Var var = op->buffer_var;
+    auto name = var->name_hint;
+    if (std::find(names_.begin(), names_.end(), name) != names_.end()) {
+      auto it = vars_.find(name);
+      if (it != vars_.end()) {
+        if (is_mutate_) return Store::make(it->second, this->Mutate(op->value), this->Mutate(op->index), op->predicate);
+      } else {
+        vars_[name] = var;
+      }
+    }
+    return IRMutator::Mutate_(op, s);
   }
 
  private:
@@ -964,8 +979,9 @@ Stmt InsertSync(Stmt &s) {
 class CompositeJsonList {
  public:
   CompositeJsonList(const Array<NodeRef> &json_str_node, const Array<NodeRef> &inputs, const Array<NodeRef> &outputs,
-                    const Array<NodeRef> &alloc_map_list, const Array<NodeRef> &reuse_map_list, const Array<NodeRef> &clean_op_map_list,
-                    const Array<NodeRef> &attrs_list, bool poly, std::string target)
+                    const Array<NodeRef> &alloc_map_list, const Array<NodeRef> &reuse_map_list,
+                    const Array<NodeRef> &clean_op_map_list, const Array<NodeRef> &attrs_list, bool poly,
+                    std::string target)
       : json_str_node_(json_str_node),
         inputs_(inputs),
         outputs_(outputs),
@@ -1027,7 +1043,8 @@ class CompositeJsonListGpu : public CompositeJsonList {
  public:
   CompositeJsonListGpu(const Array<NodeRef> &json_str_node, const Array<NodeRef> &inputs, const Array<NodeRef> &outputs,
                        const Array<NodeRef> &alloc_map_list, const Array<NodeRef> &reuse_map_list,
-                       const Array<NodeRef> &clean_op_map_list, const Array<NodeRef> &attrs_list, bool poly, std::string target)
+                       const Array<NodeRef> &clean_op_map_list, const Array<NodeRef> &attrs_list, bool poly,
+                       std::string target)
       : CompositeJsonList(json_str_node, inputs, outputs, alloc_map_list, reuse_map_list, clean_op_map_list, attrs_list,
                           poly, target) {}
 
@@ -1121,10 +1138,10 @@ class CompositeJsonListGpu : public CompositeJsonList {
   }
 };
 
-Module CompositeWithJsonList(const Array<NodeRef> &json_str_node, const Array<NodeRef> &inputs, const Array<NodeRef> &outputs,
-                             const Array<NodeRef> &alloc_map_list, const Array<NodeRef> &reuse_map_list,
-                             const Array<NodeRef> &clean_op_map_list, const Array<NodeRef> &attrs_list, bool poly,
-                             const std::string &target) {
+Module CompositeWithJsonList(const Array<NodeRef> &json_str_node, const Array<NodeRef> &inputs,
+                             const Array<NodeRef> &outputs, const Array<NodeRef> &alloc_map_list,
+                             const Array<NodeRef> &reuse_map_list, const Array<NodeRef> &clean_op_map_list,
+                             const Array<NodeRef> &attrs_list, bool poly, const std::string &target) {
   if (target == "cuda") {
     return CompositeJsonListGpu(json_str_node, inputs, outputs, alloc_map_list, reuse_map_list, clean_op_map_list,
                                 attrs_list, poly, target)
