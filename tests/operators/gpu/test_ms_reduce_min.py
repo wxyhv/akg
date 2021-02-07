@@ -29,7 +29,8 @@ def gen_data(in_shape, in_dtype, axis, keepdims):
 
 def test_ms_reduce_min(in_shape, in_dtype, axis=None, keepdims=False, poly_sch=False):
     if poly_sch:
-        mod = utils.op_build_test(reduce_min, (in_shape, ), (in_dtype, ), kernel_name="reduce_min", op_attrs=[axis, keepdims], attrs={"target":"cuda"})
+        mod = utils.op_build_test(reduce_min, (in_shape, ), (in_dtype, ), kernel_name="reduce_min", op_attrs=[axis, keepdims], 
+                          attrs={"target":"cuda", "enable_akg_reduce_lib": True, "enable_atomic_add": True})
 
     data, output, expect = gen_data(in_shape, in_dtype, axis, keepdims)
     args = (data, output)
