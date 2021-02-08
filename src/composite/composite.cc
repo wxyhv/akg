@@ -625,6 +625,9 @@ void ParseOutputTensors(const picojson::array &output_descs, std::vector<std::st
 
 void CollectBinds(FuncTensorMap &tensor_map, BuildInfoOpt &opt, BuildInfo &info) {
   for (const auto &kv : opt.inplaces) {
+    CHECK(tensor_map.count(kv.first)) << kv.first->func_name() << " not in tensor map";
+    CHECK(tensor_map.count(kv.second.as<Call>()->func))
+      << kv.second.as<Call>()->func->func_name() << " not in tensor map";
     auto first = tensor_map[kv.first];
     auto second = tensor_map[kv.second.as<Call>()->func];
     auto buf = decl_buffer(second->shape, second->dtype, second->op->name);
@@ -637,11 +640,14 @@ void ProcessSames(FuncTensorMap &tensor_map, BuildInfoOpt &opt) {
   // b = func(a)
   // c = InplaceAssign(x, y, b)     c = b
   // d = InplaceAssign(i, j, c)     d = c
-  while (!opt.sames.empty()) {
+  bool changed = true;
+  while (!opt.sames.empty() && changed) {
+    changed = false;
     for (auto it = opt.sames.begin(); it != opt.sames.end();) {
       if (tensor_map.count(it->second)) {
         tensor_map[it->first] = tensor_map[it->second];
         it = opt.sames.erase(it);
+        changed = true;
       } else {
         ++it;
       }
@@ -770,7 +776,8 @@ int ExtractKernelNum(const picojson::value &v) {
   return kernel_num;
 }
 
-Stmt String2LowerStmtSimple(const StringImm *json_str, const Map<std::string, NodeRef> &attrs, bool poly, bool buffer_stitch) {
+Stmt String2LowerStmtSimple(const StringImm *json_str, const Map<std::string, NodeRef> &attrs, bool poly,
+                            bool buffer_stitch) {
   CHECK(json_str);
   picojson::value v = String2Json(json_str->value);
   BuildInfo info;
@@ -964,8 +971,9 @@ Stmt InsertSync(Stmt &s) {
 class CompositeJsonList {
  public:
   CompositeJsonList(const Array<NodeRef> &json_str_node, const Array<NodeRef> &inputs, const Array<NodeRef> &outputs,
-                    const Array<NodeRef> &alloc_map_list, const Array<NodeRef> &reuse_map_list, const Array<NodeRef> &clean_op_map_list,
-                    const Array<NodeRef> &attrs_list, bool poly, std::string target)
+                    const Array<NodeRef> &alloc_map_list, const Array<NodeRef> &reuse_map_list,
+                    const Array<NodeRef> &clean_op_map_list, const Array<NodeRef> &attrs_list, bool poly,
+                    std::string target)
       : json_str_node_(json_str_node),
         inputs_(inputs),
         outputs_(outputs),
@@ -1027,7 +1035,8 @@ class CompositeJsonListGpu : public CompositeJsonList {
  public:
   CompositeJsonListGpu(const Array<NodeRef> &json_str_node, const Array<NodeRef> &inputs, const Array<NodeRef> &outputs,
                        const Array<NodeRef> &alloc_map_list, const Array<NodeRef> &reuse_map_list,
-                       const Array<NodeRef> &clean_op_map_list, const Array<NodeRef> &attrs_list, bool poly, std::string target)
+                       const Array<NodeRef> &clean_op_map_list, const Array<NodeRef> &attrs_list, bool poly,
+                       std::string target)
       : CompositeJsonList(json_str_node, inputs, outputs, alloc_map_list, reuse_map_list, clean_op_map_list, attrs_list,
                           poly, target) {}
 
@@ -1121,10 +1130,10 @@ class CompositeJsonListGpu : public CompositeJsonList {
   }
 };
 
-Module CompositeWithJsonList(const Array<NodeRef> &json_str_node, const Array<NodeRef> &inputs, const Array<NodeRef> &outputs,
-                             const Array<NodeRef> &alloc_map_list, const Array<NodeRef> &reuse_map_list,
-                             const Array<NodeRef> &clean_op_map_list, const Array<NodeRef> &attrs_list, bool poly,
-                             const std::string &target) {
+Module CompositeWithJsonList(const Array<NodeRef> &json_str_node, const Array<NodeRef> &inputs,
+                             const Array<NodeRef> &outputs, const Array<NodeRef> &alloc_map_list,
+                             const Array<NodeRef> &reuse_map_list, const Array<NodeRef> &clean_op_map_list,
+                             const Array<NodeRef> &attrs_list, bool poly, const std::string &target) {
   if (target == "cuda") {
     return CompositeJsonListGpu(json_str_node, inputs, outputs, alloc_map_list, reuse_map_list, clean_op_map_list,
                                 attrs_list, poly, target)

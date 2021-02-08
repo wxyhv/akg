@@ -47,6 +47,8 @@ bool IsThreadIdxZ(const std::string &name);
 picojson::value String2Json(const std::string &json_str);
 bool IsReduce(const std::string &op_name);
 bool IsTransform(const std::string &op_name);
+bool IsInplaceAssign(const std::string &op_name);
+bool IsAssign(const std::string &op_name);
 bool IsOtherOp(const std::string &op_name);
 bool IsElemwise(const std::string &op_name);
 bool EqualShape(const Array<Expr> &shape1, const Array<Expr> &shape2);
@@ -77,7 +79,7 @@ struct BuildInfoOpt {
   FuncRefSet fakeout;            // the tensors which are not output
   std::vector<Tensor> sch_only;  // the tensors which should only used in sch, not output
 
-  bool aicore_type_adapt{false}; //cast to platform support type
+  bool aicore_type_adapt{false};  // cast to platform support type
   bool fold_dim{true};
 };
 
