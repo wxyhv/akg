@@ -47,6 +47,8 @@ bool IsThreadIdxZ(const std::string &name);
 picojson::value String2Json(const std::string &json_str);
 bool IsReduce(const std::string &op_name);
 bool IsTransform(const std::string &op_name);
+bool IsInplaceAssign(const std::string &op_name);
+bool IsAssign(const std::string &op_name);
 bool IsOtherOp(const std::string &op_name);
 bool IsElemwise(const std::string &op_name);
 bool EqualShape(const Array<Expr> &shape1, const Array<Expr> &shape2);
