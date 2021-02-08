@@ -1110,7 +1110,7 @@ class CompositeJsonListGpu : public CompositeJsonList {
       IrAttrInfo ir_attr_info = GetIRAttr(stitch_type, stitch_attr_info, ir_type_array, dim_array, attrs);
       ir_type_array.push_back(stitch_type);  // Note this should be done AFTER GetIrAttr.
       stitch_attr.broadcast_size = ir_attr_info.broadcast_size;
-      stitch_attr.switch_y_2_x = ir_attr_info.switch_y_2_x;
+      stitch_attr.switch_x_2_y= ir_attr_info.switch_x_2_y;
       auto new_attrs = BindBlockAndThread(ir_attr_info.dims, poly_, ir_attr_info.attrs);
       auto single_ir =
         String2LowerStmt(stitch_json.as<StringImm>(), new_attrs, ir_attr_info.grid_dims, ir_attr_info.block_dims, true);
