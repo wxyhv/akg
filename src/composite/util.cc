@@ -57,6 +57,8 @@ bool IsTransform(const std::string &op_name) {
   std::unordered_set<std::string> elems = {"Reshape", "ExpandDims", "Squeeze", "Flatten", "ProccessNode"};
   return elems.find(op_name) != elems.end();
 }
+bool IsInplaceAssign(const std::string &op_name) { return op_name == "InplaceAssign"; }
+bool IsAssign(const std::string &op_name) { return op_name == "Assign"; }
 bool IsOtherOp(const std::string &op_name) {
   // if topi support more, add to this list
   std::unordered_set<std::string> elems = {"Matmul", "BatchMatmul",   "Conv",        "Transpose", "Tile",

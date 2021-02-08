@@ -48,7 +48,7 @@ class ElimTransformAnalysis {
     auto input = call->args[0].as<Call>()->func;
     // if output is kernel output and input is kernel input, cannot remove this op
     if (!(std::find(g_.output_funcs.begin(), g_.output_funcs.end(), output) != g_.output_funcs.end() &&
-        g_.input_funcs.count(input))) {
+          g_.input_funcs.count(input))) {
       // if not visited or input shape and output shape as same, can remove this op, change input shape to output
       // shape, replace output tensor to input tensor
       auto input_shape = result_.ShapeChanged(input) ? result_.changed_shapes[input] : g_.func_shape[input];
@@ -141,7 +141,22 @@ class ElimTransformAnalysis {
   AnalysisResult &result_;
 };
 
+class ElimTransformOpChecker : public IRVisitor {
+ public:
+  ElimTransformOpChecker() = default;
+  void Visit_(const Provide *op) override {
+    auto op_name = GetOpName(op);
+    if (!(IsTransform(op_name) || IsInplaceAssign(op_name) || IsAssign(op_name))) {
+      can_elim = true;
+    }
+  }
+  bool can_elim{false};
+};
+
 Stmt ElimTransformOp(Stmt &s, const FuncRefSet &input_funcs, const FuncRefList &output_funcs, BuildInfoOpt &opt) {
+  auto checker = ElimTransformOpChecker();
+  checker.Visit(s);
+  if (!checker.can_elim) return s;
   auto f = StmtToGraph(input_funcs, output_funcs);
   f.Visit(s);
   AnalysisResult result;
