@@ -610,7 +610,7 @@ NodeRef Lower(Schedule sch, const Array<NodeRef> &in_args, const Array<NodeRef> 
   CHECK(target == "cuda") << "target only supports cuda, while now is " << target;
   NodeRef tmp = LowerStmt(sch, in_args, shape_vars, name, in_binds, in_attrs, simple_mode, polyhedral, tuning, target,
                           config, &args, &arg_list_0, &binds, &binds_0);
-  if (tuning) {
+  if (tuning || global_attrs.GetIntAttr(kHelpTiling, -1) > help_tiling_level["None"]) {
     return tmp;
   }
   Stmt stmt = Downcast<Stmt>(tmp);
