@@ -625,6 +625,9 @@ void ParseOutputTensors(const picojson::array &output_descs, std::vector<std::st
 
 void CollectBinds(FuncTensorMap &tensor_map, BuildInfoOpt &opt, BuildInfo &info) {
   for (const auto &kv : opt.inplaces) {
+    CHECK(tensor_map.count(kv.first)) << kv.first->func_name() << " not in tensor map";
+    CHECK(tensor_map.count(kv.second.as<Call>()->func))
+      << kv.second.as<Call>()->func->func_name() << " not in tensor map";
     auto first = tensor_map[kv.first];
     auto second = tensor_map[kv.second.as<Call>()->func];
     auto buf = decl_buffer(second->shape, second->dtype, second->op->name);
@@ -637,11 +640,14 @@ void ProcessSames(FuncTensorMap &tensor_map, BuildInfoOpt &opt) {
   // b = func(a)
   // c = InplaceAssign(x, y, b)     c = b
   // d = InplaceAssign(i, j, c)     d = c
-  while (!opt.sames.empty()) {
+  bool changed = true;
+  while (!opt.sames.empty() && changed) {
+    changed = false;
     for (auto it = opt.sames.begin(); it != opt.sames.end();) {
       if (tensor_map.count(it->second)) {
         tensor_map[it->first] = tensor_map[it->second];
         it = opt.sames.erase(it);
+        changed = true;
       } else {
         ++it;
       }
