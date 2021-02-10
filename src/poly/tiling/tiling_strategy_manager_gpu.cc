@@ -201,13 +201,29 @@ void ReduceStrategy::AkgReduceLibStrategyOnGpu() {
     tx_range.second = AlignToPowerOfTwo(std::min(tx_range.second, total_reduce_size));
   }
   ty_range.second =
-    std::min(ty_range.second, static_cast<int64_t>(ceil(static_cast<float>(ty_range.second) / tx_range.second)));
+    std::min(ty_range.second, static_cast<int64_t>(ceil(static_cast<float>(ty_range.second) / tx_range.first)));
+  
+  auto max_coef = std::max(ty_range.second / ty_range.first, tx_range.second / tx_range.first);
   if (square_thread) {
-    reduce_threads = ty_range.second;
-    injective_threads = tx_range.second;
+    int coef = 1;
+    while (coef <= max_coef) {
+      if (total_reduce_size % (ty_range.first * coef) == 0 || (coef < max_coef / 2 && total_reduce_size % (ty_range.first * coef * 2) != 0)) {
+        break;
+      }
+      coef *= 2;
+    }
+    reduce_threads = ty_range.first * coef;
+    injective_threads = tx_range.second / coef;
   } else {
-    reduce_threads = tx_range.second;
-    injective_threads = ty_range.second;
+    int coef = 1;
+    while (coef <= max_coef) {
+      if (total_reduce_size % (tx_range.second / coef) == 0 || (coef < max_coef / 2 && total_reduce_size % (tx_range.second / coef / 2) != 0)) {
+        break;
+      }
+      coef *= 2;
+    }
+    reduce_threads = tx_range.second / coef;
+    injective_threads = ty_range.first * coef;
   }
   for (auto axis : reduce_axes_) {
     for (const auto &attr : axis->attrs) {
