@@ -276,8 +276,8 @@ def test_round():
 def test_reduce_sum():
     test_ms_reduce_sum((9, 1024, 1024), 'float32', axis=None, keepdims=False, poly_sch=True)
     test_ms_reduce_sum((9, 1024, 1024), 'float32', axis=2, keepdims=True, poly_sch=True)
-    test_ms_reduce_sum((9, 1024, 1024), 'float16', axis=None, keepdims=False, poly_sch=True)
-    test_ms_reduce_sum((9, 1024, 1024), 'float16', axis=2, keepdims=True, poly_sch=True)
+    test_ms_reduce_sum((9, 1024), 'float16', axis=None, keepdims=False, poly_sch=True)
+    test_ms_reduce_sum((9, 1024), 'float16', axis=1, keepdims=True, poly_sch=True)
     return True
 
 @pytest.mark.level0
