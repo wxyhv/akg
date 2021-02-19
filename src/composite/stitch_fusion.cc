@@ -207,7 +207,6 @@ class StitchMutate : public IRMutator {
       f.Visit(s);
       broadcast_substitute_ = f.substitute_;
     }
-    Mapping1Dto2D();
     auto stmt = IRMutator::Mutate_(op, s);
     loops_.pop_back();
     return stmt;
@@ -268,6 +267,7 @@ class StitchMutate : public IRMutator {
         }
       }
     }
+    Mapping1Dto2D();
     return stmt;
   }
 
