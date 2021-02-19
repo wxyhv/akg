@@ -2,15 +2,15 @@ set(gtest_CXXFLAGS "-D_FORTIFY_SOURCE=2 -O2 -fstack-protector-all -Wl,-z,relro,-
 set(gtest_CFLAGS "-D_FORTIFY_SOURCE=2 -O2 -fstack-protector-all -Wl,-z,relro,-z,now,-z,noexecstack")
 
 if(ENABLE_GITEE)
-    set(GTEST_URL "https://gitee.com/mirrors/googletest/repository/archive/release-1.8.0.tar.gz")
-    set(GTEST_MD5 "89e13ca1aa48d370719d58010b83f62c")
+    set(GTEST_URL "https://gitee.com/mirrors/googletest/repository/archive/release-1.8.1.tar.gz")
+    set(GTEST_MD5 "0ec077324f27c2685635ad4cc9bdc263")
 else()
-    set(GTEST_URL "https://github.com/google/googletest/archive/release-1.8.0.tar.gz")
-    set(GTEST_MD5 "16877098823401d1bf2ed7891d7dce36")
+    set(GTEST_URL "https://github.com/google/googletest/archive/release-1.8.1.tar.gz")
+    set(GTEST_MD5 "2e6fbeb6a91310a16efe181886c59596")
 endif()
 
 akg_add_pkg(gtest
-        VER 1.8.0
+        VER 1.8.1
         LIBS gtest
         URL ${GTEST_URL}
         MD5 ${GTEST_MD5}
