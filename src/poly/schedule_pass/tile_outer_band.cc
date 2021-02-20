@@ -72,7 +72,7 @@ void TileOuterBand::InitDimensionInfo(const isl::schedule &sch_init) {
     auto tiling_res = GenerateTiling(sch_init, scop_info_, GenHalide(scop_info_, sch_init, true));
     scop_info_.analysis_result_.SetTileSizes(tiling_res.first);
     scop_info_.analysis_result_.SetTileConstraints(tiling_res.second);
-    if (scop_info_.cube_info_.IsConv()) scop_info_.cube_info_.SetConvMNKInfo();
+    if (scop_info_.mmu_info_.IsConv()) scop_info_.mmu_info_.SetConvMNKInfo();
     return;
   }
 
@@ -94,16 +94,16 @@ void TileOuterBand::InitDimensionInfo(const isl::schedule &sch_init) {
     endptr = nullptr;
     int64_t str_2_number = strtol(str[i + 2].c_str(), &endptr, radix);
     if (endptr == nullptr || *endptr != '\0' || str_2_number <= 0) {
-      dim_info.l1_tiling_size = default_tiling_size;
+      dim_info.c1_tiling_size = default_tiling_size;
     } else {
-      dim_info.l1_tiling_size = str_2_number;
+      dim_info.c1_tiling_size = str_2_number;
     }
     endptr = nullptr;
     int64_t str_3_number = strtol(str[i + 3].c_str(), &endptr, radix);
     if (endptr == nullptr || *endptr != '\0' || str_3_number <= 0) {
-      dim_info.l0_tiling_size = default_tiling_size;
+      dim_info.c0_tiling_size = default_tiling_size;
     } else {
-      dim_info.l0_tiling_size = str_3_number;
+      dim_info.c0_tiling_size = str_3_number;
     }
     dim_info.dim_seq = sequence;
     sequence++;
@@ -146,7 +146,7 @@ isl::schedule TileOuterBand::Run(isl::schedule sch) {
   if (scop_info_.user_config_.GetTarget() == TARGET_CUDA) {
     return RunCuda(sch);
   } else {
-    return RunCce(sch);
+    return RunNpu(sch);
   }
 }
 
@@ -208,15 +208,15 @@ isl::schedule TileOuterBand::RunCuda(isl::schedule sch) {
   return final_schedule;
 }
 
-isl::schedule TileOuterBand::RunCce(isl::schedule sch) {
+isl::schedule TileOuterBand::RunNpu(isl::schedule sch) {
   auto map_before_tile = sch.get_map();
   // TransferStmt pass
   isl::schedule tiling_schedule = sch;
-  if (!scop_info_.cube_info_.IsSpecGemm()) {
+  if (!scop_info_.mmu_info_.IsSpecGemm()) {
     tiling_schedule = TransferStmt(scop_info_, pass_info_).Run(tiling_schedule);
   }
   scop_info_.analysis_result_.InitScheduleMapBeforeTile(scop_info_.GetCtx());
-  if (!scop_info_.cube_info_.IsSpecGemm() && (scop_info_.cube_info_.IsConv() || scop_info_.cube_info_.IsGemm())) {
+  if (!scop_info_.mmu_info_.IsSpecGemm() && (scop_info_.mmu_info_.IsConv() || scop_info_.mmu_info_.IsGemm())) {
     scop_info_.analysis_result_.SetScheduleMapBeforeTile(sch.get_map());
   }
   InitDimensionInfo(tiling_schedule);
@@ -233,7 +233,7 @@ isl::schedule TileOuterBand::RunCce(isl::schedule sch) {
   // in depth first postorder via the callback function.
   using std::placeholders::_1;
   const std::function<isl::schedule_node(isl::schedule_node)> f =
-    std::bind(&TileOuterBand::MarkOuterPermutableCce, this, _1);
+    std::bind(&TileOuterBand::MarkOuterPermutableNpu, this, _1);
   node = ReverseTraverseChild(node, f);
 
   scop_info_.AddPartitionInfoToData(AddTileInfo(partition_info_));
@@ -257,11 +257,11 @@ void TileOuterBand::ShowDimInfo() {
 
     for (const auto &dim_info : tiles_[i].dim_infos) {
       std::stringstream ss;
-      ss << "index: " << dim_info.index << ", axis: " << dim_info.axis << ", l1_size: " << dim_info.l1_tiling_size
-         << ", l0_size: " << dim_info.l0_tiling_size << ", seq: " << dim_info.dim_seq
+      ss << "index: " << dim_info.index << ", axis: " << dim_info.axis << ", c1_size: " << dim_info.c1_tiling_size
+         << ", c0_size: " << dim_info.c0_tiling_size << ", seq: " << dim_info.dim_seq
          << ", is inner: " << dim_info.is_inner;
-      if (dim_info.l1_var.defined()) ss << ", l1_var: " << dim_info.l1_var;
-      if (dim_info.l0_var.defined()) ss << ", l0_var: " << dim_info.l0_var;
+      if (dim_info.c1_var.defined()) ss << ", c1_var: " << dim_info.c1_var;
+      if (dim_info.c0_var.defined()) ss << ", c0_var: " << dim_info.c0_var;
       LOG(INFO) << ss.str();
     }
   }
@@ -333,34 +333,34 @@ int TileOuterBand::IsOuterTilable(const isl::schedule_node &node) {
 isl::schedule_node TileOuterBand::MarkTileBand(isl::schedule_node node, TileType tile_type) {
   std::string markTag;
 
-  if (tile_type == TileType::L0) {
-    markTag = REALIZE_L0;
+  if (tile_type == TileType::C0) {
+    markTag = REALIZE_C0;
     node = node.insert_mark(isl::id(node.ctx(), markTag));
 #if SPEC_GEMM
-    if (scop_info_.cube_info_.IsConv()) {
+    if (scop_info_.mmu_info_.IsConv()) {
       std::string mark_tag_gmm = CONV_GEMM;
       node = node.insert_mark(isl::id(node.ctx(), mark_tag_gmm));
     }
 #endif
   }
-  if (tile_type == TileType::L1) {
-    markTag = REALIZE_L1;
+  if (tile_type == TileType::C1) {
+    markTag = REALIZE_C1;
     node = node.insert_mark(isl::id(node.ctx(), markTag));
   }
-  if (tile_type == TileType::UB) {
-    markTag = REALIZE_UB;
+  if (tile_type == TileType::BUF) {
+    markTag = REALIZE_BUF;
     node = node.insert_mark(isl::id(node.ctx(), markTag));
   }
-  if (tile_type == TileType::UBL0) {
-    markTag = REALIZE_UBL0;
+  if (tile_type == TileType::BUFC0) {
+    markTag = REALIZE_BUFC0;
     node = node.insert_mark(isl::id(node.ctx(), markTag));
   }
-  if (tile_type == TileType::UBL1) {
-    markTag = REALIZE_UBL1;
+  if (tile_type == TileType::BUFC1) {
+    markTag = REALIZE_BUFC1;
     node = node.insert_mark(isl::id(node.ctx(), markTag));
   }
-  if (tile_type == TileType::L1UBL1) {
-    markTag = REALIZE_L1UBL1;
+  if (tile_type == TileType::C1BUFC1) {
+    markTag = REALIZE_C1BUFC1;
     node = node.insert_mark(isl::id(node.ctx(), markTag));
   }
 
@@ -433,7 +433,7 @@ std::pair<isl::set, isl::set> TileOuterBand::ComputeFullTile(const isl::schedule
 
 void TileOuterBand::IsolateLevelInfo(TileType &tile_type, isl::set &tiles, isl::set &all) {
   // which level do we need isolate info?
-  if (TileType::L1 == tile_type || TileType::UB == tile_type) {
+  if (TileType::C1 == tile_type || TileType::BUF == tile_type) {
     partition_info_.clear();
     auto tiles_hull = tiles.simple_hull();
     auto tiles_lexmin = tiles_hull.lexmin().simple_hull();
@@ -486,7 +486,7 @@ isl::schedule_node TileOuterBand::SetIsolateLoopType(isl::schedule_node node) {
 isl::schedule_node TileOuterBand::IsolateTiles(const isl::schedule_node &original_node, isl::schedule_node tiled_node,
                                                TileType tile_type, const int *full_tile_min, const int *full_tile_max,
                                                bool isolation) {
-  if ((scop_info_.user_config_.GetIsDynamic()) && (!scop_info_.cube_info_.IsSpecGemm())) {
+  if ((scop_info_.user_config_.GetIsDynamic()) && (!scop_info_.mmu_info_.IsSpecGemm())) {
     return tiled_node;
   } else {
     if (scop_info_.user_config_.GetTileSizeIsVar() || (!isolation)) {
@@ -566,21 +566,21 @@ isl::multi_val TileOuterBand::ComputeBandTilesSizes(const isl::schedule_node &no
   return MultiValFromIntList(space, dim, tile_size);
 }
 
-void TileOuterBand::TileTypeL0(isl::schedule_node &node, int *full_tile_min, int *full_tile_max, TileType &tile_type,
+void TileOuterBand::TileTypeC0(isl::schedule_node &node, int *full_tile_min, int *full_tile_max, TileType &tile_type,
                                bool &isolate, isl::multi_val &sizes) {
   isl::set_list domain_list = node.get_domain().get_set_list();
-  isl::union_set filter_cube = isl::union_set();
-  isl::union_set filter_after_cube = isl::union_set();
+  isl::union_set filter_mmu = isl::union_set();
+  isl::union_set filter_after_mmu = isl::union_set();
 
-  unsigned int cube_index = 0;
-  for (; cube_index < scop_info_.analysis_result_.stmt_type_.size() - 1; ++cube_index) {
-    if (scop_info_.analysis_result_.stmt_type_[cube_index].second == STMT_OP_TYPE::CUBE_CONV ||
-        scop_info_.analysis_result_.stmt_type_[cube_index].second == STMT_OP_TYPE::CUBE_GEMM ||
-        scop_info_.analysis_result_.stmt_type_[cube_index].second == STMT_OP_TYPE::IM2COL_UB) {
+  unsigned int mmu_index = 0;
+  for (; mmu_index < scop_info_.analysis_result_.stmt_type_.size() - 1; ++mmu_index) {
+    if (scop_info_.analysis_result_.stmt_type_[mmu_index].second == STMT_OP_TYPE::MMU_CONV ||
+        scop_info_.analysis_result_.stmt_type_[mmu_index].second == STMT_OP_TYPE::MMU_GEMM ||
+        scop_info_.analysis_result_.stmt_type_[mmu_index].second == STMT_OP_TYPE::IM2COL_BUF) {
       break;
     }
   }
-  std::vector<isl::union_set> filter_before_cube;
+  std::vector<isl::union_set> filter_before_mmu;
 
   for (unsigned int set_index = 0; set_index < domain_list.size(); ++set_index) {
     isl::set set_i = domain_list.get_at(set_index);
@@ -588,53 +588,53 @@ void TileOuterBand::TileTypeL0(isl::schedule_node &node, int *full_tile_min, int
     CHECK(name.find('_') != std::string::npos) << "invalid name " << name;
     unsigned int index = WrappedStrtol(name.substr(name.find('_') + 1));
     set_i = isl::manage(isl_set_eliminate_dims(set_i.copy(), 0, isl_set_n_dim(set_i.get())));
-    if (index + 1 < cube_index) {
-      filter_before_cube.resize(cube_index - 1);
-      filter_before_cube[index] = isl::union_set(set_i);
+    if (index + 1 < mmu_index) {
+      filter_before_mmu.resize(mmu_index - 1);
+      filter_before_mmu[index] = isl::union_set(set_i);
     }
-    if (index + 1 == cube_index || index == cube_index) {
-      filter_cube = filter_cube.is_null() ? isl::union_set(set_i) : filter_cube.add_set(set_i);
+    if (index + 1 == mmu_index || index == mmu_index) {
+      filter_mmu = filter_mmu.is_null() ? isl::union_set(set_i) : filter_mmu.add_set(set_i);
     }
-    if (index > cube_index) {
-      filter_after_cube = filter_after_cube.is_null() ? isl::union_set(set_i) : filter_after_cube.add_set(set_i);
+    if (index > mmu_index) {
+      filter_after_mmu = filter_after_mmu.is_null() ? isl::union_set(set_i) : filter_after_mmu.add_set(set_i);
     }
   }
 
   isl::union_set_list filters =
     isl::union_set_list(node.ctx(), static_cast<int>(scop_info_.analysis_result_.stmt_type_.size() - 1));
-  for (const auto &a : filter_before_cube) {
+  for (const auto &a : filter_before_mmu) {
     filters = a.is_null() ? filters : filters.add(a);
   }
-  filters = filter_cube.is_null() ? filters : filters.add(filter_cube);
-  filters = filter_after_cube.is_null() ? filters : filters.add(filter_after_cube);
+  filters = filter_mmu.is_null() ? filters : filters.add(filter_mmu);
+  filters = filter_after_mmu.is_null() ? filters : filters.add(filter_after_mmu);
 
   isl::schedule_node before_tile_node = node;
 
-  if (scop_info_.cube_info_.IsLoad3dL1Ub()) {
+  if (scop_info_.mmu_info_.IsLoadIm2colC1BUF()) {
     node = TileBand(node, sizes);
-    node = IsolateTiles(before_tile_node, node, TileType::UB, full_tile_min, full_tile_max, isolate);
-    node = MarkTileBand(node, TileType::UB);
-  } else if ((!filter_before_cube.empty() || !filter_after_cube.is_null()) && !filter_cube.is_null()) {
+    node = IsolateTiles(before_tile_node, node, TileType::BUF, full_tile_min, full_tile_max, isolate);
+    node = MarkTileBand(node, TileType::BUF);
+  } else if ((!filter_before_mmu.empty() || !filter_after_mmu.is_null()) && !filter_mmu.is_null()) {
     auto pos = 0;
     node = node.insert_sequence(filters);
-    for (auto a : filter_before_cube) {
+    for (auto a : filter_before_mmu) {
       node = TileBand(node.child(pos).child(0), sizes);
       node = IsolateTiles(before_tile_node, node, tile_type, full_tile_min, full_tile_max, isolate);
-      node = MarkTileBand(node, TileType::UBL1);
+      node = MarkTileBand(node, TileType::BUFC1);
       node = node.parent().parent();
       ++pos;
     }
-    if (!filter_cube.is_null()) {
+    if (!filter_mmu.is_null()) {
       node = TileBand(node.child(pos).child(0), sizes);
       node = IsolateTiles(before_tile_node, node, tile_type, full_tile_min, full_tile_max, isolate);
-      node = MarkTileBand(node, TileType::L0);
+      node = MarkTileBand(node, TileType::C0);
       node = node.parent().parent();
       ++pos;
     }
-    if (!filter_after_cube.is_null()) {
+    if (!filter_after_mmu.is_null()) {
       node = TileBand(node.child(pos).child(0), sizes);
       node = IsolateTiles(before_tile_node, node, tile_type, full_tile_min, full_tile_max, isolate);
-      node = MarkTileBand(node, TileType::UBL0);
+      node = MarkTileBand(node, TileType::BUFC0);
       node = node.parent().parent();
       ++pos;
     }
@@ -646,7 +646,7 @@ void TileOuterBand::TileTypeL0(isl::schedule_node &node, int *full_tile_min, int
   node = node.parent().parent();
 }
 
-isl::schedule_node TileOuterBand::TileL0(isl::schedule_node node) {
+isl::schedule_node TileOuterBand::TileC0(isl::schedule_node node) {
   auto title_size = static_cast<unsigned int>(tile_sizes_.size());
   const unsigned int n_member = node.child(0).as<isl::schedule_node_band>().n_member();
   unsigned int dim_num = (n_member <= title_size) ? n_member : title_size;
@@ -656,42 +656,42 @@ isl::schedule_node TileOuterBand::TileL0(isl::schedule_node node) {
     ts[j] = MAX_STRIDE;
     full_tile_max[j] = MAX_STRIDE;
     if (j < dim_num) {
-      ts[j] = static_cast<int>(tile_sizes_[j].l0_tiling_size);
-      auto l1_tiling_size = static_cast<int>(tile_sizes_[j].l1_tiling_size);
-      auto l0_tiling_size = static_cast<int>(tile_sizes_[j].l0_tiling_size);
-      if (MAX_STRIDE == l1_tiling_size) continue;
-      if (MAX_STRIDE == l0_tiling_size) continue;
-      if ((l1_tiling_size > l0_tiling_size) && (0 != l0_tiling_size)) {
-        full_tile_max[j] = l1_tiling_size / l0_tiling_size - 1;
+      ts[j] = static_cast<int>(tile_sizes_[j].c0_tiling_size);
+      auto c1_tiling_size = static_cast<int>(tile_sizes_[j].c1_tiling_size);
+      auto c0_tiling_size = static_cast<int>(tile_sizes_[j].c0_tiling_size);
+      if (MAX_STRIDE == c1_tiling_size) continue;
+      if (MAX_STRIDE == c0_tiling_size) continue;
+      if ((c1_tiling_size > c0_tiling_size) && (0 != c0_tiling_size)) {
+        full_tile_max[j] = c1_tiling_size / c0_tiling_size - 1;
       }
     }
   }
-  node = TileBandAndCollectMark(node.child(0), &ts[0], nullptr, &full_tile_max[0], TileType::L0, true);
+  node = TileBandAndCollectMark(node.child(0), &ts[0], nullptr, &full_tile_max[0], TileType::C0, true);
   return node;
 }
 
-bool TileOuterBand::NeedIsolate() { return scop_info_.cube_info_.IsConv() || scop_info_.cube_info_.IsLoad3dL1Ub(); }
+bool TileOuterBand::NeedIsolate() { return scop_info_.mmu_info_.IsConv() || scop_info_.mmu_info_.IsLoadIm2colC1BUF(); }
 
 void TileOuterBand::PaddingIsolate(int &h_head, int &h_tail, int &w_head, int &w_tail) {
   h_head = 0;
   h_tail = 0;
   w_head = 0;
   w_tail = 0;
-  if (scop_info_.cube_info_.GetConvAttrInfo().empty()) return;
-  int pad_top = scop_info_.cube_info_.GetAttrValue(ATTR_CONV_PAD_TOP);
-  int pad_bottom = scop_info_.cube_info_.GetAttrValue(ATTR_CONV_PAD_BOTTOM);
-  int pad_left = scop_info_.cube_info_.GetAttrValue(ATTR_CONV_PAD_LEFT);
-  int pad_right = scop_info_.cube_info_.GetAttrValue(ATTR_CONV_PAD_RIGHT);
-  int h = scop_info_.cube_info_.GetAttrValue(ATTR_CONV_FEATURE_H);
-  int w = scop_info_.cube_info_.GetAttrValue(ATTR_CONV_FEATURE_W);
-  int kh = scop_info_.cube_info_.GetAttrValue(ATTR_CONV_KERNEL_H);
-  int kw = scop_info_.cube_info_.GetAttrValue(ATTR_CONV_KERNEL_W);
-  int stride_h = scop_info_.cube_info_.GetAttrValue(ATTR_CONV_STRIDE_H);
-  int stride_w = scop_info_.cube_info_.GetAttrValue(ATTR_CONV_STRIDE_W);
-  int dilation_h = scop_info_.cube_info_.GetAttrValue(ATTR_CONV_DILATION_H);
-  int dilation_w = scop_info_.cube_info_.GetAttrValue(ATTR_CONV_DILATION_W);
-  int h_cut = scop_info_.cube_info_.GetAttrValue(ATTR_CONV_TILE_H);
-  int w_cut = scop_info_.cube_info_.GetAttrValue(ATTR_CONV_TILE_W);
+  if (scop_info_.mmu_info_.GetConvAttrInfo().empty()) return;
+  int pad_top = scop_info_.mmu_info_.GetAttrValue(ATTR_CONV_PAD_TOP);
+  int pad_bottom = scop_info_.mmu_info_.GetAttrValue(ATTR_CONV_PAD_BOTTOM);
+  int pad_left = scop_info_.mmu_info_.GetAttrValue(ATTR_CONV_PAD_LEFT);
+  int pad_right = scop_info_.mmu_info_.GetAttrValue(ATTR_CONV_PAD_RIGHT);
+  int h = scop_info_.mmu_info_.GetAttrValue(ATTR_CONV_FEATURE_H);
+  int w = scop_info_.mmu_info_.GetAttrValue(ATTR_CONV_FEATURE_W);
+  int kh = scop_info_.mmu_info_.GetAttrValue(ATTR_CONV_KERNEL_H);
+  int kw = scop_info_.mmu_info_.GetAttrValue(ATTR_CONV_KERNEL_W);
+  int stride_h = scop_info_.mmu_info_.GetAttrValue(ATTR_CONV_STRIDE_H);
+  int stride_w = scop_info_.mmu_info_.GetAttrValue(ATTR_CONV_STRIDE_W);
+  int dilation_h = scop_info_.mmu_info_.GetAttrValue(ATTR_CONV_DILATION_H);
+  int dilation_w = scop_info_.mmu_info_.GetAttrValue(ATTR_CONV_DILATION_W);
+  int h_cut = scop_info_.mmu_info_.GetAttrValue(ATTR_CONV_TILE_H);
+  int w_cut = scop_info_.mmu_info_.GetAttrValue(ATTR_CONV_TILE_W);
   int d_kh = (kh - 1) * dilation_h + 1;
   CHECK_NE(stride_h, 0);
   int win_h = (h + pad_top + pad_bottom - d_kh) / stride_h + 1;
@@ -793,7 +793,7 @@ void TileOuterBand::ComputeHInfo(int &h_base, bool &head, bool &tail, int &h_hea
   }
 }
 
-void TileOuterBand::TileTypeL1(isl::schedule_node &node, int *full_tile_min, int *full_tile_max, TileType &tile_type,
+void TileOuterBand::TileTypeC1(isl::schedule_node &node, int *full_tile_min, int *full_tile_max, TileType &tile_type,
                                bool &isolate, isl::multi_val &sizes) {
   const unsigned int n_member = node.as<isl::schedule_node_band>().n_member();
   auto title_size = static_cast<unsigned int>(tile_sizes_.size());
@@ -827,11 +827,11 @@ void TileOuterBand::TileTypeL1(isl::schedule_node &node, int *full_tile_min, int
   node = IsolateTiles(before_tile_node, node, tile_type, full_tile_min, full_tile_max, isolate);
   node = MarkTileBand(node, tile_type);
 
-  // L0 tiling
-  node = TileL0(node.child(0));
+  // C0 tiling
+  node = TileC0(node.child(0));
 }
 
-isl::schedule_node TileOuterBand::TileUbL1(isl::schedule_node node) {
+isl::schedule_node TileOuterBand::TileBufC1(isl::schedule_node node) {
   const unsigned int n_member = node.child(0).as<isl::schedule_node_band>().n_member();
   unsigned int dim_num = (n_member <= static_cast<unsigned int>(tile_sizes_.size()))
                            ? n_member
@@ -842,17 +842,17 @@ isl::schedule_node TileOuterBand::TileUbL1(isl::schedule_node node) {
     ts[j] = MAX_STRIDE;
     full_tile_max[j] = MAX_STRIDE;
     if (j < dim_num) {
-      ts[j] = static_cast<int>(tile_sizes_[j].l0_tiling_size);
-      int l1_tiling_size = static_cast<int>(tile_sizes_[j].l1_tiling_size);
-      int l0_tiling_size = static_cast<int>(tile_sizes_[j].l0_tiling_size);
-      if (MAX_STRIDE == l1_tiling_size) continue;
-      if (MAX_STRIDE == l0_tiling_size) continue;
-      if ((l1_tiling_size > l0_tiling_size) && (0 != l0_tiling_size)) {
-        full_tile_max[j] = l1_tiling_size / l0_tiling_size - 1;
+      ts[j] = static_cast<int>(tile_sizes_[j].c0_tiling_size);
+      int c1_tiling_size = static_cast<int>(tile_sizes_[j].c1_tiling_size);
+      int c0_tiling_size = static_cast<int>(tile_sizes_[j].c0_tiling_size);
+      if (MAX_STRIDE == c1_tiling_size) continue;
+      if (MAX_STRIDE == c0_tiling_size) continue;
+      if ((c1_tiling_size > c0_tiling_size) && (0 != c0_tiling_size)) {
+        full_tile_max[j] = c1_tiling_size / c0_tiling_size - 1;
       }
     }
   }
-  node = TileBandAndCollectMark(node.child(0), &ts[0], nullptr, &full_tile_max[0], TileType::UBL1, true);
+  node = TileBandAndCollectMark(node.child(0), &ts[0], nullptr, &full_tile_max[0], TileType::BUFC1, true);
   return node;
 }
 
@@ -862,16 +862,16 @@ isl::schedule_node TileOuterBand::TileBandAndCollectMark(isl::schedule_node node
   isl::multi_val sizes = ComputeBandTilesSizes(node, tile_size);
 
   isl::schedule_node before_tile_node = node;
-  if (tile_type == TileType::L1) {
-    TileTypeL1(node, full_tile_min, full_tile_max, tile_type, isolate, sizes);
-  } else if (tile_type == TileType::L0) {
-    TileTypeL0(node, full_tile_min, full_tile_max, tile_type, isolate, sizes);
-  } else if (tile_type == TileType::L1UBL1) {
+  if (tile_type == TileType::C1) {
+    TileTypeC1(node, full_tile_min, full_tile_max, tile_type, isolate, sizes);
+  } else if (tile_type == TileType::C0) {
+    TileTypeC0(node, full_tile_min, full_tile_max, tile_type, isolate, sizes);
+  } else if (tile_type == TileType::C1BUFC1) {
     node = TileBand(node, sizes);
     node = IsolateTiles(before_tile_node, node, tile_type, full_tile_min, full_tile_max, isolate);
     node = MarkTileBand(node, tile_type);
-    node = TileUbL1(node.child(0));
-  } else if (tile_type == TileType::UBL1) {
+    node = TileBufC1(node.child(0));
+  } else if (tile_type == TileType::BUFC1) {
     node = TileBand(node, sizes);
     node = IsolateTiles(before_tile_node, node, tile_type, full_tile_min, full_tile_max, isolate);
     node = MarkTileBand(node, tile_type);
@@ -908,10 +908,10 @@ isl::schedule_node TileOuterBand::MarkOuterPermutableCuda(isl::schedule_node nod
 #endif
 
   // get tile size
-  node = SetTileSizeAndTile(node, L1);
+  node = SetTileSizeAndTile(node, TILE_WITH_C1);
 
-  if (scop_info_.user_config_.GetEnableTileL0()) {
-    node = SetTileSizeAndTile(node.child(0), L0);
+  if (scop_info_.user_config_.GetEnableTileC0()) {
+    node = SetTileSizeAndTile(node.child(0), TILE_WITH_C0);
     node = node.parent();
   }
 
@@ -960,11 +960,11 @@ isl::schedule_node TileOuterBand::MarkOuterPermutableCuda(isl::schedule_node nod
       scop_info_.user_config_.RecordReplaceConfig(WARP_COMPUTE, new_warp_cfg, MappingType::REPLACE_THREADS);
     }
 
-    node = SetTileSizeAndTile(node.child(0), L0_L1, count_coincident);
+    node = SetTileSizeAndTile(node.child(0), TILE_WITH_C0_C1, count_coincident);
   }
 
   // the last tile of tensor_core
-  node = SetTileSizeAndTile(node.child(0), L0);
+  node = SetTileSizeAndTile(node.child(0), TILE_WITH_C0);
   if (!scop_info_.user_config_.GetEnableTensorCoreUsePoly()) {
     node = node.child(0);
   }
@@ -999,12 +999,12 @@ isl::schedule_node TileOuterBand::SplitBmmStatement(const isl::schedule_node &no
   return tile_node;
 }
 
-isl::schedule_node TileOuterBand::SetTileSizeAndTile(const isl::schedule_node &node, const std::string &select_l0_l1,
+isl::schedule_node TileOuterBand::SetTileSizeAndTile(const isl::schedule_node &node, const std::string &tile_level,
                                                      const int count_coincident) {
   const unsigned int n_member = node.as<isl::schedule_node_band>().n_member();
   auto title_size = static_cast<unsigned int>(tile_sizes_.size());
   unsigned int dim_num = (n_member <= title_size) ? n_member : title_size;
-  std::vector<int> tile_size = GetTileSizeOfLevel(n_member, dim_num, select_l0_l1, tile_sizes_, count_coincident);
+  std::vector<int> tile_size = GetTileSizeOfLevel(n_member, dim_num, tile_level, tile_sizes_, count_coincident);
   isl::multi_val sizes = ComputeBandTilesSizes(node, &tile_size[0]);
   return TileBand(node, sizes);
 }
@@ -1014,7 +1014,7 @@ isl::schedule_node TileOuterBand::SetTileSizeAndTile(const isl::schedule_node &n
  * 1. get tile size.
  * 2. tiling
  ***************************************************************************/
-isl::schedule_node TileOuterBand::MarkOuterPermutableCce(isl::schedule_node node) {
+isl::schedule_node TileOuterBand::MarkOuterPermutableNpu(isl::schedule_node node) {
   // check tilable or not, and return the node if not
   if (IsOuterTilable(node) <= 0) return node;
 
@@ -1037,7 +1037,7 @@ isl::schedule_node TileOuterBand::MarkOuterPermutableCce(isl::schedule_node node
   unsigned int dim_num = (n_member <= title_size) ? n_member : title_size;
   if (dim_num == 0) {
     // direct scalar computation in GM is not allowed, need to promote to UB
-    return MarkTileBand(node, TileType::UB);
+    return MarkTileBand(node, TileType::BUF);
   }
 
   // get tile size
@@ -1045,26 +1045,26 @@ isl::schedule_node TileOuterBand::MarkOuterPermutableCce(isl::schedule_node node
   for (size_t j = 0; j < n_member; ++j) {
     tile_size[j] = MAX_STRIDE;
     // tile_size maybe bigger than dim_num
-    if (j < dim_num) tile_size[j] = static_cast<int>(tile_sizes_[j].l1_tiling_size);
+    if (j < dim_num) tile_size[j] = static_cast<int>(tile_sizes_[j].c1_tiling_size);
   }
 
-  bool isCube = false;
+  bool is_mmu = false;
   for (auto &info : scop_info_.analysis_result_.GetStmtOpInfoMap()) {
-    if (info.second.isCube) {
-      isCube = true;
+    if (info.second.isMMU) {
+      is_mmu = true;
       break;
     }
   }
 
-  bool is_before_cube = false;
-  bool is_in_cube = false;
+  bool is_before_mmu = false;
+  bool is_in_mmu = false;
   unsigned int i = 0;
   for (; i < scop_info_.analysis_result_.stmt_type_.size() - 1; ++i) {
-    if (scop_info_.analysis_result_.stmt_type_[i].second == STMT_OP_TYPE::CUBE_CONV) {
+    if (scop_info_.analysis_result_.stmt_type_[i].second == STMT_OP_TYPE::MMU_CONV) {
       break;
     }
   }
-  bool is_in_load3d = scop_info_.user_config_.GetIsDynamic() ? false : scop_info_.cube_info_.IsLoad3dL1Ub();
+  bool is_in_load_im2col = scop_info_.user_config_.GetIsDynamic() ? false : scop_info_.mmu_info_.IsLoadIm2colC1BUF();
   isl::set_list domain_list = node.get_domain().get_set_list();
   for (unsigned int set_index = 0; set_index < domain_list.size(); ++set_index) {
     isl::set set_i = domain_list.get_at(set_index);
@@ -1073,26 +1073,26 @@ isl::schedule_node TileOuterBand::MarkOuterPermutableCce(isl::schedule_node node
       LOG(FATAL) << "Cannot find _ symbol";
     }
     unsigned int index = WrappedStrtol(name.substr(name.find('_') + 1));
-    is_before_cube = false;
-    if ((index + 1 < i) && !scop_info_.cube_info_.IsSpecGemm()) {
-      is_before_cube = true;
+    is_before_mmu = false;
+    if ((index + 1 < i) && !scop_info_.mmu_info_.IsSpecGemm()) {
+      is_before_mmu = true;
     }
     if (index + 1 == i) {
-      is_in_cube = true;
+      is_in_mmu = true;
     }
     if (scop_info_.user_config_.GetIsDynamic()) {
-      if (scop_info_.cube_info_.IsLoad3dL1UBStmt(set_i.get_tuple_name())) {
-        is_in_load3d = true;
+      if (scop_info_.mmu_info_.IsLoadIm2colC1BUFStmt(set_i.get_tuple_name())) {
+        is_in_load_im2col = true;
       }
     }
   }
 
-  if (isCube && is_before_cube && !is_in_cube) {
-    node = TileBandAndCollectMark(node, &tile_size[0], nullptr, nullptr, TileType::L1UBL1, true);
-  } else if (isCube || is_in_load3d) {
-    node = TileBandAndCollectMark(node, &tile_size[0], nullptr, nullptr, TileType::L1, true);
+  if (is_mmu && is_before_mmu && !is_in_mmu) {
+    node = TileBandAndCollectMark(node, &tile_size[0], nullptr, nullptr, TileType::C1BUFC1, true);
+  } else if (is_mmu || is_in_load_im2col) {
+    node = TileBandAndCollectMark(node, &tile_size[0], nullptr, nullptr, TileType::C1, true);
   } else {
-    node = TileBandAndCollectMark(node, &tile_size[0], nullptr, nullptr, TileType::UB, true);
+    node = TileBandAndCollectMark(node, &tile_size[0], nullptr, nullptr, TileType::BUF, true);
   }
 
   return node;

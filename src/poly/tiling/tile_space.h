@@ -1,5 +1,5 @@
 /**
- * Copyright 2020 Huawei Technologies Co., Ltd
+ * Copyright 2020-2021 Huawei Technologies Co., Ltd
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -23,18 +23,18 @@ namespace air {
 class TileSpaceNode : public Node {
  public:
   air::runtime::NDArray index_table;
-  air::runtime::NDArray l1_tile_range_table;
-  air::runtime::NDArray l0_tile_range_table;
-  air::runtime::NDArray l1_tile_mod_table;
-  air::runtime::NDArray l0_tile_mod_table;
+  air::runtime::NDArray c1_tile_range_table;
+  air::runtime::NDArray c0_tile_range_table;
+  air::runtime::NDArray c1_tile_mod_table;
+  air::runtime::NDArray c0_tile_mod_table;
   air::runtime::NDArray tiling_candidate;
 
   void VisitAttrs(AttrVisitor *v) {
     v->Visit("index_table", &index_table);
-    v->Visit("l1_tile_range_table", &l1_tile_range_table);
-    v->Visit("l0_tile_range_table", &l0_tile_range_table);
-    v->Visit("l1_tile_mod_table", &l1_tile_mod_table);
-    v->Visit("l0_tile_mod_table", &l0_tile_mod_table);
+    v->Visit("c1_tile_range_table", &c1_tile_range_table);
+    v->Visit("c0_tile_range_table", &c0_tile_range_table);
+    v->Visit("c1_tile_mod_table", &c1_tile_mod_table);
+    v->Visit("c0_tile_mod_table", &c0_tile_mod_table);
     v->Visit("tiling_candidate", &tiling_candidate);
   }
   static constexpr const char *_type_key = "TileSpace";

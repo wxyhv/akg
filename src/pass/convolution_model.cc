@@ -1,5 +1,5 @@
 /**
- * Copyright 2019 Huawei Technologies Co., Ltd
+ * Copyright 2019-2021 Huawei Technologies Co., Ltd
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -234,7 +234,7 @@ IsolateInfo ConvolutionModel::get_k_isolate_info(int gemm_idx) { return k_info[g
 ConvolutionForwardModel::ConvolutionForwardModel(const Map<std::string, NodeRef> &attrs, bool is_dynamic)
     : ConvolutionModel(attrs, is_dynamic) {}
 
-int ConvolutionForwardModel::infer_L1_tile() {
+int ConvolutionForwardModel::infer_CA1_tile() {
   Expr co = conv_.output.c;
   Expr cut_co = tile_.cut_co;
   if (!is_dynamic_) {
@@ -322,57 +322,57 @@ int ConvolutionForwardModel::infer_L1_tile() {
   }
   w_base = infer_isolate_overlap(&w_info, &w_win_info, win_w, win_cut_w, stride_w, d_kw, w_head, w_tail);
 
-  l1_reduce_base = 1;
-  reduce_at_l1 = false;
+  ca1_reduce_base = 1;
+  reduce_at_ca1 = false;
 
   /* co / h / w */
   return co_base * h_base * w_base;
 }
 
-int ConvolutionForwardModel::infer_L0_tile(int isolate_idx) {
-  /* m_l1 = oh * ow */
-  Expr m_l1 = get_h_win_isolate_info(isolate_idx).inner * get_w_win_isolate_info(isolate_idx).inner;
-  m_l1 = (m_l1 + conv_.block_size - 1) / conv_.block_size * conv_.block_size;
+int ConvolutionForwardModel::infer_CA0_tile(int isolate_idx) {
+  /* m_ca1 = oh * ow */
+  Expr m_ca1 = get_h_win_isolate_info(isolate_idx).inner * get_w_win_isolate_info(isolate_idx).inner;
+  m_ca1 = (m_ca1 + conv_.block_size - 1) / conv_.block_size * conv_.block_size;
 
-  /* k_l1 = kh * kw * cin */
-  Expr k_l1 = conv_.filter.d_kh * conv_.filter.d_kw * get_ci_isolate_info(isolate_idx).inner;
+  /* k_ca1 = kh * kw * cin */
+  Expr k_ca1 = conv_.filter.d_kh * conv_.filter.d_kw * get_ci_isolate_info(isolate_idx).inner;
 
-  /* n_l1 = cout */
-  Expr n_l1 = get_co_isolate_info(isolate_idx).inner;
+  /* n_ca1 = cout */
+  Expr n_ca1 = get_co_isolate_info(isolate_idx).inner;
 
   Expr cut_m = tile_.cut_m;
   if (!is_dynamic_) {
     CHECK(cut_m.as<IntImm>());
-    CHECK(m_l1.as<IntImm>());
-    if (cut_m.as<IntImm>()->value > m_l1.as<IntImm>()->value) {
-      cut_m = m_l1;
+    CHECK(m_ca1.as<IntImm>());
+    if (cut_m.as<IntImm>()->value > m_ca1.as<IntImm>()->value) {
+      cut_m = m_ca1;
     }
   }
-  m_base = infer_isolate(&m_info, m_l1, cut_m);
+  m_base = infer_isolate(&m_info, m_ca1, cut_m);
 
   Expr cut_n = tile_.cut_n;
   if (!is_dynamic_) {
     CHECK(cut_n.as<IntImm>());
-    CHECK(n_l1.as<IntImm>());
-    if (cut_n.as<IntImm>()->value > n_l1.as<IntImm>()->value) {
-      cut_n = n_l1;
+    CHECK(n_ca1.as<IntImm>());
+    if (cut_n.as<IntImm>()->value > n_ca1.as<IntImm>()->value) {
+      cut_n = n_ca1;
     }
   }
 
-  n_base = infer_isolate(&n_info, n_l1, cut_n);
+  n_base = infer_isolate(&n_info, n_ca1, cut_n);
 
   Expr cut_k = tile_.cut_k;
   if (!is_dynamic_) {
     CHECK(cut_k.as<IntImm>());
-    CHECK(k_l1.as<IntImm>());
-    if (cut_k.as<IntImm>()->value > k_l1.as<IntImm>()->value) {
-      cut_k = k_l1;
+    CHECK(k_ca1.as<IntImm>());
+    if (cut_k.as<IntImm>()->value > k_ca1.as<IntImm>()->value) {
+      cut_k = k_ca1;
     }
   }
 
-  k_base = infer_isolate(&k_info, k_l1, cut_k);
+  k_base = infer_isolate(&k_info, k_ca1, cut_k);
 
-  l0_reduce_base = k_base;
+  ca0_reduce_base = k_base;
 
   return m_base * n_base * k_base;
 }
@@ -395,7 +395,7 @@ int ConvolutionForwardModel::get_w_idx(int isolate_idx) const { return (isolate_
 ConvolutionBackpropInputModel::ConvolutionBackpropInputModel(const Map<std::string, NodeRef> &attrs, bool is_dynamic)
     : ConvolutionModel(attrs, is_dynamic) {}
 
-int ConvolutionBackpropInputModel::infer_L1_tile() {
+int ConvolutionBackpropInputModel::infer_CA1_tile() {
   if (!is_dynamic_) {
     CHECK(conv_.output.c.as<IntImm>());
     CHECK(tile_.cut_co.as<IntImm>());
@@ -457,58 +457,58 @@ int ConvolutionBackpropInputModel::infer_L1_tile() {
       << "Only one tail for cut W axis";
     w_base = infer_isolate_overlap(&w_info, &w_win_info, win_w, win_cut_w, stride_w, d_kw, w_head, w_tail);
 
-    l1_reduce_base = 1;
-    reduce_at_l1 = false;
+    ca1_reduce_base = 1;
+    reduce_at_ca1 = false;
   }
 
   /* co / h / w */
   return co_base * h_base * w_base;
 }
 
-int ConvolutionBackpropInputModel::infer_L0_tile(int isolate_idx) {
+int ConvolutionBackpropInputModel::infer_CA0_tile(int isolate_idx) {
   if (!is_dynamic_) {
     CHECK(get_h_win_isolate_info(isolate_idx).inner.as<IntImm>());
     CHECK(get_w_win_isolate_info(isolate_idx).inner.as<IntImm>());
     CHECK(conv_.block_size.as<IntImm>());
-    /* m_l1 = oh * ow */
-    int m_l1 = get_h_win_isolate_info(isolate_idx).inner.as<IntImm>()->value *
-               get_w_win_isolate_info(isolate_idx).inner.as<IntImm>()->value;
-    m_l1 = (m_l1 + conv_.block_size.as<IntImm>()->value - 1) / conv_.block_size.as<IntImm>()->value *
-           conv_.block_size.as<IntImm>()->value;
+    /* m_ca1 = oh * ow */
+    int m_ca1 = get_h_win_isolate_info(isolate_idx).inner.as<IntImm>()->value *
+                get_w_win_isolate_info(isolate_idx).inner.as<IntImm>()->value;
+    m_ca1 = (m_ca1 + conv_.block_size.as<IntImm>()->value - 1) / conv_.block_size.as<IntImm>()->value *
+            conv_.block_size.as<IntImm>()->value;
 
-    /* k_l1 = kh * kw * cin */
+    /* k_ca1 = kh * kw * cin */
     CHECK(conv_.filter.d_kh.as<IntImm>());
     CHECK(conv_.filter.d_kw.as<IntImm>());
     CHECK(get_ci_isolate_info(isolate_idx).inner.as<IntImm>());
-    int k_l1 = conv_.filter.d_kh.as<IntImm>()->value * conv_.filter.d_kw.as<IntImm>()->value *
-               get_ci_isolate_info(isolate_idx).inner.as<IntImm>()->value;
+    int k_ca1 = conv_.filter.d_kh.as<IntImm>()->value * conv_.filter.d_kw.as<IntImm>()->value *
+                get_ci_isolate_info(isolate_idx).inner.as<IntImm>()->value;
 
-    /* n_l1 = cout */
+    /* n_ca1 = cout */
     CHECK(get_co_isolate_info(isolate_idx).inner.as<IntImm>());
-    int n_l1 = get_co_isolate_info(isolate_idx).inner.as<IntImm>()->value;
+    int n_ca1 = get_co_isolate_info(isolate_idx).inner.as<IntImm>()->value;
 
     CHECK(tile_.cut_m.as<IntImm>());
     int cut_m = tile_.cut_m.as<IntImm>()->value;
-    if (cut_m > m_l1) {
-      cut_m = m_l1;
+    if (cut_m > m_ca1) {
+      cut_m = m_ca1;
     }
-    m_base = infer_isolate(&m_info, m_l1, cut_m);
+    m_base = infer_isolate(&m_info, m_ca1, cut_m);
 
     CHECK(tile_.cut_n.as<IntImm>());
     int cut_n = tile_.cut_n.as<IntImm>()->value;
-    if (cut_n > n_l1) {
-      cut_n = n_l1;
+    if (cut_n > n_ca1) {
+      cut_n = n_ca1;
     }
-    n_base = infer_isolate(&n_info, n_l1, cut_n);
+    n_base = infer_isolate(&n_info, n_ca1, cut_n);
 
     CHECK(tile_.cut_k.as<IntImm>());
     int cut_k = tile_.cut_k.as<IntImm>()->value;
-    if (cut_k > k_l1) {
-      cut_k = k_l1;
+    if (cut_k > k_ca1) {
+      cut_k = k_ca1;
     }
-    k_base = infer_isolate(&k_info, k_l1, cut_k);
+    k_base = infer_isolate(&k_info, k_ca1, cut_k);
 
-    l0_reduce_base = k_base;
+    ca0_reduce_base = k_base;
   }
 
   return m_base * n_base * k_base;
@@ -537,7 +537,7 @@ ConvolutionBackpropFilterModel::ConvolutionBackpropFilterModel(const Map<std::st
   }
 }
 
-int ConvolutionBackpropFilterModel::infer_L1_tile() {
+int ConvolutionBackpropFilterModel::infer_CA1_tile() {
   if (!is_dynamic_) {
     CHECK(conv_.input.n.as<IntImm>());
     CHECK(tile_.cut_b.as<IntImm>());
@@ -637,9 +637,9 @@ int ConvolutionBackpropFilterModel::infer_L1_tile() {
       << "Only one tail for cut W axis";
     w_base = infer_isolate_overlap(&w_info, &w_win_info, win_w, win_cut_w, stride_w, d_kw, w_head, w_tail);
 
-    l1_reduce_base = b_base * h_base * w_base;
+    ca1_reduce_base = b_base * h_base * w_base;
     if (win_cut_w < win_w || win_cut_h < win_h || cut_b < batch) {
-      reduce_at_l1 = true;
+      reduce_at_ca1 = true;
     }
   }
 
@@ -647,30 +647,30 @@ int ConvolutionBackpropFilterModel::infer_L1_tile() {
   return ci_base * kh_base * kw_base * co_base * b_base * h_base * w_base;
 }
 
-int ConvolutionBackpropFilterModel::infer_L0_tile(int isolate_idx) {
+int ConvolutionBackpropFilterModel::infer_CA0_tile(int isolate_idx) {
   if (!is_dynamic_) {
-    /* m_l1 = cout */
+    /* m_ca1 = cout */
     CHECK(get_co_isolate_info(isolate_idx).inner.as<IntImm>());
-    int m_l1 = get_co_isolate_info(isolate_idx).inner.as<IntImm>()->value;
+    int m_ca1 = get_co_isolate_info(isolate_idx).inner.as<IntImm>()->value;
 
-    /* n_l1 = kh * kw * cin */
+    /* n_ca1 = kh * kw * cin */
     CHECK(get_kh_isolate_info(isolate_idx).inner.as<IntImm>());
     CHECK(get_kw_isolate_info(isolate_idx).inner.as<IntImm>());
     CHECK(get_ci_isolate_info(isolate_idx).inner.as<IntImm>());
-    int n_l1 = get_kh_isolate_info(isolate_idx).inner.as<IntImm>()->value *
-               get_kw_isolate_info(isolate_idx).inner.as<IntImm>()->value *
-               get_ci_isolate_info(isolate_idx).inner.as<IntImm>()->value;
+    int n_ca1 = get_kh_isolate_info(isolate_idx).inner.as<IntImm>()->value *
+                get_kw_isolate_info(isolate_idx).inner.as<IntImm>()->value *
+                get_ci_isolate_info(isolate_idx).inner.as<IntImm>()->value;
 
-    /* k_l1 = batch * oh * ow */
+    /* k_ca1 = batch * oh * ow */
     CHECK(get_b_isolate_info(isolate_idx).inner.as<IntImm>());
     CHECK(get_h_win_isolate_info(isolate_idx).inner.as<IntImm>());
     CHECK(get_w_win_isolate_info(isolate_idx).inner.as<IntImm>());
-    int k_l1 = get_b_isolate_info(isolate_idx).inner.as<IntImm>()->value *
-               get_h_win_isolate_info(isolate_idx).inner.as<IntImm>()->value *
-               get_w_win_isolate_info(isolate_idx).inner.as<IntImm>()->value;
+    int k_ca1 = get_b_isolate_info(isolate_idx).inner.as<IntImm>()->value *
+                get_h_win_isolate_info(isolate_idx).inner.as<IntImm>()->value *
+                get_w_win_isolate_info(isolate_idx).inner.as<IntImm>()->value;
     CHECK(conv_.block_size.as<IntImm>());
-    k_l1 = (k_l1 + conv_.block_size.as<IntImm>()->value - 1) / conv_.block_size.as<IntImm>()->value *
-           conv_.block_size.as<IntImm>()->value;
+    k_ca1 = (k_ca1 + conv_.block_size.as<IntImm>()->value - 1) / conv_.block_size.as<IntImm>()->value *
+            conv_.block_size.as<IntImm>()->value;
     CHECK(tile_.cut_m.as<IntImm>());
     int cut_m = tile_.cut_m.as<IntImm>()->value;
 
@@ -679,39 +679,39 @@ int ConvolutionBackpropFilterModel::infer_L0_tile(int isolate_idx) {
 
     CHECK(tile_.cut_k.as<IntImm>());
     int cut_k = tile_.cut_k.as<IntImm>()->value;
-    if (reduce_at_l1) {
-      if (cut_m > m_l1) {
-        cut_m = m_l1;
+    if (reduce_at_ca1) {
+      if (cut_m > m_ca1) {
+        cut_m = m_ca1;
       }
-      m_base = infer_isolate(&m_info, m_l1, cut_m);
+      m_base = infer_isolate(&m_info, m_ca1, cut_m);
 
-      if (cut_n > n_l1) {
-        cut_n = n_l1;
+      if (cut_n > n_ca1) {
+        cut_n = n_ca1;
       }
-      n_base = infer_isolate(&n_info, n_l1, cut_n);
+      n_base = infer_isolate(&n_info, n_ca1, cut_n);
 
-      if (cut_k > k_l1) {
-        cut_k = k_l1;
+      if (cut_k > k_ca1) {
+        cut_k = k_ca1;
       }
-      k_base = infer_isolate(&k_info, k_l1, cut_k);
+      k_base = infer_isolate(&k_info, k_ca1, cut_k);
     } else {
-      if (cut_m > m_l1) {
-        cut_m = m_l1;
+      if (cut_m > m_ca1) {
+        cut_m = m_ca1;
       }
-      m_base = infer_isolate(&m_info, m_l1, cut_m);
+      m_base = infer_isolate(&m_info, m_ca1, cut_m);
 
-      if (cut_n > n_l1) {
-        cut_n = n_l1;
+      if (cut_n > n_ca1) {
+        cut_n = n_ca1;
       }
-      n_base = infer_isolate(&n_info, n_l1, cut_n);
+      n_base = infer_isolate(&n_info, n_ca1, cut_n);
 
-      if (cut_k > k_l1) {
-        cut_k = k_l1;
+      if (cut_k > k_ca1) {
+        cut_k = k_ca1;
       }
-      k_base = infer_isolate(&k_info, k_l1, cut_k);
+      k_base = infer_isolate(&k_info, k_ca1, cut_k);
     }
 
-    l0_reduce_base = k_base;
+    ca0_reduce_base = k_base;
   }
   return m_base * n_base * k_base;
 }

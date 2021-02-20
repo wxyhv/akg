@@ -1,5 +1,5 @@
 /**
- * Copyright 2019 Huawei Technologies Co., Ltd
+ * Copyright 2019-2021 Huawei Technologies Co., Ltd
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -364,17 +364,17 @@ void ScopInfo::DumpScopDataAdvanced(std::ofstream &of) {
 
   PrintHeader(of, "dim_infos");
   for (const auto &dim_info : analysis_result_.GetTileSizes()) {
-    of << "index=" << dim_info.index << " axis=" << dim_info.axis << " l1_tiling_size=" << dim_info.l1_tiling_size
-       << " l0_tiling_size=" << dim_info.l0_tiling_size << " dim_seq=" << dim_info.dim_seq << std::endl;
+    of << "index=" << dim_info.index << " axis=" << dim_info.axis << " c1_tiling_size=" << dim_info.c1_tiling_size
+       << " c0_tiling_size=" << dim_info.c0_tiling_size << " dim_seq=" << dim_info.dim_seq << std::endl;
   }
 
   PrintHeader(of, "fractal_int_info");
-  for (const auto &info : cube_info_.fractal_int_info_) {
+  for (const auto &info : mmu_info_.fractal_int_info_) {
     of << info.first << " : " << info.second << std::endl;
   }
 
   PrintHeader(of, "fractal_str_info");
-  for (const auto &info : cube_info_.fractal_str_info_) {
+  for (const auto &info : mmu_info_.fractal_str_info_) {
     of << info.first << " : " << info.second << std::endl;
   }
 
@@ -427,7 +427,7 @@ void ScopInfo::DumpScopDataAdvanced(std::ofstream &of) {
   of << std::endl;
 
   PrintHeader(of, "attr_info");
-  for (const auto &info : cube_info_.GetConvAttrInfo()) {
+  for (const auto &info : mmu_info_.GetConvAttrInfo()) {
     of << info.first << " : " << info.second << std::endl;
   }
 }
@@ -449,7 +449,7 @@ void UserConfig::DumpScopDataScheduleAttrs(std::ofstream &of) {
   of << "pragma_modshift : " << GetModScheduleShift() << std::endl;
   of << "pragma_reorder_schedule : " << GetReorderSchedule() << std::endl;
   of << "pragma_checkcoincident : " << GetTileCheckCoincident() << std::endl;
-  of << "pragma_opt_for_davinci : " << GetOptimizeForDavinci() << std::endl;
+  of << "pragma_opt_for_dsa : " << GetOptimizeForNPU() << std::endl;
   of << "pragma_sink_last_axis : " << GetSinkLastAxis() << std::endl;
   of << "pragma_keep_outer_band_order : " << GetKeepOuterBandOrder() << std::endl;
   of << "pragma_disable_group : " << GetDisableGroup() << std::endl;
@@ -464,7 +464,7 @@ void UserConfig::DumpScopDataScheduleAttrs(std::ofstream &of) {
   of << "kernel_h : " << GetMatBDimH() << std::endl;
   of << "kernel_w : " << GetMatBDimW() << std::endl;
   of << "conv_backprop_filter : " << GetConvBackPropFilter() << std::endl;
-  of << "bypassL1 : " << GetByPassL1() << std::endl;
+  of << "bypassL1 : " << GetByPathC1() << std::endl;
   of << "pragma_is_conv : " << GetPragmaIsConv() << std::endl;
   of << "pragma_conv_special_dma : " << GetConvSpecialDma() << std::endl;
 }
@@ -489,7 +489,7 @@ bool ScopInfo::DumpScopData(const std::string &file_name) {
 void ScopInfo::DumpSchTree(const std::string &file_name, const isl::schedule &sch_dump) {
   std::stringstream final_file_name;
   final_file_name << std::setw(2) << std::setfill('0') << dump_schtree_count << "_" << file_name
-                  << std::string(cube_info_.IsSpecGemm() ? "_specgemm" : "");
+                  << std::string(mmu_info_.IsSpecGemm() ? "_specgemm" : "");
   if (user_config_.GetDumpPassIr()) {
 #if DUMP_IR
     DumpSchTreeImpl(CreateDumpDir(final_file_name.str()), sch_dump);

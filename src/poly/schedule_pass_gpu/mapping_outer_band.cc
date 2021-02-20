@@ -646,42 +646,42 @@ isl::schedule MappingOuterBand::InsertReduceMarker(const isl::schedule &sch, con
   return final_schedule;
 }
 
-std::pair<std::string, std::string> MappingOuterBand::GetL1L0BlockConfig(size_t n_block_map, int member_size) {
+std::pair<std::string, std::string> MappingOuterBand::GetC1C0BlockConfig(size_t n_block_map, int member_size) {
   auto block_cfg = scop_info_.user_config_.GetBlockConfig();
   CHECK(block_cfg != nullptr) << "block config is null";
   auto title_size = static_cast<int>(pass_info_.tile_sizes_.size());
   auto dim_num = (member_size <= title_size) ? member_size : title_size;
-  std::vector<int> l1_tile_size = GetTileSizeOfLevel(member_size, dim_num, L1, pass_info_.tile_sizes_);
-  std::vector<int> l0_tile_size = GetTileSizeOfLevel(member_size, dim_num, L0, pass_info_.tile_sizes_);
-  CHECK_EQ(l1_tile_size.size(), l0_tile_size.size());
+  std::vector<int> c1_tile_size = GetTileSizeOfLevel(member_size, dim_num, TILE_WITH_C1, pass_info_.tile_sizes_);
+  std::vector<int> c0_tile_size = GetTileSizeOfLevel(member_size, dim_num, TILE_WITH_C0, pass_info_.tile_sizes_);
+  CHECK_EQ(c1_tile_size.size(), c0_tile_size.size());
 
-  for (size_t i = 0; i < l1_tile_size.size(); ++i) {
-    auto l0 = l0_tile_size[i] <= 0 ? 1 : l0_tile_size[i];
-    l0_tile_size[i] = std::max(1, l1_tile_size[i] / l0);
+  for (size_t i = 0; i < c1_tile_size.size(); ++i) {
+    auto c0 = c0_tile_size[i] <= 0 ? 1 : c0_tile_size[i];
+    c0_tile_size[i] = std::max(1, c1_tile_size[i] / c0);
   }
-  std::string l1_cfg = "";
-  std::string l0_cfg = "";
-  std::vector<int> l1_cfg_list;
-  std::vector<int> l0_cfg_list;
-  if (std::accumulate(l0_tile_size.begin(), l0_tile_size.end(), 1, std::multiplies<int>()) > 1) {
+  std::string c1_cfg = "";
+  std::string c0_cfg = "";
+  std::vector<int> c1_cfg_list;
+  std::vector<int> c0_cfg_list;
+  if (std::accumulate(c0_tile_size.begin(), c0_tile_size.end(), 1, std::multiplies<int>()) > 1) {
     for (size_t i = 0; i < n_block_map; ++i) {
-      auto l0 = i < l0_tile_size.size() ? l0_tile_size[i] : 1;
-      l0_cfg_list.emplace_back(l0);
+      auto c0 = i < c0_tile_size.size() ? c0_tile_size[i] : 1;
+      c0_cfg_list.emplace_back(c0);
       auto block_idx = scop_info_.analysis_result_.GetReduceDirection() == Y_DIRECTION ? i : n_block_map - 1 - i;
-      auto l1 = block_cfg->GetAt(block_idx).second / l0;
-      l1_cfg_list.emplace_back(l1);
+      auto c1 = block_cfg->GetAt(block_idx).second / c0;
+      c1_cfg_list.emplace_back(c1);
     }
     if (scop_info_.analysis_result_.GetReduceDirection() != Y_DIRECTION) {
-      std::reverse(l1_cfg_list.begin(), l1_cfg_list.end());
-      std::reverse(l0_cfg_list.begin(), l0_cfg_list.end());
+      std::reverse(c1_cfg_list.begin(), c1_cfg_list.end());
+      std::reverse(c0_cfg_list.begin(), c0_cfg_list.end());
     }
-    scop_info_.user_config_.SetL0BlockSize(l0_cfg_list);
+    scop_info_.user_config_.SetC0BlockSize(c0_cfg_list);
     for (size_t i = 0; i < n_block_map; ++i) {
-      l1_cfg += (std::to_string(l1_cfg_list[i]) + " ");
-      l0_cfg += (std::to_string(l0_cfg_list[i]) + " ");
+      c1_cfg += (std::to_string(c1_cfg_list[i]) + " ");
+      c0_cfg += (std::to_string(c0_cfg_list[i]) + " ");
     }
   }
-  return std::make_pair(l1_cfg, l0_cfg);
+  return std::make_pair(c1_cfg, c0_cfg);
 }
 
 isl::schedule_node MappingOuterBand::MapBlockHelper(const isl::schedule_node &orig_node, MappingCfg *block_cfg,
@@ -757,28 +757,28 @@ isl::schedule MappingOuterBand::DoBlockMapping(const isl::schedule &sch) {
   }
 
   // Step 2. Separate original block config according to tile levels.
-  auto l1_block_cfg = block_cfg;
-  MappingCfg *l0_block_cfg = nullptr;
-  if (scop_info_.user_config_.GetEnableTileL0()) {
-    auto l1_l0_block_cfg = GetL1L0BlockConfig(n_block_map, band_node.n_member());
-    if (!l1_l0_block_cfg.first.empty() && !l1_l0_block_cfg.second.empty()) {
-      scop_info_.user_config_.RecordReplaceConfig(L1, l1_l0_block_cfg.first, MappingType::REPLACE_BLOCKS);
-      scop_info_.user_config_.RecordReplaceConfig(L0, l1_l0_block_cfg.second, MappingType::REPLACE_BLOCKS);
+  auto c1_block_cfg = block_cfg;
+  MappingCfg *c0_block_cfg = nullptr;
+  if (scop_info_.user_config_.GetEnableTileC0()) {
+    auto c1_c0_block_cfg = GetC1C0BlockConfig(n_block_map, band_node.n_member());
+    if (!c1_c0_block_cfg.first.empty() && !c1_c0_block_cfg.second.empty()) {
+      scop_info_.user_config_.RecordReplaceConfig(TILE_WITH_C1, c1_c0_block_cfg.first, MappingType::REPLACE_BLOCKS);
+      scop_info_.user_config_.RecordReplaceConfig(TILE_WITH_C0, c1_c0_block_cfg.second, MappingType::REPLACE_BLOCKS);
       auto rep_cfg = scop_info_.user_config_.GetReplaceConfig();
-      l1_block_cfg = rep_cfg[L1];
-      l0_block_cfg = rep_cfg[L0];
+      c1_block_cfg = rep_cfg[TILE_WITH_C1];
+      c0_block_cfg = rep_cfg[TILE_WITH_C0];
     }
   }
 
-  // Step 3. Map outer-most band for l1 tile as usual (and do not check extent when l0 tile is applied manually).
-  auto map_l0_block = l0_block_cfg != nullptr;
-  node = MapBlockHelper(node, l1_block_cfg, n_block_map, !map_l0_block);
+  // Step 3. Map outer-most band for c1 tile as usual (and do not check extent when c0 tile is applied manually).
+  auto map_c0_block = c0_block_cfg != nullptr;
+  node = MapBlockHelper(node, c1_block_cfg, n_block_map, !map_c0_block);
   auto final_schedule = node.get_schedule();
 
-  // Step 4. Map middle-level band (i.e. l0 tile band).
-  if (map_l0_block) {
+  // Step 4. Map middle-level band (i.e. c0 tile band).
+  if (map_c0_block) {
     isl::schedule_node middle_node = GetOuterBand(final_schedule.get_root()).child(0);
-    middle_node = MapBlockHelper(middle_node, l0_block_cfg, n_block_map, false);
+    middle_node = MapBlockHelper(middle_node, c0_block_cfg, n_block_map, false);
     final_schedule = middle_node.get_schedule();
   }
 

@@ -1,10 +1,6 @@
 import boot
 import pytest
 
-@pytest.mark.bn
-@pytest.mark.level0
-@pytest.mark.env_oncard
-@pytest.mark.platform_x86_ascend_training
 def test_bn():
     boot.run("test_resnet50_bn_5D_reference000", "fused_batch_norm_run",
      ((32, 128, 7, 7, 16), "float32", 0.1, 1e-4, False, "NC1HWC0", None, "resnet50_bn_5D_reference01"), "dynamic")

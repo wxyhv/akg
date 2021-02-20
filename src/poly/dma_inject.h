@@ -1,5 +1,5 @@
 /**
- * Copyright 2019 Huawei Technologies Co., Ltd
+ * Copyright 2019-2021 Huawei Technologies Co., Ltd
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -233,11 +233,11 @@ class GemmInnerTransposeAffine : public AffineBase {
 
   bool NotNeedConstruct(std::string name, ScopInfo &scop_info) override {
     // right matrix filter !B tensor
-    if (is_right_matrix_ == AffineTensor::RIGHT_TENSOR && !scop_info.cube_info_.IsB(name)) {
+    if (is_right_matrix_ == AffineTensor::RIGHT_TENSOR && !scop_info.mmu_info_.IsB(name)) {
       return true;
     }
     // left matrix filter !A tensor
-    if (is_right_matrix_ == AffineTensor::LEFT_TENSOR && !scop_info.cube_info_.IsA(name)) {
+    if (is_right_matrix_ == AffineTensor::LEFT_TENSOR && !scop_info.mmu_info_.IsA(name)) {
       return true;
     }
     return false;
@@ -258,11 +258,11 @@ class GemmTransposeAffine : public AffineBase {
 
   bool NotNeedConstruct(std::string name, ScopInfo &scop_info) override {
     // right matrix filter !B tensor
-    if (is_right_matrix_ == AffineTensor::RIGHT_TENSOR && !scop_info.cube_info_.IsB(name)) {
+    if (is_right_matrix_ == AffineTensor::RIGHT_TENSOR && !scop_info.mmu_info_.IsB(name)) {
       return true;
     }
     // left matrix filter !A tensor
-    if (is_right_matrix_ == AffineTensor::LEFT_TENSOR && !scop_info.cube_info_.IsA(name)) {
+    if (is_right_matrix_ == AffineTensor::LEFT_TENSOR && !scop_info.mmu_info_.IsA(name)) {
       return true;
     }
     return false;
@@ -283,15 +283,15 @@ class GemmTransposeBlockAffine : public AffineBase {
 
   bool NotNeedConstruct(std::string name, ScopInfo &scop_info) override {
     // right matrix filter !B tensor
-    if (AffineTensor::RIGHT_TENSOR == is_right_matrix_ && !scop_info.cube_info_.IsB(name)) {
+    if (AffineTensor::RIGHT_TENSOR == is_right_matrix_ && !scop_info.mmu_info_.IsB(name)) {
       return true;
     }
     // left matrix filter !A tensor
-    if (is_right_matrix_ == AffineTensor::LEFT_TENSOR && !scop_info.cube_info_.IsA(name)) {
+    if (is_right_matrix_ == AffineTensor::LEFT_TENSOR && !scop_info.mmu_info_.IsA(name)) {
       return true;
     }
 
-    if (AffineTensor::OUT_TENSOR == is_right_matrix_ && !scop_info.cube_info_.IsC(name)) {
+    if (AffineTensor::OUT_TENSOR == is_right_matrix_ && !scop_info.mmu_info_.IsC(name)) {
       return true;
     }
 
@@ -313,7 +313,7 @@ class Im2colAffine : public AffineBase {
                           const isl::map &original_map, isl::local_space &ls);
 
   bool NotNeedConstruct(std::string name, ScopInfo &scop_info) override {
-    if (!scop_info.cube_info_.IsA(name)) {
+    if (!scop_info.mmu_info_.IsA(name)) {
       return true;
     }
     return false;
@@ -330,7 +330,7 @@ class WeightAffine : public AffineBase {
   isl::map ConstructAffine(isl::map original_map) final;
 
   bool NotNeedConstruct(std::string name, ScopInfo &scop_info) override {
-    if (!scop_info.cube_info_.IsB(name)) {
+    if (!scop_info.mmu_info_.IsB(name)) {
       return true;
     }
     return false;
@@ -350,7 +350,7 @@ class FractalAffine : public AffineBase {
                           const isl::map &original_map, isl::local_space &ls);
 
   bool NotNeedConstruct(std::string name, ScopInfo &scop_info) override {
-    if (!scop_info.cube_info_.IsA(name)) {
+    if (!scop_info.mmu_info_.IsA(name)) {
       return true;
     }
     return false;
