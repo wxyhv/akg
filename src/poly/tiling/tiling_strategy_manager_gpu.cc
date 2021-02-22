@@ -443,18 +443,8 @@ void GpuStrategy::InitMappingLimit() {
     }
   } else if (template_ <= Template::REDUCTION) {
     block_limit_ = {max_num_blocks_, max_num_blocks_, max_num_blocks_};
-  } else if (template_ == Template::ALL_REDUCE) {
-    if (analyzer_->scop_info_.user_config_.GetEnableAkgReduceLib()) {
-      block_limit_ = {max_num_blocks_, max_num_blocks_, max_num_blocks_};
-    } else {
-      block_limit_ = {1};
-    }
-  } else if (template_ == Template::BITWISE_REDUCTION) {
-    if (analyzer_->scop_info_.user_config_.GetEnableAkgReduceLib()) {
-      block_limit_ = {1};
-    } else {
-      block_limit_ = {max_num_blocks_, max_num_blocks_, max_num_blocks_};
-    }
+  } else if (template_ == Template::ALL_REDUCE && !analyzer_->scop_info_.user_config_.GetEnableAkgReduceLib()) {
+    block_limit_ = {1};
   } else {
     block_limit_ = {max_num_blocks_, max_num_blocks_, max_num_blocks_};
   }
