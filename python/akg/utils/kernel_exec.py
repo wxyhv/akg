@@ -617,32 +617,17 @@ def recursive_copy(obj):
         return copy_obj
     return obj
 
-
-def op_build(op_func, input_shapes, input_types, op_attrs=None, kernel_name="",
-             attrs=None, log_cce=False, dump_ir=True, dump_code=True,
-             polyhedral=True, tuning=False):
+def gen_inputs_and_shape_params(input_shapes, input_types, inputs, shape_params):
     """
-    Return module built from op_func with given inputs.
+    Generate akg.tvm.placeholder as inputs for op with given input_shapes and input_types
 
     Args:
-        op_func (function returning an op or (op, [op_vars])): The op build function.
         input_shapes(iterable of iterable of int): the dim sizes for input for op.
         input_types (iterable of iterable of str): the dtypes for each input.
-        op_attrs (list or tuple): extra attributes for the op.
-        kernel_name (str): name of op.
-        attrs (dict): tiling parameter.
-        log_cce (bool): False by default.
-        dump_ir (bool): True by default.
-        dump_code (bool): False by default.
-        polyhedral (bool): True by default.
-        tuning (bool): False by default.
+        inputs (list): None by default.
+        shape_params (list): None by default.
 
-    Return:
-        module.
     """
-    inputs = []
-    set_dim_key = ""
-    shape_params = []    # save all the shape params for dynamic_shape cases
     for i, (shape, dtype) in enumerate(zip(input_shapes, input_types)):
         if isinstance(shape, (list, tuple)) and shape and isinstance(shape[0], (list, tuple)):
             tmp_input = []
@@ -663,27 +648,33 @@ def op_build(op_func, input_shapes, input_types, op_attrs=None, kernel_name="",
                 shape_params.append(tmp_shape)
         else:
             inputs.append(akg.tvm.placeholder(shape, dtype, "input_%d" % (i + 1)))
-    attrs_params = []
-    if op_attrs is not None:
-        args = inputs + op_attrs
-        for tmp_attr in op_attrs:
-            if isinstance(tmp_attr, (list, tuple)) and tmp_attr and isinstance(tmp_attr[0], akg.tvm.expr.Var):
-                for attr_param in tmp_attr:
-                    if isinstance(attr_param, akg.tvm.expr.Var):
-                        attrs_params.append(attr_param)
-            elif isinstance(tmp_attr, akg.tvm.expr.Var):
-                attrs_params.append(tmp_attr)
-    else:
-        args = inputs
 
-    # backup inputs because the tensor names may be updated inside op_func
-    inputs_backup = recursive_copy(inputs)
+def gen_attrs_params(op_attrs, attrs_params):
+    """
+    Parsing attrs given by op_attrs.
 
-    output = op_func(*args)
+    Args:
+        op_attrs (list or tuple): extra attributes for the op.
+        attrs_params (list): None by default.
 
-    # restore inputs to make sure that tensor names are not changed by op_func
-    inputs = inputs_backup
+    """
+    for tmp_attr in op_attrs:
+        if isinstance(tmp_attr, (list, tuple)) and tmp_attr and isinstance(tmp_attr[0], akg.tvm.expr.Var):
+            for attr_param in tmp_attr:
+                if isinstance(attr_param, akg.tvm.expr.Var):
+                    attrs_params.append(attr_param)
+        elif isinstance(tmp_attr, akg.tvm.expr.Var):
+            attrs_params.append(tmp_attr)
 
+def get_dim_from_func_map(attrs, op_func, args):
+    """
+    Get tiling parameter from map defined in op_func.
+
+    Args:
+        attrs (dict): tiling parameter.
+        op_func (function returning an op or (op, [op_vars])): The op build function.
+
+    """
     if attrs is None or 'dim' not in attrs or not attrs['dim']:
         dim_info = ""
         if attrs is None:
@@ -709,10 +700,19 @@ def op_build(op_func, input_shapes, input_types, op_attrs=None, kernel_name="",
             dim_info = dim_info[0]
 
         attrs['dim'] = dim_info
+    return attrs
 
-    compute_func = None  # func which is defined in dsl for doing compute_inline or other
-    sch_tmpl = None
-    gpu_binds = None
+def parsing_output(output, attrs, compute_func, sch_tmpl, gpu_binds):
+    """
+    Parsing the outputs of op.
+
+    Args:
+        output (iterable of iterable of akg.tvm.tensor): the outputs of op.
+        attrs (dict): tiling parameter.
+        compute_func (function): None by default, func for doing compute_inline or other.
+        sch_tmpl (dict): None by default.
+        gpu_binds (dict): None by default.
+    """
     if isinstance(output, (list, tuple)):
         from inspect import isfunction
         new_outputs = []
@@ -733,28 +733,103 @@ def op_build(op_func, input_shapes, input_types, op_attrs=None, kernel_name="",
         sch_tmpl = output
         output = sch_tmpl['output']
         gpu_binds = sch_tmpl['binds']
-    binds = None if not attrs else attrs.pop(BINDS, None)
+    return output, compute_func, sch_tmpl, gpu_binds
 
-    op_var = []
+def gen_op_var(inputs, output, op_var):
+    """
+    Combine inputs and outputs about the op.
+
+    Args:
+        inputs(list): the inputs of op.
+        output(list): the outputs of op.
+        op_var (list): inputs and outputs for the op.
+    """
     for xx in inputs:
         if isinstance(xx, list):
             for x in xx:
                 op_var.append(x)
         else:
             op_var.append(xx)
-    shape_var = []
-    if attrs_params:
-        [shape_var.append(i) for i in attrs_params if i not in shape_var]
-    [shape_var.append(i) for i in shape_params if i not in shape_var]
     if isinstance(output, (list, tuple)):
         op_var = op_var + [i for i in output if TensorUtils.is_output_value(i)]
     else:
         if TensorUtils.is_output_value(output):
             op_var = op_var + [output]
+    return op_var
+
+def gen_shape_var(attrs_params, shape_params, shape_var):
+    """
+    Combine shape of inputs and extra attributes about the op.
+
+    Args:
+        attrs_params(list): shape of inputs for the op
+        shape_params(list): extra attributes for the op
+        shape_var (list): shape of inputs and extra attributes for the op.
+    """
+    if attrs_params:
+        [shape_var.append(i) for i in attrs_params if i not in shape_var]
+    [shape_var.append(i) for i in shape_params if i not in shape_var]
+
+def gen_spaces_dim_key(op_func, s, op_var, kernel_name, attrs, polyhedral, tuning, target):
+    """
+    Generate tiling parameter.
+
+    Args:
+        op_func (function returning an op or (op, [op_vars])): The op build function.
+        s (dict): schedule of op.
+        op_var (list): the akg.tvm.tensor of inputs and outputs for op.
+        kernel_name (str): name of op.
+        attrs (dict): tiling parameter.
+        polyhedral (bool): True by default.
+        tuning (bool): False by default.
+
+    Return:
+        tiling parameter.
+    """
+    set_dim_key = ""
+    if op_func.__name__ in ct_util.set_dim_func_map.keys():
+        func_ = ct_util.set_dim_func_map[op_func.__name__]
+        if inspect.isfunction(func_):
+            set_dim_key = func_(*args)[1]
+    elif op_func.__name__ in ct_util.gen_key_func_map.keys():
+        func_ = ct_util.gen_key_func_map[op_func.__name__]
+        if inspect.isfunction(func_):
+            set_dim_key = func_(*args)
+    with akg.build_config(dump_pass_ir=True):
+        spaces = akg.lower(s, op_var, name=kernel_name, attrs=attrs, polyhedral=polyhedral, tuning=tuning,
+                           target=target)
+        if set_dim_key == "":
+            set_dim_key = str(args)
+        return spaces, set_dim_key
+
+def create_gpu_mod(sch_tmpl, s, op_func, op_var, shape_var, kernel_name, attrs, polyhedral, binds, dump_ir, dump_code,
+                   tuning):
+    """
+    Return module for op of gpu.
+
+    Args:
+        sch_tmpl (dict): schedule of op and the others.
+        s (dict): schedule of op.
+        op_func (function returning an op or (op, [op_vars])): The op build function.
+        op_var (list): the akg.tvm.tensor of inputs and outputs for op.
+        shape_var (list): shape of inputs and extra attributes for the op.
+        kernel_name (str): name of op.
+        attrs (dict): tiling parameter.
+        polyhedral (bool): True by default.
+        binds (dict): BINDS
+        dump_ir (bool): True by default.
+        dump_code (bool): False by default.
+        tuning (bool): False by default.
+
+    Return:
+        module.
+    """
 
     if sch_tmpl is not None or (attrs and attrs.get("target", "cce") == "cuda"):
         if kernel_name == "":
             kernel_name = op_func.__name__ if sch_tmpl is None else sch_tmpl['op_name']
+
+    target = CUDA
 
     if sch_tmpl is not None:
         if sch_tmpl['target'] != CUDA:
@@ -766,7 +841,7 @@ def op_build(op_func, input_shapes, input_types, op_attrs=None, kernel_name="",
                 s = sch_tmpl['schedule'](sch_tmpl['output'])
                 with akg.tvm.build_config(dump_pass_ir=dump_ir):
                     mod = akg.build(s, op_var, "cuda", shape_var, name=kernel_name, attrs=attrs,
-                                    polyhedral=False, binds=gpu_binds)
+                                    polyhedral=False, binds=binds)
             else:
                 @autotvm.template
                 def _autotune_template():
@@ -804,11 +879,72 @@ def op_build(op_func, input_shapes, input_types, op_attrs=None, kernel_name="",
                         s, op_var = _autotune_template()
                         mod = akg.build(s, op_var, "cuda", shape_var, name=kernel_name, attrs=attrs,
                                     polyhedral=False, binds=gpu_binds)
-            
-            if dump_code:
-                source_code = mod.imported_modules[0].get_source()
-                create_code(kernel_name, "./", source_code, CUDA)
-            return mod
+    else :
+        with akg.build_config(dump_pass_ir=dump_ir):
+            mod = akg.build(s, op_var, target, shape_var, name=kernel_name, attrs=attrs, polyhedral=polyhedral,
+                            binds=binds)
+    if dump_code:
+        source_code = mod.imported_modules[0].get_source()
+        create_code(kernel_name, "./", source_code, CUDA)
+    return mod
+
+def op_build(op_func, input_shapes, input_types, op_attrs=None, kernel_name="",
+             attrs=None, log_cce=False, dump_ir=True, dump_code=True,
+             polyhedral=True, tuning=False):
+    """
+    Return module built from op_func with given inputs.
+
+    Args:
+        op_func (function returning an op or (op, [op_vars])): The op build function.
+        input_shapes(iterable of iterable of int): the dim sizes for input for op.
+        input_types (iterable of iterable of str): the dtypes for each input.
+        op_attrs (list or tuple): extra attributes for the op.
+        kernel_name (str): name of op.
+        attrs (dict): tiling parameter.
+        log_cce (bool): False by default.
+        dump_ir (bool): True by default.
+        dump_code (bool): False by default.
+        polyhedral (bool): True by default.
+        tuning (bool): False by default.
+
+    Return:
+        module.
+    """
+    inputs = []
+    shape_params = []    # save all the shape params for dynamic_shape cases
+    gen_inputs_and_shape_params(input_shapes, input_types, inputs, shape_params)
+
+    attrs_params = []
+    if op_attrs is not None:
+        args = inputs + op_attrs
+        gen_attrs_params(op_attrs, attrs_params)
+    else:
+        args = inputs
+
+    # backup inputs because the tensor names may be updated inside op_func
+    inputs_backup = recursive_copy(inputs)
+
+    output = op_func(*args)
+
+    # restore inputs to make sure that tensor names are not changed by op_func
+    inputs = inputs_backup
+    # set dim
+    attrs = get_dim_from_func_map(attrs, op_func, args)
+
+    compute_func = None  # func which is defined in dsl for doing compute_inline or other
+    sch_tmpl = None
+    gpu_binds = None
+    output, compute_func, sch_tmpl, gpu_binds = parsing_output(output, attrs, compute_func, sch_tmpl, gpu_binds)
+
+    op_var = []
+    op_var = gen_op_var(inputs, output, op_var)
+
+    shape_var = []
+    gen_shape_var(attrs_params, shape_params, shape_var)
+
+    if sch_tmpl is not None:
+        return create_gpu_mod(sch_tmpl, None, op_func, op_var, shape_var, kernel_name, attrs, polyhedral, gpu_binds,
+                              dump_ir, dump_code, tuning)
 
     if isinstance(output, (list, tuple)):
         tmp = []
@@ -820,26 +956,20 @@ def op_build(op_func, input_shapes, input_types, op_attrs=None, kernel_name="",
         s = akg.tvm.create_schedule(tmp)
     else:
         s = akg.tvm.create_schedule(output.op)
+
     if compute_func is not None:
         compute_func(s)
         polyhedral = False
-    mode = get_runtime_mode()
-    level = attrs.get("help_tiling")
-    if tuning or (level is not None and level > help_tiling_level['None']):
-        if op_func.__name__ in ct_util.set_dim_func_map.keys():
-            func_ = ct_util.set_dim_func_map[op_func.__name__]
-            if inspect.isfunction(func_):
-                set_dim_key = func_(*args)[1]
-        elif op_func.__name__ in ct_util.gen_key_func_map.keys():
-            func_ = ct_util.gen_key_func_map[op_func.__name__]
-            if inspect.isfunction(func_):
-                set_dim_key = func_(*args)
-        with akg.build_config(dump_pass_ir=True):
-            spaces = akg.lower(s, op_var, name=kernel_name, attrs=attrs, polyhedral=polyhedral, tuning=tuning)
-            if set_dim_key == "":
-                set_dim_key = str(args)
-            return spaces, set_dim_key
 
+    target = None
+    if attrs and attrs.get("target", "cce") == CUDA:
+        target = CUDA
+
+    level = attrs.get("help_tiling") if attrs and "help_tiling" in attrs else None
+    if tuning or (level is not None and level > help_tiling_level['None']):
+        return gen_spaces_dim_key(op_func, s, op_var, kernel_name, attrs, polyhedral, tuning, target)
+
+    mode = get_runtime_mode()
     if mode == "cpu":
         mod = akg.tvm.build(s, op_var, "llvm")
         if not os.path.isdir("./cpu/ir/"):
@@ -847,11 +977,16 @@ def op_build(op_func, input_shapes, input_types, op_attrs=None, kernel_name="",
         with os.fdopen(os.open("./cpu/ir/" + kernel_name + ".cc", os.O_WRONLY | os.O_CREAT, 0o400), 'w') as irf:
             irf.write(akg.tvm.lower(s, op_var, shape_var, simple_mode=True))
         return mod
-    target = CUDA if attrs and attrs.get("target", "cce") == CUDA else CCE
+
+    binds = None if not attrs else attrs.pop(BINDS, None)
+    if target == CUDA:
+        return create_gpu_mod(None, s, op_func, op_var, shape_var, kernel_name, attrs, polyhedral, binds, dump_ir,
+                              dump_code, tuning)
+
+    target = CCE
     with akg.build_config(dump_pass_ir=dump_ir):
         mod = akg.build(s, op_var, target, shape_var, name=kernel_name, attrs=attrs, polyhedral=polyhedral, binds=binds)
-    if mod is None:
-        return None
+
     source_code = mod.imported_modules[0].get_source()
     if log_cce:
         logging.debug("#################cce code####################")
