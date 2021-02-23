@@ -36,85 +36,84 @@ class Graph():
         self.output = []
         self.op_name = 'Fused'
 
-def intersect(inp1, inp2):
-    # compute intersect set of two lists.
-    sort_inp1 = sorted(inp1)
-    sort_inp2 = sorted(inp2)
-    if (sort_inp1 == sort_inp2):
-        return sort_inp1
-    if not sort_inp1 and sort_inp2:
-        return sort_inp2
-    if not sort_inp2 and sort_inp1:
-        return sort_inp1
-    return list(set(sort_inp1).intersection(set(sort_inp2)))
+class Liveness():
+    def __init__(self):
+        self.start = -1
+        self.end = -1
+        self.is_reduce = False
 
-def dominance_analysis(in_out_dict, start_node, stitch_node):
-    # build dominance tree
-    consumer_list = start_node + list(in_out_dict.keys())
-    doms = [[]] * len(consumer_list)
-    consumer_doms = dict(zip(consumer_list, doms))
-    changed = True
-    for node in start_node:
-        consumer_doms[node].append(node)
-    while changed:
-        changed = False
-        for node in consumer_list[len(start_node):]:
-            new_idom = consumer_doms[in_out_dict[node][0]].copy()
-            for predecessor in in_out_dict[node][1:]:
-                # when predecessor dom is not empty, get the intersect set.
-                if predecessor in consumer_doms and consumer_doms[predecessor]:
-                    new_idom = intersect(consumer_doms[predecessor], new_idom)
 
-            new_idom.append(node)
-            if sorted(new_idom) != sorted(consumer_doms[node]):
-                consumer_doms[node] = new_idom
-                changed = True
-    return consumer_doms
+def liveness_analysis(desc_d, req_map):
+    req_liveness = dict((k, Liveness()) for k in req_map.keys())
+    idx = len(desc_d['op_desc'])
+    for i in range(len(desc_d['op_desc']) - 1, -1, -1):
+        idx -= 1
+        op_info = desc_d['op_desc'][i]
+        for out_desc in op_info['output_desc']:
+            out_name = out_desc['tensor_name']
+            if out_name in req_liveness:
+                if is_reduce(op_info['name']):
+                    req_liveness[out_name].is_reduce = True   
+                if req_liveness[out_name].end == -1:
+                    req_liveness[out_name].end = idx
+                    req_liveness[out_name].start = idx
+                else:
+                    req_liveness[out_name].start = idx
+            for input_desc in op_info['input_desc']:
+                for sub_input_desc in input_desc:
+                    inp_name = sub_input_desc['tensor_name']
+                    if inp_name in req_liveness and req_liveness[inp_name].end == -1:
+                        req_liveness[inp_name].end = idx
+                    if inp_name in req_liveness and req_liveness[inp_name].end > -1:
+                        req_liveness[inp_name].start = idx
+    # sort req_liveness by Liveness.end.
+    sort_req_liveness = dict(sorted(req_liveness.items(), key=lambda x: x[1].end, reverse=True))
+    return sort_req_liveness
 
-def topology_analysis(in_out_dict):
-    # topologically sorting graph nodes.
-    topo_sort = []
-    input_list = list(in_out_dict.keys())
-    output_list = [out for out_list in in_out_dict.values() for out in out_list]
-    output_set = set(output_list)
-    vertice_set = set(input_list + output_list)
-    # Difference set between output and all_vertices is nodes with 0-indegree.
-    indegree_0 = vertice_set.difference(output_set)
-    topo_sort.extend(list(indegree_0))
-    while in_out_dict:
-        next_node_list = []
-        for node in indegree_0:
-            if node in in_out_dict:
-                next_node_list.extend(in_out_dict[node])
-                # pop nodes
-                in_out_dict.pop(node)
-        indegree_0 = set()
-        update_out_list = [out for out_list in in_out_dict.values() for out in out_list]
-        for next_node in next_node_list:
-            if next_node not in update_out_list:
-                indegree_0.add(next_node)
-        topo_sort.extend(list(indegree_0))
-    return topo_sort
+def is_reduce(tensor_name):
+    return tensor_name.startswith('Reduce')
 
-def shared_memory_optimization(in_out_dict, consumer_doms, topo_sort, req_map):
-    # algorithm for shared memory allocate and reuse.
-    # Return: alloc_map: dict{op_name: ['ALLOC', size], op_name:[shared_op_name, size]}
+def shared_memory_optimization(desc_d, req_map):
+    sort_req_liveness = liveness_analysis(desc_d, req_map)
+    sort_req_buf = list(sort_req_liveness.keys())
     alloc_map = dict()
     reuse_map = dict()
-    for inst in topo_sort:
-        if inst in req_map:
-            shared = False
-            for alloc in alloc_map:
-                # when inst dom alloc, inst may reuse alloc memory.
-                if alloc in consumer_doms and inst in consumer_doms[alloc]:
-                    # rule: inst reuses alloc if inst size less equal than alloc size.
-                    if req_map[inst] <= alloc_map[alloc][1]:
-                        reuse_map[inst] = [alloc, req_map[inst]]
-                        shared = True
-                        break
-            if not shared:
-                alloc_map[inst] = ['ALLOC', req_map[inst]]
+    reverse_reuse_map = dict()
+    for i in range(len(sort_req_liveness)):
+        reuse = False
+        find_conflit = False
+        ### TODO: the check is used due to the initialization clause position of reduce computation.
+        if sort_req_liveness[sort_req_buf[i]].is_reduce:
+            alloc_map[sort_req_buf[i]] = ['ALLOC', req_map[sort_req_buf[i]]]
+            continue
+        for j in range(len(sort_req_liveness) - 1, i, -1):
+            # whether reuseable.
+            # rule1: one buffer start larger equal to the reused buffer end.
+            if sort_req_liveness[sort_req_buf[i]].start >= sort_req_liveness[sort_req_buf[j]].end:
+                # rule2: sizes are compatiable.
+                if req_map[sort_req_buf[i]] <= req_map[sort_req_buf[j]]:
+                    # rule3: make sure the candidate reused buffer is not using by other conflict variable.
+                    for item in reverse_reuse_map.get(sort_req_buf[j], []):
+                        if (sort_req_liveness[item].end >= sort_req_liveness[sort_req_buf[i]].end) or (sort_req_liveness[item].end >= sort_req_liveness[sort_req_buf[i]].start):
+                            find_conflit = True
+                            break
+                    if not find_conflit: 
+                        if sort_req_buf[j] not in reverse_reuse_map:
+                            reverse_reuse_map[sort_req_buf[j]] = [sort_req_buf[i]]
+                        else:
+                            reverse_reuse_map[sort_req_buf[j]].append(sort_req_buf[i])
+                        # rule4: prefer to reuse buffer with same size.
+                        if req_map[sort_req_buf[i]] == req_map[sort_req_buf[j]]:
+                            reuse_map[sort_req_buf[i]] = [sort_req_buf[j], req_map[sort_req_buf[i]]]
+                            reuse = True
+                            break
+                        else:
+                            reuse_map[sort_req_buf[i]] = [sort_req_buf[j], req_map[sort_req_buf[i]]]
+                            reuse = True
+        if not reuse:
+            alloc_map[sort_req_buf[i]] = ['ALLOC', req_map[sort_req_buf[i]]]
     return alloc_map, reuse_map
+
 def is_tensor(op_info):
     return 'value' not in op_info
 
@@ -136,7 +135,7 @@ def parse_merged_json(desc_d, stitch_tensor_name, input_tensor_name, output_tens
             with zero out-degree in merged graph and otherwise, it is inter_output_tensor.
 
     Returns:
-        in_out_dict (dict): The dict with input-output relationship of merged graph.
+
         extra_subgraph_output (dict): The dict of extra output tensors for each sub_graph.
         final_output_list (list[string]): The list of final output tensors.
             output tensors in this list are are final_output_tensor and the subgraph they belong to doesn't
@@ -148,7 +147,7 @@ def parse_merged_json(desc_d, stitch_tensor_name, input_tensor_name, output_tens
     '''
     # Initialize sub_graph number as the smallest possible number of sub graph. 
     # sub graphs number might increase based on graph structure. 
-    sub_graph_length = len(stitch_tensor_name) + 1
+    sub_graph_length = len(stitch_tensor_name)
     sub_graph_node = [set() for _ in range(sub_graph_length)]
     # use dict to save extra outputs for each sub_graph.
     extra_subgraph_output = dict(zip(stitch_tensor_name, [[] for _ in range(sub_graph_length)]))
@@ -157,15 +156,10 @@ def parse_merged_json(desc_d, stitch_tensor_name, input_tensor_name, output_tens
     final_output_list = set()
     final_output_within_graph = []
     idx = 0
+    final_output_graph = False
     for i in range(len(desc_d['op_desc']) - 1, -1, -1):
         op_info = desc_d['op_desc'][i]
         for out_desc in op_info['output_desc']:
-            # out_desc not in in_out_dict means out-degree is zero.
-            if out_desc['tensor_name'] not in in_out_dict:
-                final_output_graph = True
-                cur_final_node = out_desc['tensor_name']
-                final_output_within_graph.append(cur_final_node)
-
             # switch to next subgraph if find stitch node.
             if out_desc['tensor_name'] in stitch_tensor_name:
                 idx += 1
@@ -177,14 +171,21 @@ def parse_merged_json(desc_d, stitch_tensor_name, input_tensor_name, output_tens
                     sub_graph_length += 1
                     sub_graph_node += [set()]
                     final_output_graph = False
+            
+            # out_desc not in in_out_dict means out-degree is zero.
+            if out_desc['tensor_name'] not in in_out_dict:
+                final_output_graph = True
+                cur_final_node = out_desc['tensor_name']
+                final_output_within_graph.append(cur_final_node)
+
             sub_graph_node[idx].add(out_desc['tensor_name'])
             for input_desc in op_info['input_desc']:
                 for sub_input_desc in input_desc:
                     sub_graph_node[idx].add(sub_input_desc['tensor_name'])
-                    if sub_input_desc['tensor_name'] in output_tensor_name:
+                    tmp_name = sub_input_desc['tensor_name']
+                    if tmp_name in output_tensor_name:
                         inter_output_list.add(sub_input_desc['tensor_name'])
                     for subgraph in sub_graph_node[0: idx]:
-                        tmp_name = sub_input_desc['tensor_name']
                         extra_output = is_tensor(sub_input_desc) and tmp_name not in stitch_tensor_name and tmp_name not in input_tensor_name
                         used_by_other_sg = tmp_name in subgraph
                         used_as_output = tmp_name in output_tensor_name
@@ -197,7 +198,7 @@ def parse_merged_json(desc_d, stitch_tensor_name, input_tensor_name, output_tens
                     else:
                         in_out_dict[sub_input_desc['tensor_name']].append(out_desc['tensor_name'])
     
-    return in_out_dict, extra_subgraph_output, list(final_output_list), final_output_within_graph
+    return extra_subgraph_output, list(final_output_list), final_output_within_graph
 
 def collect_subgraph_info(desc_d, sub_stitch_graphs, req_map, input_tensor_name, output_tensor_name, stitch_node_list):
     inplace_assign_map = {}
@@ -280,19 +281,28 @@ def stitch_json_split(desc_d):
     output_tensor_name = [tensor['tensor_name'] for tensor in desc_d['output_desc']]
     stitch_node = desc_d['buffer_stitch']['stitch_op']
     stitch_node_name = [node for stitchnode in stitch_node for node in stitchnode]
-    in_out_dict, extra_subgraph_output, final_output_list, final_output_within_graph = parse_merged_json(desc_d, stitch_node_name, input_tensor_name, output_tensor_name)
+    extra_subgraph_output, final_output_list, final_output_within_graph = parse_merged_json(desc_d, stitch_node_name, input_tensor_name, output_tensor_name)
 
-    # traverse extra_subgraph_output to save extra output into subgraph
+    # traverse extra_subgraph_output to save extra output into subgraph.
+    stitch_node = []
+    extra_list = []
+    for item in extra_subgraph_output:
+        cur_list = [item]
+        for node in extra_subgraph_output[item]:
+            if node not in extra_list:
+                extra_list.append(node)
+                cur_list.append(node)
+        stitch_node.append(cur_list)
     stitch_node = [[item] + extra_subgraph_output[item] for item in extra_subgraph_output]
     stitch_node_name = [node for stitchnode in stitch_node for node in stitchnode]
 
     # initialize req_map
     req_op_size = [0] * len(stitch_node_name)
     req_map = dict(zip(stitch_node_name, req_op_size))
+    # add final output within subgraph into the last initialized stitch sub_graph.
+    stitch_node = stitch_node[:-1] + [stitch_node[-1] + final_output_within_graph]
     # add final output into stitch_op.
-    stitch_node += [[op] for op in final_output_list]
-    # add final output within subgraph into the first initialized stitch sub_graph.
-    stitch_node = [stitch_node[0] + final_output_within_graph] + stitch_node[1:]
+    stitch_node += [[op] for op in final_output_list if op not in stitch_node_name]
     stitch_node_list = [node for stitchnode in stitch_node for node in stitchnode]
     # each output tensor can only be parsed as output once in all subgraphs. 
     # All tensors in stitch_node_list will be put into output_name. 
@@ -317,9 +327,9 @@ def stitch_json_split(desc_d):
     clean_op_list = [fake_op for fake_op in fake_output_list if fake_op in stitch_node_name]
     # add fake outputs into output_tensor_name
     output_tensor_name += clean_op_list
-    dominance_dom = dominance_analysis(in_out_dict, output_tensor_name, stitch_node_name)
-    topo_sort = topology_analysis(in_out_dict)
-    alloc_map, reuse_map = shared_memory_optimization(in_out_dict, dominance_dom, topo_sort, req_map)
+    # start node for dominance tree is final_output_list + final_output_within_graph.
+    start_node = final_output_list + final_output_within_graph
+    alloc_map, reuse_map = shared_memory_optimization(desc_d, req_map)
     # remove fake output from alloc_map and store them into clean_op_map
     clean_op_map = dict()
     for fake_op in clean_op_list:
